@@ -1,0 +1,2142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Huéspedes y Estancias — Hostal Óvalo</title>
+  <style>
+    :root {
+      --primary: #0f4c81;
+      --primary-hover: #0b3960;
+      --cont: #0284c7;
+      --cont-hover: #0369a1;
+      --accent: #059669;
+      --accent-light: #d1fae5;
+      --warn: #d97706;
+      --warn-light: #fef3c7;
+      --danger: #dc2626;
+      --danger-light: #fee2e2;
+      --bg: #ffffff;
+      --card: #ffffff;
+      --border: #cbd5e1;
+      --text: #0f172a;
+      --muted: #475569;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100%;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.35;
+      padding: 6px 8px 24px;
+      transition: background-color 0.35s ease;
+    }
+
+    /* Estados de color de fondo en toda la interfaz derecha (Blanco -> Naranja Clarito -> Verde Claro -> Blanco) */
+    body.bg-state-saving {
+      background-color: #ffedd5 !important;
+    }
+    body.bg-state-saving fieldset,
+    body.bg-state-saving .resumen-continuar-box {
+      background-color: #fff7ed !important;
+      border-color: #fdba74 !important;
+    }
+    body.bg-state-success {
+      background-color: #dcfce7 !important;
+    }
+    body.bg-state-success fieldset,
+    body.bg-state-success .resumen-continuar-box {
+      background-color: #f0fdf4 !important;
+      border-color: #86efac !important;
+    }
+    body.bg-state-error {
+      background-color: #fee2e2 !important;
+    }
+    body.bg-state-error fieldset {
+      background-color: #fef2f2 !important;
+      border-color: #fca5a5 !important;
+    }
+
+    /* Top Header */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(135deg, #0f4c81 0%, #1e3a8a 100%);
+      color: #fff;
+      padding: 9px 12px;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      box-shadow: 0 2px 6px rgba(15, 76, 129, 0.2);
+    }
+    .topbar-title {
+      font-size: 14.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .topbar-sub {
+      font-size: 11px;
+      opacity: 0.88;
+      display: block;
+      font-weight: 400;
+    }
+    .btn-refresh {
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 6px;
+      padding: 5px 9px;
+      font-size: 11.5px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .btn-refresh:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    /* Pestañas: Registrar/Buscar Huésped vs Continuar Estancia */
+    .module-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      background: #e2e8f0;
+      padding: 4px;
+      border-radius: 9px;
+      margin-bottom: 10px;
+    }
+    .tab-btn {
+      border: none;
+      border-radius: 7px;
+      padding: 8px 6px;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      background: transparent;
+      color: #475569;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+    .tab-btn:hover {
+      color: #0f172a;
+    }
+    .tab-btn.active-checkin {
+      background: #ffffff;
+      color: var(--primary);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+    }
+    .tab-btn.active-continuar {
+      background: #ffffff;
+      color: var(--cont);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+    }
+
+    .tab-panel {
+      display: none;
+    }
+    .tab-panel.active {
+      display: block;
+    }
+
+    /* Status / Toast Banner */
+    .status-banner, #statusBanner {
+      display: none;
+      padding: 9px 11px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .status-banner.saving, #statusBanner.saving {
+      display: none !important;
+      background: var(--warn-light);
+      color: #92400e;
+      border: 1px solid #f59e0b;
+    }
+    .status-banner.success, #statusBanner.success {
+      display: none !important;
+      background: var(--accent-light);
+      color: #065f46;
+      border: 1px solid #10b981;
+    }
+    .status-banner.error, #statusBanner.error {
+      display: flex;
+      background: var(--danger-light);
+      color: #991b1b;
+      border: 1px solid #ef4444;
+    }
+
+    /* Sections / Fieldsets */
+    fieldset {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 11px 11px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+      transition: background-color 0.35s ease, border-color 0.35s ease;
+    }
+    legend {
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--primary);
+      padding: 0 6px;
+    }
+    legend.cont-legend {
+      color: var(--cont);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+    @media (max-width: 340px) {
+      .grid-2, .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .field {
+      margin-bottom: 8px;
+    }
+    .field:last-child {
+      margin-bottom: 0;
+    }
+
+    label {
+      display: block;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+    .req {
+      color: var(--danger);
+      margin-left: 2px;
+    }
+
+    input[type="text"],
+    input[type="date"],
+    select {
+      width: 100%;
+      min-height: 36px;
+      padding: 5px 9px;
+      font-size: 13.5px;
+      border: 1.5px solid #94a3b8;
+      border-radius: 7px;
+      background-color: #fff;
+      color: var(--text);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    input:focus-visible,
+    select:focus-visible,
+    button:focus-visible {
+      outline: 2.5px solid #0b57d0;
+      outline-offset: 1px;
+      border-color: #0b57d0;
+    }
+
+    /* Validación controlada explícitamente por clase: NUNCA se pone rojo al limpiar */
+    input.campo-invalido,
+    select.campo-invalido {
+      border-color: var(--danger) !important;
+      background-color: #fef2f2 !important;
+    }
+
+    .error-hint {
+      display: none;
+      font-size: 11px;
+      color: var(--danger);
+      font-weight: 600;
+      margin-top: 2px;
+    }
+    input.campo-invalido ~ .error-hint,
+    select.campo-invalido ~ .error-hint {
+      display: block;
+    }
+
+    /* Info Box de Historial Previo (sin mostrar número de visitas ni etiqueta recurrente) */
+    .prev-stay-hint {
+      display: none;
+      font-size: 11.5px;
+      color: #0f4c81;
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      border-radius: 6px;
+      padding: 5px 8px;
+      margin-top: 5px;
+    }
+    .prev-stay-hint.visible {
+      display: block;
+    }
+
+    .btn-reniec {
+      background: #0f4c81;
+      color: #ffffff;
+      border: none;
+      border-radius: 7px;
+      padding: 0 11px;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease;
+    }
+    .btn-reniec:hover {
+      background: #0b3960;
+    }
+    .btn-reniec:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    /* Radio group */
+    .radio-group {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+    .radio-pill {
+      flex: 1;
+      min-width: 65px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 6px 7px;
+      border: 1.5px solid #94a3b8;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 12.5px;
+      font-weight: 600;
+      background: #fff;
+      user-select: none;
+    }
+    .radio-pill:has(input:checked) {
+      background: #eff6ff;
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+    .radio-pill input[type="radio"] {
+      accent-color: var(--primary);
+      margin: 0;
+    }
+
+    /* Habitación fija: viene elegida desde el botón Check-in de la fila, no se vuelve a pedir */
+    .hab-fija-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 9px;
+      border: 1.5px solid #94a3b8;
+      border-radius: 7px;
+      background: #f1f5f9;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text);
+      min-height: 33px;
+    }
+
+    /* Live Calculation Pill */
+    .calc-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      padding: 7px 10px;
+      border-radius: 7px;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .calc-bar strong {
+      font-size: 13.5px;
+      color: var(--primary);
+    }
+
+    /* Summary Card for Continuar Estancia */
+    .summary-card {
+      background: #f0fdf4;
+      border: 1.5px solid #86efac;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-top: 8px;
+    }
+    .summary-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+    .summary-nombre {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.25;
+      word-break: break-word;
+    }
+    .summary-hab-badge {
+      background: #0284c7;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 5px;
+      white-space: nowrap;
+    }
+    .summary-fechas-bar {
+      font-size: 11.5px;
+      color: #0369a1;
+      background: #e0f2fe;
+      padding: 3px 6px;
+      border-radius: 5px;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+    }
+    .summary-metrics-strip {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 4px;
+      background: #ffffff;
+      border: 1px solid #bae6fd;
+      border-radius: 6px;
+      padding: 5px 6px;
+      text-align: center;
+    }
+    .summary-col {
+      display: flex;
+      flex-direction: column;
+    }
+    .summary-lbl {
+      font-size: 9.5px;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: #64748b;
+    }
+    .summary-val {
+      font-size: 12px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .summary-val.debe, .deuda-neg {
+      color: var(--danger);
+      font-weight: 700;
+    }
+    .summary-val.ok, .deuda-ok {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .summary-col.deuda-col-debe {
+      background: #dc2626 !important;
+      border-radius: 5px;
+      padding: 3px 2px;
+      box-shadow: 0 2px 4px rgba(220, 38, 38, 0.35);
+    }
+    .summary-col.deuda-col-debe .summary-lbl {
+      color: #fee2e2 !important;
+      font-weight: 800;
+    }
+    .summary-col.deuda-col-debe .summary-val {
+      color: #ffffff !important;
+      font-size: 13.5px !important;
+      font-weight: 900 !important;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    }
+
+    .summary-col.deuda-col-ok {
+      background: #059669 !important;
+      border-radius: 5px;
+      padding: 3px 2px;
+    }
+    .summary-col.deuda-col-ok .summary-lbl {
+      color: #d1fae5 !important;
+      font-weight: 800;
+    }
+    .summary-col.deuda-col-ok .summary-val {
+      color: #ffffff !important;
+      font-size: 12.5px !important;
+      font-weight: 800 !important;
+    }
+
+    /* Yape Mandatory Box */
+    .yape-box {
+      display: none;
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: #fdf4ff;
+      border: 1.5px solid #c026d3;
+      border-radius: 8px;
+    }
+    .yape-box.visible {
+      display: block;
+    }
+    .yape-box label {
+      color: #86198f;
+    }
+
+    /* Collapsible Details */
+    details {
+      background: #f8fafc;
+      border: 1px dashed #94a3b8;
+      border-radius: 8px;
+      padding: 6px 9px;
+      margin-top: 8px;
+    }
+    summary {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--primary);
+      cursor: pointer;
+      user-select: none;
+    }
+    .details-body {
+      margin-top: 8px;
+    }
+
+    /* Submit Buttons */
+    .actions {
+      display: flex;
+      gap: 7px;
+      margin-top: 10px;
+    }
+    .btn-submit {
+      flex: 1;
+      min-height: 44px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      border: none;
+      border-radius: 9px;
+      cursor: pointer;
+      box-shadow: 0 3px 8px rgba(5, 150, 105, 0.25);
+      transition: background 0.15s, transform 0.05s;
+    }
+    .btn-submit:hover {
+      background: #047857;
+    }
+    .btn-submit.btn-cont {
+      background: var(--cont);
+      box-shadow: 0 3px 8px rgba(2, 132, 199, 0.25);
+    }
+    .btn-submit.btn-cont:hover {
+      background: var(--cont-hover);
+    }
+    .btn-submit:active {
+      transform: translateY(1px);
+    }
+    .btn-clear {
+      min-height: 44px;
+      padding: 0 12px;
+      background: #e2e8f0;
+      color: #334155;
+      font-size: 12.5px;
+      font-weight: 600;
+      border: 1px solid #cbd5e1;
+      border-radius: 9px;
+      cursor: pointer;
+    }
+    .btn-clear:hover {
+      background: #cbd5e1;
+    }
+  </style>
+  <script src="/static/js/api_bridge.js"></script>
+</head>
+<body>
+
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">🏨 Gestión de Huéspedes</div>
+      <span class="topbar-sub" id="syncInfo">Cargando datos en memoria...</span>
+    </div>
+    <button type="button" class="btn-refresh" id="btnRefresh" title="Actualizar habitaciones y estancias">🔄 Actualizar</button>
+  </div>
+
+  <!-- PESTAÑAS DEL MÓDULO DE HUÉSPEDES: REGISTRAR/BUSCAR + CONTINUAR ESTANCIA -->
+  <div class="module-tabs" role="tablist">
+    <button type="button" class="tab-btn active-checkin" id="tabBtnCheckIn" role="tab" aria-selected="true">
+      🏨 Registrar / Buscar
+    </button>
+    <button type="button" class="tab-btn" id="tabBtnContinuar" role="tab" aria-selected="false">
+      🔄 Continuar Estancia
+    </button>
+    <button type="button" class="tab-btn" id="tabBtnGrupal" role="tab" aria-selected="false">
+      👥 Grupal Empresa
+    </button>
+  </div>
+
+  <!-- =================================================================== -->
+  <!-- PESTAÑA 1: REGISTRO DE HUÉSPEDES + BUSCAR CLIENTE REGISTRADO EN UNO -->
+  <!-- =================================================================== -->
+  <div id="panelCheckIn" class="tab-panel active">
+    <form id="checkInForm" action="#" method="POST" novalidate>
+
+      <fieldset>
+        <legend>1. Buscar o Registrar Huésped</legend>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="dni">DNI / Documento <span class="req">*</span></label>
+            <div style="display: flex; gap: 5px;">
+              <input type="text" id="dni" name="dni" inputmode="numeric"
+                     autocorrect="off" autocapitalize="off" spellcheck="false"
+                     placeholder="Escribe DNI..." required autofocus maxlength="12" style="flex: 1;">
+              <button type="button" id="btnBuscarDni" class="btn-reniec" title="Buscar en RENIEC (APIsPERU)">🔍</button>
+            </div>
+            <span class="error-hint">Ingresa el DNI del huésped.</span>
+          </div>
+
+          <div class="field">
+            <label>Sexo <span class="req">*</span></label>
+            <div class="radio-group" role="radiogroup" aria-label="Sexo">
+              <label class="radio-pill">
+                <input type="radio" name="sexo" id="sexoM" value="M" required checked>
+                <span>M</span>
+              </label>
+              <label class="radio-pill">
+                <input type="radio" name="sexo" id="sexoF" value="F" required>
+                <span>F</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="nombre">Nombres y Apellidos (o escribe para buscar cliente) <span class="req">*</span></label>
+          <input type="text" id="nombre" name="nombre" list="listaClientesNombres" autocomplete="off"
+                 placeholder="Ej. JUAN PEREZ GOMEZ" required>
+          <datalist id="listaClientesNombres"></datalist>
+          <span class="error-hint">Ingresa el nombre del huésped.</span>
+          <div id="prevStayHint" class="prev-stay-hint"></div>
+        </div>
+
+        <div class="grid-3">
+          <div class="field">
+            <label for="nacionalidad">Nacionalidad <span class="req">*</span></label>
+            <select id="nacionalidad" name="nacionalidad" required>
+              <option value="Perú" selected>Perú</option>
+              <option value="Bolivia">Bolivia</option>
+              <option value="Chile">Chile</option>
+              <option value="Colombia">Colombia</option>
+              <option value="Ecuador">Ecuador</option>
+              <option value="Venezuela">Venezuela</option>
+              <option value="España">España</option>
+              <option value="Francia">Francia</option>
+              <option value="Uruguay">Uruguay</option>
+              <option value="Paraguay">Paraguay</option>
+              <option value="Mexico">Mexico</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="region">Región <span class="req">*</span></label>
+            <select id="region" name="region" required>
+              <option value="Arequipa">Arequipa</option>
+              <option value="Cusco">Cusco</option>
+              <option value="Lima" selected>Lima</option>
+              <option value="Moquegua">Moquegua</option>
+              <option value="Puno">Puno</option>
+              <option value="Tacna">Tacna</option>
+              <option value="Amazonas">Amazonas</option>
+              <option value="Ancash">Ancash</option>
+              <option value="Apurimac">Apurimac</option>
+              <option value="Ayacucho">Ayacucho</option>
+              <option value="Cajamarca">Cajamarca</option>
+              <option value="Callao">Callao</option>
+              <option value="Huancavelica">Huancavelica</option>
+              <option value="Huanuco">Huanuco</option>
+              <option value="Ica">Ica</option>
+              <option value="Junin">Junin</option>
+              <option value="La Libertad">La Libertad</option>
+              <option value="Lambayeque">Lambayeque</option>
+              <option value="Loreto">Loreto</option>
+              <option value="Madre de Dios">Madre de Dios</option>
+              <option value="Pasco">Pasco</option>
+              <option value="Piura">Piura</option>
+              <option value="San Martin">San Martin</option>
+              <option value="Tumbes">Tumbes</option>
+              <option value="Ucayali">Ucayali</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="celular">Celular (Opc.)</label>
+            <input type="text" id="celular" name="celular" inputmode="tel" autocomplete="tel"
+                   placeholder="987654321">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="motivo">Motivo de Viaje <span class="req">*</span></label>
+          <select id="motivo" name="motivo" required>
+            <option value="Vacaciones, recreo u ocio" selected>Vacaciones, recreo u ocio</option>
+            <option value="Negocios y motivos profesionales">Negocios y motivos profesionales</option>
+            <option value="Visita a familiares o amigos">Visita a familiares o amigos</option>
+            <option value="Otros motivos, Comerciantes">Otros motivos, Comerciantes</option>
+            <option value="Educación o Estudios">Educación o Estudios</option>
+            <option value="Salud y atención medica">Salud y atención medica</option>
+            <option value="Compras para uso personal">Compras para uso personal</option>
+            <option value="Religión o peregrinación">Religión o peregrinación</option>
+          </select>
+        </div>
+
+        <details id="acompDetails">
+          <summary>➕ Agregar Acompañantes (Hab. Doble / Triple)</summary>
+          <div class="details-body">
+            <div class="grid-2">
+              <div class="field">
+                <label for="nAcomp">2. Nombre Acompañante (Doble)</label>
+                <input type="text" id="nAcomp" name="nAcomp" placeholder="Nombre 2do huésped">
+              </div>
+              <div class="field">
+                <label for="dniAcomp">2. DNI Acompañante</label>
+                <input type="text" id="dniAcomp" name="dniAcomp" inputmode="numeric" placeholder="DNI 2do huésped">
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label for="triple1">3. Nombre Acompañante (Triple)</label>
+                <input type="text" id="triple1" name="triple1" placeholder="Nombre 3er huésped">
+              </div>
+              <div class="field">
+                <label for="triple2">3. DNI Acompañante (Triple)</label>
+                <input type="text" id="triple2" name="triple2" inputmode="numeric" placeholder="DNI 3er huésped">
+              </div>
+            </div>
+          </div>
+        </details>
+      </fieldset>
+
+      <fieldset>
+        <legend>2. Habitación y Estancia</legend>
+
+        <div class="grid-2">
+          <div class="field">
+            <!-- Selector: solo visible si el formulario se abre SIN habitación preelegida -->
+            <div id="habFieldSelect">
+              <label for="hab">Habitación <span class="req">*</span></label>
+              <select id="hab" name="hab" required>
+                <option value="">Cargando habitaciones...</option>
+              </select>
+              <span class="error-hint">Selecciona una habitación.</span>
+            </div>
+            <!-- Habitación fija: ya se eligió al pulsar Check-in en la fila del Panel -->
+            <div id="habFieldFija" style="display:none;">
+              <label>Habitación</label>
+              <div class="hab-fija-box">🛏️ <span id="habFijaTxt">-</span></div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="tarifa">Tarifa Pactada (S/) <span class="req">*</span></label>
+            <input type="text" id="tarifa" name="tarifa" inputmode="decimal"
+                   placeholder="Ej. 70" required>
+            <span class="error-hint">Ingresa la tarifa.</span>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="fechaIn">Fecha Check-In <span class="req">*</span></label>
+            <input type="date" id="fechaIn" name="fechaIn" required>
+            <span class="error-hint">Falta fecha de ingreso.</span>
+          </div>
+
+          <div class="field">
+            <label for="fechaOut">Fecha Check-Out <span class="req">*</span></label>
+            <input type="date" id="fechaOut" name="fechaOut" required>
+            <span class="error-hint">Falta fecha de salida.</span>
+          </div>
+        </div>
+
+        <div class="calc-bar">
+          <span id="nochesLabel">🌙 1 noche(s)</span>
+          <span>Subtotal Alojamiento: <strong id="subtotalLabel">S/ 0.00</strong></span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>3. Pago Inicial (Al Ingresar)</legend>
+
+        <div class="grid-3">
+          <div class="field">
+            <label for="pEfec">💵 Efectivo (S/)</label>
+            <input type="text" id="pEfec" name="pEfec" inputmode="decimal" placeholder="0">
+          </div>
+
+          <div class="field">
+            <label for="pElec">📱 Yape / Plin (S/)</label>
+            <input type="text" id="pElec" name="pElec" inputmode="decimal" placeholder="0">
+          </div>
+
+          <div class="field">
+            <label for="pVisa">💳 VISA / POS (S/)</label>
+            <input type="text" id="pVisa" name="pVisa" inputmode="decimal" placeholder="0">
+          </div>
+        </div>
+
+        <!-- Servicio Adicional en Check-In -->
+        <div class="grid-2" style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #cbd5e1;">
+          <div class="field">
+            <label for="servAdicMonto">🛎️ Servicio Adicional (S/)</label>
+            <input type="text" id="servAdicMonto" name="servAdicMonto" inputmode="decimal" placeholder="0 (Cochera, horas, etc.)">
+          </div>
+
+          <div class="field">
+            <label for="servAdicMetodo">Destino / Pago Servicio</label>
+            <select id="servAdicMetodo" name="servAdicMetodo">
+              <option value="Cargar a Habitación" selected>📌 Cargar a la habitación</option>
+              <option value="Efectivo">💵 Pagado en Efectivo</option>
+              <option value="Yape">📱 Pagado con Yape</option>
+              <option value="VISA">💳 Pagado con VISA</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="yapeBox" class="yape-box">
+          <label for="nroOpYape">📱 N° de Operación Yape / Hora <span class="req">* (OBLIGATORIO CON YAPE)</span></label>
+          <input type="text" id="nroOpYape" name="nroOpYape"
+                 autocorrect="off" autocapitalize="off" spellcheck="false"
+                 placeholder="Ej. 145892 / 14:35">
+          <span class="error-hint">El N° de operación es obligatorio con Yape.</span>
+        </div>
+
+        <div class="calc-bar">
+          <span>Pagado Hoy: <strong id="pagadoLabel">S/ 0.00</strong></span>
+          <span>Saldo Pendiente: <strong id="saldoLabel">S/ 0.00</strong></span>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>4. Comprobante / Empresa (Opcional)</legend>
+
+        <div class="field">
+          <label>Tipo de Comprobante</label>
+          <div class="radio-group" role="radiogroup" aria-label="Tipo de Comprobante">
+            <label class="radio-pill">
+              <input type="radio" name="tipoC" value="" checked>
+              <span>Sin Comp.</span>
+            </label>
+            <label class="radio-pill">
+              <input type="radio" name="tipoC" value="Boleta">
+              <span>Boleta</span>
+            </label>
+            <label class="radio-pill">
+              <input type="radio" name="tipoC" value="Factura">
+              <span>Factura</span>
+            </label>
+            <label class="radio-pill">
+              <input type="radio" name="tipoC" value="Ninguno">
+              <span>Ninguno</span>
+            </label>
+          </div>
+        </div>
+
+        <details id="empresaDetails">
+          <summary>🏢 Datos de Facturación / Empresa / Hotel Apoyo</summary>
+          <div class="details-body">
+            <div class="grid-3">
+              <div class="field">
+                <label for="ruc">RUC</label>
+                <input type="text" id="ruc" name="ruc" inputmode="numeric" placeholder="Ej. 20123456789">
+              </div>
+              <div class="field">
+                <label for="mFact">Monto Factura/Comp. (S/)</label>
+                <input type="text" id="mFact" name="mFact" inputmode="decimal" placeholder="Ej. 90">
+              </div>
+              <div class="field">
+                <label for="adicComp">Adic. por Comp. (S/)</label>
+                <input type="text" id="adicComp" name="adicComp" inputmode="decimal" placeholder="Ej. 10">
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label for="empresa">Nombre de la Empresa</label>
+                <input type="text" id="empresa" name="empresa" placeholder="Razón social o empresa">
+              </div>
+              <div class="field">
+                <label for="hotelTercerizado">Hotel Tercerizado (Apoyo)</label>
+                <select id="hotelTercerizado" name="hotelTercerizado">
+                  <option value="">-- Ninguno --</option>
+                  <option value="HOSTAL POSADA DEL REY">HOSTAL POSADA DEL REY</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </details>
+      </fieldset>
+
+      <div id="statusBannerCheckIn" class="status-banner" role="status" aria-live="polite"></div>
+
+      <div class="actions">
+        <button type="submit" class="btn-submit" id="btnSubmitCheckIn">⚡ REGISTRAR ESTANCIA</button>
+        <button type="button" class="btn-clear" id="btnClearCheckIn">Limpiar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- =================================================================== -->
+  <!-- PESTAÑA 2: CONTINUAR ESTANCIA (RENOVAR Y ARRASTRAR SALDO/DEUDA)     -->
+  <!-- =================================================================== -->
+  <!-- =================================================================== -->
+  <!-- PESTAÑA 3: INGRESO GRUPAL DE EMPRESA (varias habitaciones de una vez) -->
+  <!-- =================================================================== -->
+  <div id="panelGrupal" class="tab-panel">
+    <form id="grupalForm" action="#" method="POST" novalidate>
+      <div class="grid-2">
+        <div class="field">
+          <label for="grEmpresa">🏢 Empresa <span class="req">*</span></label>
+          <input type="text" id="grEmpresa" list="listaEmpresasGrupal" autocomplete="off" placeholder="Razón social (ej. VILLA ADAMS)">
+          <datalist id="listaEmpresasGrupal"></datalist>
+        </div>
+        <div class="field">
+          <label for="grRuc">RUC</label>
+          <input type="text" id="grRuc" inputmode="numeric" placeholder="Se autocompleta">
+        </div>
+      </div>
+      <div class="grid-3">
+        <div class="field">
+          <label for="grProyecto">🏗️ Proyecto</label>
+          <input type="text" id="grProyecto" list="listaProyectosGrupal" autocomplete="off" placeholder="Opcional">
+          <datalist id="listaProyectosGrupal"></datalist>
+        </div>
+        <div class="field">
+          <label for="grFechaIn">Check-In <span class="req">*</span></label>
+          <input type="date" id="grFechaIn">
+        </div>
+        <div class="field">
+          <label for="grFechaOut">Check-Out <span class="req">*</span></label>
+          <input type="date" id="grFechaOut">
+        </div>
+      </div>
+      <div class="field">
+        <label>Habitaciones del grupo (☑ marca las que ingresan; la tarifa es editable; nombre / DNI opcional — si lo dejas vacío se usa el nombre de la empresa)</label>
+        <div id="grHabsBox" style="max-height:340px;overflow:auto;border:1px solid #D8C7B8;border-radius:8px;background:#fff;"></div>
+        <div id="grResumen" style="font-size:12px;font-weight:800;margin-top:6px;"></div>
+      </div>
+      <div id="statusBannerGrupal" class="status-banner" role="status" aria-live="polite"></div>
+      <div class="action-bar">
+        <button type="submit" class="btn-submit btn-cont" id="btnSubmitGrupal">👥 REGISTRAR GRUPO EMPRESA</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="panelContinuar" class="tab-panel">
+    <form id="continuarForm" action="#" method="POST" novalidate>
+
+      <fieldset>
+        <legend class="cont-legend">1. Seleccionar Estancia Activa</legend>
+
+        <div class="field">
+          <label for="contHabBuscar">⚡ Digita N° de Habitación</label>
+          <input type="text" id="contHabBuscar" inputmode="numeric" autocomplete="off"
+                 autocorrect="off" autocapitalize="off" spellcheck="false"
+                 placeholder="Ej. 103" maxlength="5">
+          <div id="contBuscarHint" class="prev-stay-hint"></div>
+        </div>
+
+        <div class="field">
+          <label for="estanciaActivaSelect">Habitación Ocupada / Huésped <span class="req">*</span></label>
+          <select id="estanciaActivaSelect" required>
+            <option value="">-- Seleccionar Habitación Ocupada --</option>
+          </select>
+          <span class="error-hint">Selecciona la estancia que deseas continuar.</span>
+        </div>
+
+        <div id="resumenContinuarBox" class="summary-card" style="display: none;">
+          <div class="summary-top">
+            <div>
+              <div class="summary-nombre" id="contNombre">-</div>
+              <div style="font-size: 11px; color: #64748b; font-weight: 600;">DNI: <span id="contDni">-</span></div>
+            </div>
+            <div class="summary-hab-badge" id="contHabBadge">Hab. -</div>
+          </div>
+          <div class="summary-fechas-bar">
+            <span id="contFechas">-</span>
+            <span>Tarifa: <strong id="contTarifa">S/ 0.00</strong></span>
+          </div>
+          <div class="summary-metrics-strip">
+            <div class="summary-col">
+              <span class="summary-lbl">Cuenta</span>
+              <span class="summary-val" id="contCuenta">S/ 0.00</span>
+            </div>
+            <div class="summary-col">
+              <span class="summary-lbl">Pagado</span>
+              <span class="summary-val" id="contPagado">S/ 0.00</span>
+            </div>
+            <div class="summary-col" id="contSaldoCol">
+              <span class="summary-lbl">Saldo Deuda</span>
+              <span class="summary-val" id="contSaldo">S/ 0.00</span>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend class="cont-legend">2. Datos para la Nueva Continuación</legend>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="contHabNueva">Habitación <span class="req">*</span></label>
+            <select id="contHabNueva" required>
+              <option value="">-- Habitación --</option>
+            </select>
+            <span class="error-hint">Selecciona habitación.</span>
+          </div>
+
+          <div class="field">
+            <label for="contTarifaNueva">Tarifa por Noche (S/) <span class="req">*</span></label>
+            <input type="text" id="contTarifaNueva" inputmode="decimal" required>
+            <span class="error-hint">Ingresa la tarifa.</span>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="contFechaIn">Nuevo Check-In <span class="req">*</span></label>
+            <input type="date" id="contFechaIn" required>
+          </div>
+          <div class="field">
+            <label for="contFechaOut">Nuevo Check-Out <span class="req">*</span></label>
+            <input type="date" id="contFechaOut" required>
+          </div>
+        </div>
+      </fieldset>
+
+      <div id="statusBannerContinuar" class="status-banner" role="status" aria-live="polite"></div>
+
+      <div class="actions">
+        <button type="submit" class="btn-submit btn-cont" id="btnSubmitContinuar">🔄 CONTINUAR ESTANCIA</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    let DB_HUESPEDES = {};
+    let MAPA_NOMBRES = {};
+    let HABITACIONES = [];
+    let ESTANCIAS_ACTIVAS = [];
+    let FECHA_HOY = "";
+    let FECHA_MANANA = "";
+
+    const tabBtnCheckIn = document.getElementById('tabBtnCheckIn');
+    const tabBtnContinuar = document.getElementById('tabBtnContinuar');
+    const panelCheckIn = document.getElementById('panelCheckIn');
+    const panelContinuar = document.getElementById('panelContinuar');
+    const statusBanner = document.getElementById('statusBanner');
+    const syncInfo = document.getElementById('syncInfo');
+
+    // Cambio instantáneo entre pestañas
+    tabBtnCheckIn.addEventListener('click', () => {
+      tabBtnCheckIn.className = 'tab-btn active-checkin';
+      tabBtnContinuar.className = 'tab-btn';
+      tabBtnCheckIn.setAttribute('aria-selected', 'true');
+      tabBtnContinuar.setAttribute('aria-selected', 'false');
+      panelCheckIn.classList.add('active');
+      panelContinuar.classList.remove('active');
+      document.getElementById('tabBtnGrupal').className = 'tab-btn';
+      document.getElementById('panelGrupal').classList.remove('active');
+      document.getElementById('dni').focus();
+    });
+
+    tabBtnContinuar.addEventListener('click', () => {
+      tabBtnContinuar.className = 'tab-btn active-continuar';
+      tabBtnCheckIn.className = 'tab-btn';
+      tabBtnContinuar.setAttribute('aria-selected', 'true');
+      tabBtnCheckIn.setAttribute('aria-selected', 'false');
+      panelContinuar.classList.add('active');
+      panelCheckIn.classList.remove('active');
+      document.getElementById('tabBtnGrupal').className = 'tab-btn';
+      document.getElementById('panelGrupal').classList.remove('active');
+      document.getElementById('estanciaActivaSelect').focus();
+    });
+
+    // Limpieza automática de errores al escribir
+    document.addEventListener('input', (e) => {
+      if (e.target.classList && e.target.classList.contains('campo-invalido')) {
+        if (e.target.value.trim() !== '') {
+          e.target.classList.remove('campo-invalido');
+          e.target.removeAttribute('aria-invalid');
+        }
+      }
+    });
+    document.addEventListener('change', (e) => {
+      if (e.target.classList && e.target.classList.contains('campo-invalido')) {
+        if (e.target.value.trim() !== '') {
+          e.target.classList.remove('campo-invalido');
+          e.target.removeAttribute('aria-invalid');
+        }
+      }
+    });
+
+    function limpiarErroresVisuales(contenedor) {
+      contenedor.querySelectorAll('.campo-invalido, [aria-invalid]').forEach((el) => {
+        el.classList.remove('campo-invalido');
+        el.removeAttribute('aria-invalid');
+      });
+    }
+
+    function validarCamposRequeridos(formulario) {
+      limpiarErroresVisuales(formulario);
+      let primerInvalido = null;
+      const requeridos = formulario.querySelectorAll('input[required], select[required]');
+      requeridos.forEach((el) => {
+        if (!el.value || el.value.trim() === '') {
+          el.classList.add('campo-invalido');
+          el.setAttribute('aria-invalid', 'true');
+          if (!primerInvalido) primerInvalido = el;
+        }
+      });
+      if (primerInvalido) {
+        primerInvalido.focus();
+        return false;
+      }
+      return true;
+    }
+
+    let timerBgEstado = null;
+    function mostrarBanner(tipo, htmlMsg) {
+      document.querySelectorAll('.status-banner').forEach((b) => {
+        b.className = 'status-banner ' + tipo;
+        b.innerHTML = htmlMsg;
+      });
+
+      if (timerBgEstado) {
+        clearTimeout(timerBgEstado);
+        timerBgEstado = null;
+      }
+      document.body.classList.remove('bg-state-saving', 'bg-state-success', 'bg-state-error');
+
+      if (tipo === 'saving' || tipo === 'success' || tipo === 'error') {
+        document.body.classList.add('bg-state-' + tipo);
+      }
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'DRAWER_BG_STATE', state: tipo || 'idle' }, '*');
+        }
+      } catch (e) {}
+
+      if (tipo === 'success' || tipo === 'error') {
+        timerBgEstado = setTimeout(() => {
+          document.body.classList.remove('bg-state-saving', 'bg-state-success', 'bg-state-error');
+          try {
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: 'DRAWER_BG_STATE', state: 'idle' }, '*');
+            }
+          } catch (e) {}
+        }, tipo === 'success' ? 2200 : 2800);
+      }
+    }
+
+    // Elementos Check-In
+    const checkInForm = document.getElementById('checkInForm');
+    const dniInput = document.getElementById('dni');
+    const btnBuscarDni = document.getElementById('btnBuscarDni');
+    const nombreInput = document.getElementById('nombre');
+    const listaClientesNombres = document.getElementById('listaClientesNombres');
+    const prevStayHint = document.getElementById('prevStayHint');
+    const nacSelect = document.getElementById('nacionalidad');
+    const regSelect = document.getElementById('region');
+    const motSelect = document.getElementById('motivo');
+    const celularInput = document.getElementById('celular');
+    const habSelect = document.getElementById('hab');
+    const tarifaInput = document.getElementById('tarifa');
+    const fechaInInput = document.getElementById('fechaIn');
+    const fechaOutInput = document.getElementById('fechaOut');
+    const pEfecInput = document.getElementById('pEfec');
+    const pElecInput = document.getElementById('pElec');
+    const pVisaInput = document.getElementById('pVisa');
+    const servAdicMontoInput = document.getElementById('servAdicMonto');
+    const servAdicMetodoSelect = document.getElementById('servAdicMetodo');
+    const nroOpYapeInput = document.getElementById('nroOpYape');
+    const yapeBox = document.getElementById('yapeBox');
+    const rucInput = document.getElementById('ruc');
+    const empresaInput = document.getElementById('empresa');
+    const mFactInput = document.getElementById('mFact');
+    const adicCompInput = document.getElementById('adicComp');
+    const hotelSelect = document.getElementById('hotelTercerizado');
+
+    if (rucInput) {
+      rucInput.addEventListener('input', () => {
+        if (rucInput.value.trim().length > 0) {
+          const radFact = document.querySelector('input[name="tipoC"][value="Factura"]');
+          if (radFact) radFact.checked = true;
+        }
+      });
+    }
+
+    // Elementos Continuar Estancia
+    const continuarForm = document.getElementById('continuarForm');
+    const estanciaActivaSelect = document.getElementById('estanciaActivaSelect');
+    const resumenContinuarBox = document.getElementById('resumenContinuarBox');
+    const contHabNueva = document.getElementById('contHabNueva');
+    const contTarifaNueva = document.getElementById('contTarifaNueva');
+    const contFechaIn = document.getElementById('contFechaIn');
+    const contFechaOut = document.getElementById('contFechaOut');
+
+    let EMPRESAS_CAT = {};
+    const tabBtnGrupal = document.getElementById('tabBtnGrupal');
+    const panelGrupal = document.getElementById('panelGrupal');
+    const grEmpresa = document.getElementById('grEmpresa');
+    const grRuc = document.getElementById('grRuc');
+    const grProyecto = document.getElementById('grProyecto');
+    const grFechaIn = document.getElementById('grFechaIn');
+    const grFechaOut = document.getElementById('grFechaOut');
+    const grHabsBox = document.getElementById('grHabsBox');
+    const grupalForm = document.getElementById('grupalForm');
+
+    tabBtnGrupal.addEventListener('click', () => {
+      tabBtnGrupal.className = 'tab-btn active-continuar';
+      tabBtnCheckIn.className = 'tab-btn';
+      tabBtnContinuar.className = 'tab-btn';
+      tabBtnGrupal.setAttribute('aria-selected', 'true');
+      tabBtnCheckIn.setAttribute('aria-selected', 'false');
+      tabBtnContinuar.setAttribute('aria-selected', 'false');
+      panelGrupal.classList.add('active');
+      panelCheckIn.classList.remove('active');
+      panelContinuar.classList.remove('active');
+      if (!grFechaIn.value && FECHA_HOY) grFechaIn.value = FECHA_HOY;
+      if (!grFechaOut.value && FECHA_MANANA) grFechaOut.value = FECHA_MANANA;
+      grEmpresa.focus();
+    });
+
+    function renderizarGrupal() {
+      const dl = document.getElementById('listaEmpresasGrupal');
+      dl.innerHTML = '';
+      Object.keys(EMPRESAS_CAT).sort().forEach((nom) => {
+        const o = document.createElement('option');
+        o.value = nom;
+        dl.appendChild(o);
+      });
+      const prev = {};
+      grHabsBox.querySelectorAll('tr[data-hab]').forEach((tr) => {
+        prev[tr.dataset.hab] = {
+          on: tr.querySelector('.gr-chk').checked,
+          tarifa: tr.querySelector('.gr-tar').value,
+          nombre: tr.querySelector('.gr-nom').value,
+          dni: tr.querySelector('.gr-dni').value
+        };
+      });
+      let html = '<table style="width:100%;font-size:12px;border-collapse:collapse;"><thead><tr style="background:#2D2623;color:#fff;">' +
+        '<th style="padding:4px;width:30px;"></th><th style="padding:4px;">Hab.</th><th>Tipo</th><th>Estado hoy</th><th>Tarifa S/</th><th>Nombre (opc.)</th><th>DNI (opc.)</th></tr></thead><tbody>';
+      HABITACIONES.forEach((h) => {
+        const p = prev[h.hab] || {};
+        const tar = (p.tarifa !== undefined) ? p.tarifa : (parseFloat(String(h.precioSug).replace(/[^0-9.]/g, '')) || '');
+        html += '<tr data-hab="' + h.hab + '" data-tipo="' + (h.tipo || '') + '" style="border-bottom:1px solid #eee;' + (h.libre ? '' : 'background:#fdf2f2;') + '">' +
+          '<td style="text-align:center;"><input type="checkbox" class="gr-chk"' + (p.on ? ' checked' : '') + '></td>' +
+          '<td style="font-weight:900;padding:3px;">' + h.hab + '</td><td>' + (h.tipo || '') + '</td>' +
+          '<td>' + (h.libre ? '🟢 Libre' : '🔴 Ocupada') + '</td>' +
+          '<td><input type="text" class="gr-tar" inputmode="decimal" style="width:70px;" value="' + tar + '"></td>' +
+          '<td><input type="text" class="gr-nom" style="width:160px;text-transform:uppercase;" value="' + (p.nombre || '') + '"></td>' +
+          '<td><input type="text" class="gr-dni" style="width:90px;" value="' + (p.dni || '') + '"></td></tr>';
+      });
+      html += '</tbody></table>';
+      grHabsBox.innerHTML = html;
+      grHabsBox.querySelectorAll('.gr-chk, .gr-tar').forEach((el) => el.addEventListener('input', actualizarResumenGrupal));
+      actualizarResumenGrupal();
+    }
+
+    function actualizarResumenGrupal() {
+      let n = 0, total = 0;
+      grHabsBox.querySelectorAll('tr[data-hab]').forEach((tr) => {
+        if (tr.querySelector('.gr-chk').checked) {
+          n++;
+          total += parseFloat(tr.querySelector('.gr-tar').value) || 0;
+        }
+      });
+      document.getElementById('grResumen').textContent = n + ' habitaciones seleccionadas — tarifa por noche del grupo: S/ ' + total.toFixed(2);
+    }
+
+    grEmpresa.addEventListener('input', () => {
+      const e = EMPRESAS_CAT[String(grEmpresa.value || '').trim().toUpperCase()];
+      const dl = document.getElementById('listaProyectosGrupal');
+      dl.innerHTML = '';
+      if (e) {
+        if (!grRuc.value) grRuc.value = e.ruc || '';
+        (e.proyectos || []).forEach((p) => {
+          const o = document.createElement('option');
+          o.value = p;
+          dl.appendChild(o);
+        });
+      }
+    });
+
+    grupalForm.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      limpiarErroresVisuales(grupalForm);
+      const empresa = grEmpresa.value.trim();
+      if (!empresa) { grEmpresa.classList.add('campo-invalido'); grEmpresa.focus(); return; }
+      const habs = [];
+      grHabsBox.querySelectorAll('tr[data-hab]').forEach((tr) => {
+        if (tr.querySelector('.gr-chk').checked) {
+          habs.push({
+            hab: tr.dataset.hab,
+            tipoHab: tr.dataset.tipo,
+            tarifa: parseFloat(tr.querySelector('.gr-tar').value) || 0,
+            nombre: tr.querySelector('.gr-nom').value.trim(),
+            dni: tr.querySelector('.gr-dni').value.trim()
+          });
+        }
+      });
+      if (!habs.length) { mostrarBanner('error', '⚠️ Marca al menos una habitación.'); return; }
+      if (!grFechaIn.value || !grFechaOut.value || grFechaOut.value <= grFechaIn.value) {
+        mostrarBanner('error', '⚠️ Revisa las fechas: el Check-Out debe ser posterior al Check-In.');
+        return;
+      }
+      if (!window.confirm('Registrar ' + habs.length + ' habitaciones para ' + empresa + '?')) return;
+      const btn = document.getElementById('btnSubmitGrupal');
+      btn.disabled = true;
+      mostrarBanner('saving', '⏳ Registrando grupo...');
+      google.script.run
+        .withSuccessHandler((res) => {
+          btn.disabled = false;
+          mostrarBanner('success', '✅ ' + ((res && res.detalle) || 'Grupo registrado'));
+          grHabsBox.querySelectorAll('.gr-chk').forEach((c) => { c.checked = false; });
+          cargarDatosServidor();
+        })
+        .withFailureHandler((err) => {
+          btn.disabled = false;
+          mostrarBanner('error', '❌ ' + ((err && err.message) || err));
+        })
+        .guardarCheckInGrupalEmpresa({
+          empresa: empresa,
+          ruc: grRuc.value.trim(),
+          proyecto: grProyecto.value.trim(),
+          fechaIn: grFechaIn.value,
+          fechaOut: grFechaOut.value,
+          mot: 'Negocios y motivos profesionales',
+          habitaciones: habs
+        });
+    });
+
+    function cargarDatosServidor() {
+      syncInfo.textContent = 'Sincronizando con Google Sheets...';
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler((res) => {
+            DB_HUESPEDES = res.huespedes || {};
+            HABITACIONES = res.habitaciones || [];
+            ESTANCIAS_ACTIVAS = res.estanciasActivas || [];
+            FECHA_HOY = res.fechaHoy || "";
+            FECHA_MANANA = res.fechaManana || "";
+            EMPRESAS_CAT = res.empresasCatalogo || {};
+
+            if (!fechaInInput.value && FECHA_HOY) fechaInInput.value = FECHA_HOY;
+            if (!fechaOutInput.value && FECHA_MANANA) fechaOutInput.value = FECHA_MANANA;
+            if (!contFechaIn.value && FECHA_HOY) contFechaIn.value = FECHA_HOY;
+            if (!contFechaOut.value && FECHA_MANANA) contFechaOut.value = FECHA_MANANA;
+
+            construirIndiceNombres();
+            renderizarHabitaciones(res.hotelesTercerizados || []);
+            renderizarEstanciasActivas();
+            renderizarGrupal();
+            calcularTotalesCheckIn();
+
+            syncInfo.textContent = `Listo • ${HABITACIONES.length} habitaciones sincronizadas`;
+          })
+          .withFailureHandler((err) => {
+            syncInfo.textContent = 'Error al sincronizar: ' + (err.message || err);
+          })
+          .obtenerDatosInicialesCheckIn();
+      }
+    }
+
+    function construirIndiceNombres() {
+      MAPA_NOMBRES = {};
+      listaClientesNombres.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      const claves = Object.keys(DB_HUESPEDES);
+      for (let i = 0; i < claves.length; i++) {
+        const d = claves[i];
+        const h = DB_HUESPEDES[d];
+        if (h && h.nombre) {
+          const nomUpper = h.nombre.toUpperCase();
+          MAPA_NOMBRES[nomUpper] = d;
+          const opt = document.createElement('option');
+          opt.value = h.nombre;
+          opt.label = `DNI: ${d}`;
+          frag.appendChild(opt);
+        }
+      }
+      listaClientesNombres.appendChild(frag);
+    }
+
+    function renderizarHabitaciones(hotelesTercerizados) {
+      const selCheckIn = habSelect.value;
+      habSelect.innerHTML = '<option value="">-- Seleccionar Habitación --</option>';
+      contHabNueva.innerHTML = '<option value="">-- Habitación --</option>';
+
+      const grpLibres = document.createElement('optgroup');
+      grpLibres.label = '✅ HABITACIONES LIBRES';
+      const grpOcupadas = document.createElement('optgroup');
+      grpOcupadas.label = '🟥 OCUPADAS ACTUALMENTE';
+
+      HABITACIONES.forEach((h) => {
+        const opt = document.createElement('option');
+        opt.value = h.hab;
+        opt.dataset.precio = h.precioSug || '';
+        opt.dataset.tipo = h.tipo || '';
+        const precioTxt = h.precioSug ? ` (S/ ${h.precioSug})` : '';
+        if (h.libre) {
+          opt.textContent = `${h.hab} — ${h.tipo}${precioTxt} [✅ Libre]`;
+          grpLibres.appendChild(opt);
+        } else {
+          const ocupTxt = h.huespedActual ? ` - ${h.huespedActual}` : '';
+          opt.textContent = `${h.hab} — ${h.tipo} [${h.estado}${ocupTxt}]`;
+          grpOcupadas.appendChild(opt);
+        }
+
+        const optC = document.createElement('option');
+        optC.value = h.hab;
+        optC.textContent = `${h.hab} — ${h.tipo}`;
+        contHabNueva.appendChild(optC);
+      });
+
+      if (grpLibres.children.length > 0) habSelect.appendChild(grpLibres);
+      if (grpOcupadas.children.length > 0) habSelect.appendChild(grpOcupadas);
+      if (selCheckIn) habSelect.value = selCheckIn;
+
+      if (hotelesTercerizados && hotelesTercerizados.length > 0) {
+        hotelSelect.innerHTML = '<option value="">-- Ninguno --</option>';
+        hotelesTercerizados.forEach((ht) => {
+          const opt = document.createElement('option');
+          opt.value = ht;
+          opt.textContent = ht;
+          hotelSelect.appendChild(opt);
+        });
+      }
+    }
+
+    function renderizarEstanciasActivas() {
+      estanciaActivaSelect.innerHTML = '<option value="">-- Seleccionar Habitación Ocupada --</option>';
+      // Ordenar por número de habitación (101, 102, 103...)
+      ESTANCIAS_ACTIVAS.sort((a, b) => (parseInt(a.hab, 10) || 0) - (parseInt(b.hab, 10) || 0));
+      ESTANCIAS_ACTIVAS.forEach((est, index) => {
+        const opt = document.createElement('option');
+        opt.value = index;
+        const saldoNum = Number(est.saldo) || 0;
+        const saldoTxt = saldoNum > 0 ? ` • Debe S/ ${saldoNum.toFixed(2)}` : ' • Pagado';
+        opt.textContent = `${est.hab} — ${est.nombre} (${est.fechaIn}${saldoTxt})`;
+        estanciaActivaSelect.appendChild(opt);
+      });
+      resumenContinuarBox.style.display = 'none';
+    }
+
+    // Autocompletar campos cuando se encuentra cliente por DNI o por Nombre (sin cartel de visitas)
+    function rellenarDatosCliente(dniVal, h) {
+      if (!h) return;
+      if (dniInput.value.trim() !== dniVal) {
+        dniInput.value = dniVal;
+        dniInput.classList.remove('campo-invalido');
+      }
+      if (h.nombre && nombreInput.value.trim() !== h.nombre) {
+        nombreInput.value = h.nombre;
+        nombreInput.classList.remove('campo-invalido');
+      }
+      if (h.sexo && h.sexo.toUpperCase() === 'F') {
+        document.getElementById('sexoF').checked = true;
+      } else {
+        document.getElementById('sexoM').checked = true;
+      }
+      if (h.nac) nacSelect.value = h.nac;
+      if (h.reg) regSelect.value = h.reg;
+      if (h.mot) motSelect.value = h.mot;
+      if (h.celular) celularInput.value = h.celular;
+      if (h.ruc) rucInput.value = h.ruc;
+      if (h.empresa) empresaInput.value = h.empresa;
+      if (h.tarifa && !tarifaInput.value) {
+        tarifaInput.value = h.tarifa;
+        tarifaInput.classList.remove('campo-invalido');
+        calcularTotalesCheckIn();
+      }
+      // Mostrar referencia discreta de tarifa/habitación anterior igual que "Buscar Cliente Registrado"
+      const partesInfo = [];
+      if (h.hab) partesInfo.push(`Última Hab: ${h.hab}`);
+      if (h.tarifa) partesInfo.push(`Tarifa anterior: S/ ${h.tarifa}`);
+      if (partesInfo.length > 0) {
+        prevStayHint.textContent = '📋 ' + partesInfo.join(' • ');
+        prevStayHint.classList.add('visible');
+      } else {
+        prevStayHint.classList.remove('visible');
+      }
+    }
+
+    let timerDniReniec = null;
+    function consultarReniecAutomatico(val) {
+      if (val.length !== 8 || isNaN(val)) return;
+      if (DB_HUESPEDES[val]) return;
+
+      prevStayHint.textContent = '🔍 Consultando APIsPERU / RENIEC...';
+      prevStayHint.classList.add('visible');
+      if (btnBuscarDni) btnBuscarDni.disabled = true;
+
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler((res) => {
+            if (btnBuscarDni) btnBuscarDni.disabled = false;
+            if (dniInput.value.trim() !== val) return;
+            if (res && res.ok && res.nombre) {
+              nombreInput.value = res.nombre;
+              if (nacSelect) nacSelect.value = 'Perú';
+              nombreInput.classList.remove('campo-invalido');
+              prevStayHint.textContent = `✓ RENIEC: ${res.nombre}`;
+              prevStayHint.classList.add('visible');
+              habSelect.focus();
+            } else {
+              prevStayHint.textContent = res && res.error ? `⚠️ ${res.error}` : '⚠️ DNI no encontrado en RENIEC.';
+              prevStayHint.classList.add('visible');
+            }
+          })
+          .withFailureHandler((err) => {
+            if (btnBuscarDni) btnBuscarDni.disabled = false;
+            prevStayHint.textContent = '⚠️ Error al conectar con APIsPERU.';
+            prevStayHint.classList.add('visible');
+          })
+          .consultarDniReniec(val);
+      }
+    }
+
+    dniInput.addEventListener('input', () => {
+      const val = dniInput.value.trim();
+      clearTimeout(timerDniReniec);
+      if (!val) {
+        prevStayHint.classList.remove('visible');
+        return;
+      }
+      const h = DB_HUESPEDES[val];
+      if (h) {
+        rellenarDatosCliente(val, h);
+      } else {
+        prevStayHint.classList.remove('visible');
+        if (val.length === 8 && !isNaN(val)) {
+          timerDniReniec = setTimeout(() => consultarReniecAutomatico(val), 350);
+        }
+      }
+    });
+
+    if (btnBuscarDni) {
+      btnBuscarDni.addEventListener('click', () => {
+        const val = dniInput.value.trim();
+        if (!val || val.length !== 8 || isNaN(val)) {
+          prevStayHint.textContent = '⚠️ Ingresa un DNI de 8 dígitos para consultar.';
+          prevStayHint.classList.add('visible');
+          dniInput.focus();
+          return;
+        }
+        consultarReniecAutomatico(val);
+      });
+    }
+
+    dniInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        const val = dniInput.value.trim();
+        if (val.length === 8 && !isNaN(val) && !DB_HUESPEDES[val]) {
+          consultarReniecAutomatico(val);
+        } else {
+          nombreInput.focus();
+        }
+      }
+    });
+
+    nombreInput.addEventListener('input', () => {
+      const nomVal = nombreInput.value.trim().toUpperCase();
+      if (nomVal && MAPA_NOMBRES[nomVal]) {
+        const dniEncontrado = MAPA_NOMBRES[nomVal];
+        const h = DB_HUESPEDES[dniEncontrado];
+        if (h) rellenarDatosCliente(dniEncontrado, h);
+      }
+    });
+
+    // Habitación fija: cuando el Panel envía la habitación (cambio programático, no un clic del usuario),
+    // se muestra como texto fijo y se oculta el selector redundante (el <select> sigue guardando el valor).
+    const habFieldSelect = document.getElementById('habFieldSelect');
+    const habFieldFija = document.getElementById('habFieldFija');
+    const habFijaTxt = document.getElementById('habFijaTxt');
+
+    function fijarHabitacionDesdePanel() {
+      const opt = habSelect.options[habSelect.selectedIndex];
+      if (!opt || !habSelect.value || !habFieldFija) return;
+      habFijaTxt.textContent = opt.textContent.replace(/\s*\[[^\]]*\]\s*$/, '');
+      habFieldSelect.style.display = 'none';
+      habFieldFija.style.display = '';
+    }
+
+    function mostrarSelectorHabitacion() {
+      if (!habFieldFija) return;
+      habFieldFija.style.display = 'none';
+      habFieldSelect.style.display = '';
+    }
+
+    habSelect.addEventListener('change', (ev) => {
+      if (!ev.isTrusted && habSelect.value) fijarHabitacionDesdePanel();
+    });
+
+    habSelect.addEventListener('change', () => {
+      const opt = habSelect.options[habSelect.selectedIndex];
+      if (opt && opt.dataset.precio && !tarifaInput.value) {
+        const numPrecio = parseFloat(opt.dataset.precio.toString().split('-')[0]);
+        if (!isNaN(numPrecio)) {
+          tarifaInput.value = numPrecio;
+          tarifaInput.classList.remove('campo-invalido');
+          calcularTotalesCheckIn();
+        }
+      }
+    });
+
+    pElecInput.addEventListener('input', actualizarEstadoYapeCheckIn);
+    servAdicMontoInput.addEventListener('input', () => {
+      actualizarEstadoYapeCheckIn();
+      calcularTotalesCheckIn();
+    });
+    servAdicMetodoSelect.addEventListener('change', () => {
+      actualizarEstadoYapeCheckIn();
+      calcularTotalesCheckIn();
+    });
+
+    function actualizarEstadoYapeCheckIn() {
+      const montoYape = parseFloat(pElecInput.value) || 0;
+      const montoServ = parseFloat(servAdicMontoInput.value) || 0;
+      const servEsYape = servAdicMetodoSelect.value === 'Yape' && montoServ > 0;
+
+      if (montoYape > 0 || servEsYape) {
+        yapeBox.classList.add('visible');
+        nroOpYapeInput.setAttribute('required', 'required');
+      } else {
+        yapeBox.classList.remove('visible');
+        nroOpYapeInput.removeAttribute('required');
+        nroOpYapeInput.classList.remove('campo-invalido');
+      }
+      calcularTotalesCheckIn();
+    }
+
+    document.querySelectorAll('input[name="tipoC"]').forEach((rad) => {
+      rad.addEventListener('change', () => {
+        if (rad.value === 'Factura' || rad.value === 'Boleta') {
+          document.getElementById('empresaDetails').open = true;
+        }
+      });
+    });
+
+    [tarifaInput, fechaInInput, fechaOutInput, pEfecInput, pVisaInput].forEach((el) => {
+      el.addEventListener('input', calcularTotalesCheckIn);
+    });
+
+    function calcularTotalesCheckIn() {
+      let noches = 1;
+      if (fechaInInput.value && fechaOutInput.value) {
+        const d1 = new Date(fechaInInput.value + 'T00:00:00');
+        const d2 = new Date(fechaOutInput.value + 'T00:00:00');
+        const diff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+        noches = diff > 0 ? diff : 1;
+      }
+      const tarifa = parseFloat(tarifaInput.value) || 0;
+      const subtotal = noches * tarifa;
+      const servMonto = parseFloat(servAdicMontoInput.value) || 0;
+      const servMetodo = servAdicMetodoSelect.value;
+      const pagoServHoy = (servMonto > 0 && servMetodo !== 'Cargar a Habitación') ? servMonto : 0;
+
+      const totalCuenta = subtotal + servMonto;
+      const pagado = (parseFloat(pEfecInput.value) || 0) +
+                     (parseFloat(pElecInput.value) || 0) +
+                     (parseFloat(pVisaInput.value) || 0) +
+                     pagoServHoy;
+      const saldo = totalCuenta - pagado;
+
+      document.getElementById('nochesLabel').textContent = `🌙 ${noches} noche(s)`;
+      document.getElementById('subtotalLabel').textContent = servMonto > 0
+        ? `S/ ${subtotal.toFixed(2)} (+Serv S/ ${servMonto.toFixed(2)})`
+        : `S/ ${subtotal.toFixed(2)}`;
+      document.getElementById('pagadoLabel').textContent = `S/ ${pagado.toFixed(2)}`;
+      document.getElementById('saldoLabel').textContent = `S/ ${saldo.toFixed(2)}`;
+    }
+
+    function limpiarFormularioCheckIn() {
+      checkInForm.reset();
+      mostrarSelectorHabitacion();
+      nacSelect.value = 'Perú';
+      regSelect.value = 'Lima';
+      motSelect.value = 'Vacaciones, recreo u ocio';
+      document.getElementById('sexoM').checked = true;
+      document.querySelector('input[name="tipoC"][value=""]').checked = true;
+      document.getElementById('acompDetails').open = false;
+      document.getElementById('empresaDetails').open = false;
+      servAdicMontoInput.value = '';
+      servAdicMetodoSelect.value = 'Cargar a Habitación';
+      if (FECHA_HOY) fechaInInput.value = FECHA_HOY;
+      if (FECHA_MANANA) fechaOutInput.value = FECHA_MANANA;
+      prevStayHint.classList.remove('visible');
+      actualizarEstadoYapeCheckIn();
+      limpiarErroresVisuales(checkInForm);
+      calcularTotalesCheckIn();
+      dniInput.focus();
+    }
+
+    document.getElementById('btnClearCheckIn').addEventListener('click', limpiarFormularioCheckIn);
+
+    checkInForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!validarCamposRequeridos(checkInForm)) return;
+
+      const sexoChecked = document.querySelector('input[name="sexo"]:checked');
+      const tipoCChecked = document.querySelector('input[name="tipoC"]:checked');
+      const habOpt = habSelect.options[habSelect.selectedIndex];
+      const tipoHabMem = habOpt ? (habOpt.dataset.tipo || '') : '';
+      const dniTrim = dniInput.value.trim();
+      const prevVisitas = DB_HUESPEDES[dniTrim] ? (Number(DB_HUESPEDES[dniTrim].visitas) || 0) : 0;
+      const visitaStr = 'Visita N° ' + (prevVisitas + 1);
+
+      const payload = {
+        dni: dniTrim,
+        nombre: nombreInput.value.trim(),
+        sexo: sexoChecked ? sexoChecked.value : 'M',
+        nac: nacSelect.value,
+        reg: regSelect.value,
+        mot: motSelect.value,
+        celular: celularInput.value.trim(),
+        nAcomp: document.getElementById('nAcomp').value.trim(),
+        dniAcomp: document.getElementById('dniAcomp').value.trim(),
+        triple1: document.getElementById('triple1').value.trim(),
+        triple2: document.getElementById('triple2').value.trim(),
+        hab: habSelect.value,
+        tipoHab: tipoHabMem,
+        visita: visitaStr,
+        tarifa: parseFloat(tarifaInput.value) || 0,
+        fechaIn: fechaInInput.value,
+        fechaOut: fechaOutInput.value,
+        pEfec: parseFloat(pEfecInput.value) || 0,
+        pElec: parseFloat(pElecInput.value) || 0,
+        pVisa: parseFloat(pVisaInput.value) || 0,
+        servMonto: parseFloat(servAdicMontoInput.value) || 0,
+        servMetodo: servAdicMetodoSelect.value,
+        nroOpYape: nroOpYapeInput.value.trim(),
+        tipoC: tipoCChecked ? tipoCChecked.value : '',
+        ruc: rucInput.value.trim(),
+        mFact: mFactInput.value.trim(),
+        adicComp: adicCompInput ? (parseFloat(adicCompInput.value) || 0) : 0,
+        empresa: empresaInput.value.trim(),
+        hotelTercerizado: hotelSelect.value
+      };
+
+      // Actualizar caché en RAM
+      DB_HUESPEDES[payload.dni] = {
+        nombre: payload.nombre,
+        sexo: payload.sexo,
+        nac: payload.nac,
+        reg: payload.reg,
+        mot: payload.mot,
+        tarifa: payload.tarifa,
+        hab: payload.hab,
+        celular: payload.celular,
+        ruc: payload.ruc,
+        empresa: payload.empresa,
+        visitas: prevVisitas + 1
+      };
+      MAPA_NOMBRES[payload.nombre.toUpperCase()] = payload.dni;
+
+      HABITACIONES.forEach((h) => {
+        if (String(h.hab) === String(payload.hab)) {
+          h.libre = false;
+          h.estado = 'Ocupado';
+          h.huespedActual = payload.nombre;
+          h.checkInISO = payload.fechaIn;
+        }
+      });
+      renderizarHabitaciones();
+
+      // Limpiar inmediatamente en blanco
+      limpiarFormularioCheckIn();
+      mostrarBanner('saving', `⏳ Guardando Hab. ${payload.hab} — ${payload.nombre}...`);
+
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler((res) => {
+            if (res && res.ok) {
+              mostrarBanner('success', `✅ ¡Registrado en fila #${res.fila}! Hab. ${res.hab} — ${res.nombre}`);
+            }
+          })
+          .withFailureHandler((err) => {
+            mostrarBanner('error', `❌ Error al guardar Hab. ${payload.hab}: ${err.message || err}`);
+          })
+          .guardarCheckInDesdeApp(payload);
+      }
+    });
+
+    // =========================================================
+    // LÓGICA DE CONTINUAR ESTANCIA
+    // =========================================================
+    const contHabBuscar = document.getElementById('contHabBuscar');
+    const contBuscarHint = document.getElementById('contBuscarHint');
+
+    // Convierte "dd/MM/yyyy" -> "yyyy-MM-dd" (para <input type="date">)
+    function dmyAIso(dmy) {
+      if (!dmy) return '';
+      const p = dmy.toString().trim().split('/');
+      if (p.length !== 3) return '';
+      return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+    }
+    function sumarDiasIso(iso, dias) {
+      const d = new Date(iso + 'T00:00:00');
+      d.setDate(d.getDate() + dias);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${d.getFullYear()}-${mm}-${dd}`;
+    }
+
+    function seleccionarEstancia(idx) {
+      if (idx === '' || idx === null || !ESTANCIAS_ACTIVAS[idx]) {
+        resumenContinuarBox.style.display = 'none';
+        return;
+      }
+      estanciaActivaSelect.value = String(idx);
+      const est = ESTANCIAS_ACTIVAS[idx];
+      document.getElementById('contNombre').textContent = est.nombre || '-';
+      document.getElementById('contDni').textContent = est.dni || '-';
+      const habBadge = document.getElementById('contHabBadge');
+      if (habBadge) habBadge.textContent = `Hab. ${est.hab || '-'}`;
+      document.getElementById('contFechas').textContent = `${est.fechaIn} → ${est.fechaOut}`;
+      document.getElementById('contTarifa').textContent = `S/ ${Number(est.tarifa || 0).toFixed(2)}`;
+      document.getElementById('contCuenta').textContent = `S/ ${Number(est.totalCuenta || 0).toFixed(2)}`;
+      document.getElementById('contPagado').textContent = `S/ ${Number(est.totalPagado || 0).toFixed(2)}`;
+
+      const saldoVal = Number(est.saldo) || 0;
+      const saldoEl = document.getElementById('contSaldo');
+      saldoEl.textContent = `S/ ${saldoVal.toFixed(2)}`;
+      saldoEl.className = saldoVal > 0 ? 'summary-val debe' : 'summary-val ok';
+      const saldoCol = document.getElementById('contSaldoCol');
+      if (saldoCol) {
+        saldoCol.className = saldoVal > 0 ? 'summary-col deuda-col-debe' : 'summary-col deuda-col-ok';
+      }
+
+      // Valores por defecto EDITABLES: misma habitación, misma tarifa,
+      // nuevo Check-In = Check-Out anterior y nuevo Check-Out = +1 día
+      contHabNueva.value = est.hab;
+      contTarifaNueva.value = est.tarifa || '';
+      const isoOutAnterior = dmyAIso(est.fechaOut);
+      const nuevoIn = isoOutAnterior || FECHA_HOY;
+      contFechaIn.value = nuevoIn;
+      contFechaOut.value = nuevoIn ? sumarDiasIso(nuevoIn, 1) : FECHA_MANANA;
+
+      limpiarErroresVisuales(continuarForm);
+      resumenContinuarBox.style.display = 'block';
+    }
+
+    estanciaActivaSelect.addEventListener('change', () => {
+      seleccionarEstancia(estanciaActivaSelect.value);
+      const est = ESTANCIAS_ACTIVAS[estanciaActivaSelect.value];
+      contHabBuscar.value = est ? est.hab : '';
+      contBuscarHint.classList.remove('visible');
+    });
+
+    // Búsqueda instantánea al digitar el número de habitación (ej. 103)
+    contHabBuscar.addEventListener('input', () => {
+      const val = contHabBuscar.value.trim();
+      contBuscarHint.classList.remove('visible');
+      if (!val) {
+        estanciaActivaSelect.value = '';
+        resumenContinuarBox.style.display = 'none';
+        return;
+      }
+      const idx = ESTANCIAS_ACTIVAS.findIndex((e) => String(e.hab).trim() === val);
+      if (idx !== -1) {
+        seleccionarEstancia(idx);
+      } else {
+        estanciaActivaSelect.value = '';
+        resumenContinuarBox.style.display = 'none';
+        // Solo avisamos cuando el número ya tiene 3 dígitos (evita avisos mientras escribe "1", "10"...)
+        if (val.length >= 3) {
+          contBuscarHint.textContent = `⚠️ La Hab. ${val} no tiene una estancia "En Curso".`;
+          contBuscarHint.classList.add('visible');
+        }
+      }
+    });
+
+    contHabBuscar.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        if (estanciaActivaSelect.value !== '') contTarifaNueva.focus();
+      }
+    });
+
+    continuarForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!validarCamposRequeridos(continuarForm)) return;
+
+      const idx = estanciaActivaSelect.value;
+      const est = ESTANCIAS_ACTIVAS[idx];
+      if (!est) return;
+
+      if (contFechaIn.value && contFechaOut.value && contFechaOut.value <= contFechaIn.value) {
+        contFechaOut.classList.add('campo-invalido');
+        contFechaOut.focus();
+        mostrarBanner('error', '⚠️ El nuevo Check-Out debe ser posterior al nuevo Check-In.');
+        return;
+      }
+
+      const payloadCont = {
+        filaAnterior: est.fila,
+        idAnterior: est.id,
+        habNueva: contHabNueva.value,
+        tarifaNueva: parseFloat(contTarifaNueva.value) || Number(est.tarifa) || 0,
+        fechaInNueva: contFechaIn.value,
+        fechaOutNueva: contFechaOut.value,
+        deudaArrastre: Number(est.saldo) || 0
+      };
+
+      // Quitar de la lista local para evitar doble continuación por doble clic
+      ESTANCIAS_ACTIVAS.splice(Number(idx), 1);
+      renderizarEstanciasActivas();
+      contHabBuscar.value = '';
+      contBuscarHint.classList.remove('visible');
+      mostrarBanner('saving', `⏳ Continuando estancia de ${est.nombre} (Hab. ${payloadCont.habNueva})...`);
+
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler((res) => {
+            if (res && res.ok) {
+              mostrarBanner('success', `✅ ¡Estancia continuada! Hab. ${res.hab} — ${res.nombre} (Deuda arrastrada: S/ ${Number(res.deudaArrastre).toFixed(2)})`);
+              cargarDatosServidor();
+            }
+          })
+          .withFailureHandler((err) => {
+            mostrarBanner('error', `❌ Error al continuar estancia: ${err.message || err}`);
+            cargarDatosServidor();
+          })
+          .continuarEstanciaDesdeApp(payloadCont);
+      }
+    });
+
+    document.getElementById('btnRefresh').addEventListener('click', cargarDatosServidor);
+    window.addEventListener('DOMContentLoaded', cargarDatosServidor);
+  </script>
+<!-- BORRADOR_CHECKIN_BEGIN -->
+<script>
+/**
+ * Borrador automático del Check-In: cada dato escrito se guarda en el Panel (memoria + localStorage).
+ * Si sales a Tienda u otro módulo y vuelves a la misma habitación, todo se recupera.
+ * Solo se borra al REGISTRAR la estancia o al pulsar "Limpiar".
+ */
+(function () {
+  var form = document.getElementById('checkInForm');
+  if (!form || window.__borradorCheckIn) return;
+  window.__borradorCheckIn = true;
+  var timer = null, restaurando = false;
+
+  function campos() {
+    return Array.prototype.slice.call(form.querySelectorAll('input[id], select[id], textarea[id]')).filter(function (el) {
+      return el.type !== 'button' && el.type !== 'submit' && el.type !== 'file';
+    });
+  }
+  function valorDe(id) { var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
+  function claveActual() { var h = valorDe('hab'); return h ? h : '*'; }
+  function pristine() { return !valorDe('dni') && !valorDe('nombre'); }
+  function recolectar() {
+    var data = {};
+    campos().forEach(function (el) {
+      data[el.id] = (el.type === 'checkbox' || el.type === 'radio') ? !!el.checked : el.value;
+    });
+    return data;
+  }
+  function enviar(tipo, extra) {
+    try {
+      if (window.parent && window.parent !== window) {
+        var msg = { type: tipo };
+        for (var k in (extra || {})) msg[k] = extra[k];
+        window.parent.postMessage(msg, '*');
+      }
+    } catch (e) {}
+  }
+  function guardar() {
+    if (restaurando) return;
+    var d = recolectar();
+    var tiene = (d.dni && String(d.dni).trim()) || (d.nombre && String(d.nombre).trim());
+    if (!tiene) { enviar('DRAFT_CLEAR', { key: claveActual() }); return; }
+    enviar('DRAFT_SAVE', { key: claveActual(), data: d });
+  }
+  function programar() { clearTimeout(timer); timer = setTimeout(guardar, 150); }
+
+  form.addEventListener('input', programar, true);
+  form.addEventListener('change', programar, true);
+  // reset() lo llaman tanto "Limpiar" como el guardado exitoso -> el borrador se descarta
+  form.addEventListener('reset', function () { clearTimeout(timer); enviar('DRAFT_CLEAR', { key: claveActual() }); });
+
+  function avisoBorrador() {
+    try {
+      var d = document.createElement('div');
+      d.textContent = '📝 Borrador recuperado: continúa donde lo dejaste';
+      d.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:#1e293b;color:#fff;padding:7px 14px;border-radius:8px;font:700 12px sans-serif;z-index:99999;box-shadow:0 4px 14px rgba(0,0,0,.3);transition:opacity .4s;';
+      document.body.appendChild(d);
+      setTimeout(function () { d.style.opacity = '0'; }, 2600);
+      setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 3100);
+    } catch (e) {}
+  }
+
+  function aplicar(data) {
+    restaurando = true;
+    var els = campos();
+    var poner = function () {
+      els.forEach(function (el) {
+        if (el.id === 'hab' || !(el.id in data)) return;
+        if (el.type === 'checkbox' || el.type === 'radio') el.checked = !!data[el.id];
+        else el.value = data[el.id];
+      });
+    };
+    poner();
+    els.forEach(function (el) {
+      if (el.id === 'hab' || !(el.id in data)) return;
+      if (el.tagName === 'SELECT' || el.type === 'checkbox' || el.type === 'radio') {
+        try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+      }
+    });
+    poner(); // segunda pasada: pisa cualquier autocompletado disparado por los eventos
+    try { if (typeof calcularTotalesCheckIn === 'function') calcularTotalesCheckIn(); } catch (e) {}
+    try { if (typeof actualizarEstadoYapeCheckIn === 'function') actualizarEstadoYapeCheckIn(); } catch (e) {}
+    setTimeout(function () { restaurando = false; }, 300);
+    avisoBorrador();
+  }
+
+  window.addEventListener('message', function (e) {
+    var m = e.data;
+    if (m && m.type === 'DRAFT_DATA' && m.data && m.key === claveActual() && pristine()) aplicar(m.data);
+  });
+
+  var hab = document.getElementById('hab');
+  if (hab) hab.addEventListener('change', function () { if (!restaurando && pristine()) enviar('DRAFT_REQUEST', { key: claveActual() }); });
+  setTimeout(function () { if (pristine()) enviar('DRAFT_REQUEST', { key: claveActual() }); }, 800);
+})();
+</script>
+<!-- BORRADOR_CHECKIN_END -->
+<!-- FECHA_DMY_BEGIN -->
+<script>
+/**
+ * Fechas siempre en formato DD/MM/AAAA (25/10/2026), sin depender del idioma de Chrome.
+ * Los <input type="date"> conservan su valor interno ISO (AAAA-MM-DD) para cálculos y para el servidor,
+ * pero el texto visible se reemplaza por una etiqueta DD/MM/AAAA. Al hacer clic se abre el calendario.
+ */
+(function () {
+  if (window.__dmyFechaInit) return;
+  window.__dmyFechaInit = true;
+
+  var estilo = document.createElement('style');
+  estilo.setAttribute('data-dmy', '1');
+  estilo.textContent =
+    '.dmy-wrap{position:relative;display:block;}' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-fields-wrapper,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-text,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-month-field,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-day-field,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-year-field{color:transparent !important;background:transparent !important;}' +
+    '.dmy-wrap input[type="date"]{cursor:pointer;}' +
+    '.dmy-label{position:absolute;pointer-events:none;display:flex;align-items:center;white-space:nowrap;overflow:hidden;line-height:1;}';
+  (document.head || document.documentElement).appendChild(estilo);
+
+  function aDMY(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    return m ? (m[3] + '/' + m[2] + '/' + m[1]) : '';
+  }
+
+  function envolver(inp) {
+    if (inp.__dmy || inp.id === 'inputFecha' || (inp.closest && inp.closest('[data-dmy-skip]'))) return;
+    inp.__dmy = true;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'dmy-wrap';
+    var lab = document.createElement('span');
+    lab.className = 'dmy-label';
+    inp.parentNode.insertBefore(wrap, inp);
+    wrap.appendChild(inp);
+    wrap.appendChild(lab);
+
+    function actualizar() {
+      var cs = window.getComputedStyle(inp);
+      lab.style.left = ((parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0) + 1) + 'px';
+      lab.style.top = cs.borderTopWidth;
+      lab.style.bottom = cs.borderBottomWidth;
+      lab.style.right = ((parseFloat(cs.borderRightWidth) || 0) + 30) + 'px';
+      lab.style.fontFamily = cs.fontFamily;
+      lab.style.fontSize = cs.fontSize;
+      lab.style.fontWeight = cs.fontWeight;
+      var txt = aDMY(inp.value);
+      lab.textContent = txt || 'dd/mm/aaaa';
+      lab.style.color = txt ? cs.color : '#94a3b8';
+    }
+
+    // Cambios programáticos (inp.value = '...') no disparan eventos: se intercepta el setter
+    var desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    Object.defineProperty(inp, 'value', {
+      configurable: true,
+      get: function () { return desc.get.call(this); },
+      set: function (v) { desc.set.call(this, v); actualizar(); }
+    });
+
+    inp.addEventListener('input', actualizar);
+    inp.addEventListener('change', actualizar);
+    inp.addEventListener('focus', actualizar);
+    if (inp.form) inp.form.addEventListener('reset', function () { setTimeout(actualizar, 0); });
+
+    function abrir() { try { if (inp.showPicker) inp.showPicker(); } catch (e) {} }
+    inp.addEventListener('click', abrir);
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Tab' || e.key === 'Escape' || e.key === 'Shift') return;
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') abrir();
+      // Evita teclear segmentos en orden MM/DD/AAAA del navegador: la fecha se elige en el calendario
+      e.preventDefault();
+    });
+
+    actualizar();
+    // Si el campo estaba oculto al envolver (modales), se recalcula al mostrarse
+    setTimeout(actualizar, 300);
+  }
+
+  function iniciar() {
+    var lista = document.querySelectorAll('input[type="date"]');
+    for (var i = 0; i < lista.length; i++) envolver(lista[i]);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
+  else iniciar();
+})();
+
+</script>
+<!-- FECHA_DMY_END -->
+</body>
+</html>

@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Venta de Tienda — Hostal Óvalo</title>
+  <style>
+    :root {
+      --store: #6d28d9;
+      --store-hover: #5b21b6;
+      --accent: #059669;
+      --accent-light: #d1fae5;
+      --warn: #d97706;
+      --warn-light: #fef3c7;
+      --danger: #dc2626;
+      --danger-light: #fee2e2;
+      --bg: #ffffff;
+      --card: #ffffff;
+      --border: #cbd5e1;
+      --text: #0f172a;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      font-size: 13.5px;
+      line-height: 1.4;
+      padding: 8px 10px 24px;
+      transition: background-color 0.35s ease;
+    }
+
+    /* Estados de color de fondo en toda la interfaz derecha (Blanco -> Naranja Clarito -> Verde Claro -> Blanco) */
+    body.bg-state-saving {
+      background-color: #ffedd5 !important;
+    }
+    body.bg-state-saving fieldset {
+      background-color: #fff7ed !important;
+      border-color: #fdba74 !important;
+    }
+    body.bg-state-success {
+      background-color: #dcfce7 !important;
+    }
+    body.bg-state-success fieldset {
+      background-color: #f0fdf4 !important;
+      border-color: #86efac !important;
+    }
+    body.bg-state-error {
+      background-color: #fee2e2 !important;
+    }
+    body.bg-state-error fieldset {
+      background-color: #fef2f2 !important;
+      border-color: #fca5a5 !important;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(135deg, #6d28d9 0%, #4c1d95 100%);
+      color: #fff;
+      padding: 9px 12px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      box-shadow: 0 2px 6px rgba(109, 40, 217, 0.2);
+    }
+    .topbar-title {
+      font-size: 14.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .topbar-sub {
+      font-size: 11px;
+      opacity: 0.9;
+      display: block;
+      font-weight: 400;
+    }
+    .btn-refresh {
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 6px;
+      padding: 5px 9px;
+      font-size: 11.5px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    #statusBanner {
+      display: none;
+      padding: 9px 11px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    #statusBanner.saving {
+      display: none !important;
+      background: var(--warn-light);
+      color: #92400e;
+      border: 1px solid #f59e0b;
+    }
+    #statusBanner.success {
+      display: none !important;
+      background: var(--accent-light);
+      color: #065f46;
+      border: 1px solid #10b981;
+    }
+    #statusBanner.error {
+      display: block;
+      background: var(--danger-light);
+      color: #991b1b;
+      border: 1px solid #ef4444;
+    }
+
+    fieldset {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 11px 11px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+      transition: background-color 0.35s ease, border-color 0.35s ease;
+    }
+    legend {
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--store);
+      padding: 0 6px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .prod-row {
+      display: grid;
+      grid-template-columns: 1fr 68px;
+      gap: 6px;
+      margin-bottom: 7px;
+      align-items: end;
+    }
+
+    .field {
+      margin-bottom: 8px;
+    }
+    .field:last-child {
+      margin-bottom: 0;
+    }
+
+    label {
+      display: block;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+    .req {
+      color: var(--danger);
+      margin-left: 2px;
+    }
+
+    input[type="text"],
+    input[type="date"],
+    select {
+      width: 100%;
+      min-height: 36px;
+      padding: 5px 9px;
+      font-size: 13.5px;
+      border: 1.5px solid #94a3b8;
+      border-radius: 7px;
+      background-color: #fff;
+      color: var(--text);
+    }
+
+    input.campo-invalido,
+    select.campo-invalido {
+      border-color: var(--danger) !important;
+      background-color: #fef2f2 !important;
+    }
+    .error-hint {
+      display: none;
+      font-size: 11px;
+      color: var(--danger);
+      font-weight: 600;
+      margin-top: 2px;
+    }
+    input.campo-invalido ~ .error-hint,
+    select.campo-invalido ~ .error-hint {
+      display: block;
+    }
+
+    .calc-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f5f3ff;
+      border: 1px solid #c4b5fd;
+      padding: 7px 10px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      margin-top: 6px;
+    }
+    .calc-bar strong {
+      font-size: 15px;
+      color: var(--store);
+    }
+
+    .yape-box {
+      display: none;
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: #fdf4ff;
+      border: 1.5px solid #c026d3;
+      border-radius: 8px;
+    }
+    .yape-box.visible {
+      display: block;
+    }
+    .yape-box label {
+      color: #86198f;
+    }
+
+    .actions {
+      display: flex;
+      gap: 7px;
+      margin-top: 10px;
+    }
+    .btn-submit {
+      flex: 1;
+      min-height: 44px;
+      background: var(--store);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      border: none;
+      border-radius: 9px;
+      cursor: pointer;
+      box-shadow: 0 3px 8px rgba(109, 40, 217, 0.25);
+    }
+    .btn-submit:hover {
+      background: var(--store-hover);
+    }
+    .btn-clear {
+      min-height: 44px;
+      padding: 0 12px;
+      background: #e2e8f0;
+      color: #334155;
+      font-size: 12.5px;
+      font-weight: 600;
+      border: 1px solid #cbd5e1;
+      border-radius: 9px;
+      cursor: pointer;
+    }
+  </style>
+  <script src="/static/js/api_bridge.js"></script>
+</head>
+<body>
+
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">🛒 Venta de Productos</div>
+      <span class="topbar-sub" id="syncInfo">Cargando catálogo...</span>
+    </div>
+    <button type="button" class="btn-refresh" id="btnRefresh">🔄 Actualizar</button>
+  </div>
+
+  <form id="tiendaForm" action="#" method="POST" novalidate>
+
+    <fieldset>
+      <legend>1. Productos y Cantidades</legend>
+
+      <div class="prod-row">
+        <div>
+          <label for="prod1">Producto 1 <span class="req">*</span></label>
+          <select id="prod1" class="prod-select" required>
+            <option value="">-- Seleccionar Producto --</option>
+          </select>
+          <span class="error-hint">Elige al menos un producto.</span>
+        </div>
+        <div>
+          <label for="cant1">Cant.</label>
+          <input type="text" id="cant1" class="cant-input" inputmode="numeric" value="1">
+        </div>
+      </div>
+
+      <div class="prod-row">
+        <div>
+          <label for="prod2">Producto 2 (Opcional)</label>
+          <select id="prod2" class="prod-select">
+            <option value="">-- Ninguno --</option>
+          </select>
+        </div>
+        <div>
+          <label for="cant2">Cant.</label>
+          <input type="text" id="cant2" class="cant-input" inputmode="numeric" value="1">
+        </div>
+      </div>
+
+      <div class="prod-row">
+        <div>
+          <label for="prod3">Producto 3 (Opcional)</label>
+          <select id="prod3" class="prod-select">
+            <option value="">-- Ninguno --</option>
+          </select>
+        </div>
+        <div>
+          <label for="cant3">Cant.</label>
+          <input type="text" id="cant3" class="cant-input" inputmode="numeric" value="1">
+        </div>
+      </div>
+
+      <div class="calc-bar">
+        <span>Total Venta Tienda:</span>
+        <strong id="totalTiendaLabel">S/ 0.00</strong>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>2. Pago y Habitación / Personal</legend>
+
+      <div id="modoTiendaBanner" style="margin-bottom: 8px; padding: 7px 10px; border-radius: 7px; font-size: 12px; font-weight: 700; background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155;">
+        🛍️ Modo: Venta Libre (Sin Habitación)
+      </div>
+
+      <div class="field">
+        <label for="metodoTienda">Método de Pago <span class="req">*</span></label>
+        <select id="metodoTienda" required>
+          <option value="Efectivo" selected>💵 Efectivo (Pagado al instante)</option>
+          <option value="Yape">📱 Yape (Pagado al instante)</option>
+          <option value="VISA">💳 VISA (Pagado al instante)</option>
+          <option value="Cargar a Habitación" id="optCargarHab">🛏️ Cargar a Habitación (Suma a Deuda/Saldo)</option>
+        </select>
+      </div>
+
+      <div id="yapeBoxTienda" class="yape-box">
+        <label for="nroOpYapeTienda">📱 N° de Operación Yape / Hora <span class="req">* (OBLIGATORIO CON YAPE)</span></label>
+        <input type="text" id="nroOpYapeTienda"
+               autocorrect="off" autocapitalize="off" spellcheck="false"
+               placeholder="Ej. 854219 / 18:20">
+        <span class="error-hint">Ingresa el N° de operación Yape.</span>
+      </div>
+
+      <div id="bloqueHabTienda" class="grid-2" style="margin-top: 8px;">
+        <div class="field">
+          <label for="habTienda">Habitación Asociada</label>
+          <select id="habTienda">
+            <option value="">-- Venta Libre (Sin Hab.) --</option>
+          </select>
+          <span class="error-hint">Elige la habitación.</span>
+        </div>
+
+        <div class="field">
+          <label for="fechaInTienda">Check-In Habitación</label>
+          <input type="date" id="fechaInTienda">
+          <span class="error-hint">Falta fecha Check-In de la hab.</span>
+        </div>
+      </div>
+
+      <div class="field" id="bloquePersonalTienda" style="margin-top: 6px;">
+        <label for="personalTienda">Consumo Personal (Opcional)</label>
+        <select id="personalTienda">
+          <option value="">-- Ninguno --</option>
+        </select>
+      </div>
+    </fieldset>
+
+    <div id="statusBanner" role="status" aria-live="polite"></div>
+
+    <div class="actions">
+      <button type="submit" class="btn-submit" id="btnSubmitTienda">🛒 REGISTRAR VENTA TIENDA</button>
+      <button type="button" class="btn-clear" id="btnClearTienda">Limpiar</button>
+    </div>
+  </form>
+
+  <script>
+    let HABITACIONES = [];
+    let PRODUCTOS_TIENDA = [];
+    let LISTA_PERSONAL = [];
+    let FECHA_HOY = "";
+    let contextoTienda = {
+      modo: 'libre',
+      hab: '',
+      huesped: '',
+      checkIn: '',
+      filaEstancia: 0
+    };
+
+    const tiendaForm = document.getElementById('tiendaForm');
+    const prodSelects = [
+      document.getElementById('prod1'),
+      document.getElementById('prod2'),
+      document.getElementById('prod3')
+    ];
+    const cantInputs = [
+      document.getElementById('cant1'),
+      document.getElementById('cant2'),
+      document.getElementById('cant3')
+    ];
+    const metodoTienda = document.getElementById('metodoTienda');
+    const optCargarHab = document.getElementById('optCargarHab');
+    const yapeBoxTienda = document.getElementById('yapeBoxTienda');
+    const nroOpYapeTienda = document.getElementById('nroOpYapeTienda');
+    const bloqueHabTienda = document.getElementById('bloqueHabTienda');
+    const bloquePersonalTienda = document.getElementById('bloquePersonalTienda');
+    const modoTiendaBanner = document.getElementById('modoTiendaBanner');
+    const habTienda = document.getElementById('habTienda');
+    const fechaInTienda = document.getElementById('fechaInTienda');
+    const personalTienda = document.getElementById('personalTienda');
+    const statusBanner = document.getElementById('statusBanner');
+    const syncInfo = document.getElementById('syncInfo');
+
+    function convertirDMYaISO(str) {
+      const s = String(str || '').trim();
+      if (!s || s === '-') return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      const p = s.split('/');
+      if (p.length === 3) {
+        return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+      }
+      return '';
+    }
+
+    function aplicarContextoTienda(ctx) {
+      ctx = ctx || {};
+      const habCtx = String(ctx.hab || '').trim();
+      const modo = (ctx.modo === 'libre' || !habCtx) ? 'libre' : 'habitacion';
+      contextoTienda = {
+        modo: modo,
+        hab: habCtx,
+        huesped: String(ctx.huesped || '').trim(),
+        checkIn: String(ctx.checkIn || '').trim(),
+        filaEstancia: Number(ctx.filaEstancia) || 0
+      };
+
+      if (modo === 'libre') {
+        // Venta Libre desde el carrito del encabezado: sin habitación, no permite "Cargar a Habitación"
+        if (modoTiendaBanner) {
+          modoTiendaBanner.style.background = '#f3e8ff';
+          modoTiendaBanner.style.borderColor = '#c084fc';
+          modoTiendaBanner.style.color = '#581c87';
+          modoTiendaBanner.innerHTML = '🛍️ <strong>VENTA LIBRE (SIN HABITACIÓN)</strong> — Solo guarda en Registro Ventas Tienda';
+        }
+        if (optCargarHab) {
+          optCargarHab.disabled = true;
+          optCargarHab.hidden = true;
+        }
+        if (metodoTienda.value === 'Cargar a Habitación' || metodoTienda.value === 'Cargar a la Cuenta') {
+          metodoTienda.value = 'Efectivo';
+        }
+        habTienda.value = '';
+        if (bloqueHabTienda) bloqueHabTienda.style.display = 'none';
+        // Consumo Personal solo aplica a Venta Libre (carrito del encabezado)
+        if (bloquePersonalTienda) bloquePersonalTienda.style.display = '';
+      } else {
+        // Venta para Habitación Ocupada desde el carrito de la fila
+        const nomHuesped = (contextoTienda.huesped && contextoTienda.huesped !== '-') ? contextoTienda.huesped : 'Huésped alojado';
+        if (modoTiendaBanner) {
+          modoTiendaBanner.style.background = '#ecfdf5';
+          modoTiendaBanner.style.borderColor = '#6ee7b7';
+          modoTiendaBanner.style.color = '#065f46';
+          modoTiendaBanner.innerHTML = `🛏️ <strong>HAB. ${habCtx} — ${nomHuesped}</strong> (Check-In: ${contextoTienda.checkIn || 'Hoy'})`;
+        }
+        if (optCargarHab) {
+          optCargarHab.disabled = false;
+          optCargarHab.hidden = false;
+        }
+        // La habitación ya está definida por la fila (banner superior): se oculta el selector y el consumo personal.
+        if (bloqueHabTienda) bloqueHabTienda.style.display = 'none';
+        if (bloquePersonalTienda) bloquePersonalTienda.style.display = 'none';
+        personalTienda.value = '';
+
+        // Asegurar que la habitación exista en el select y seleccionarla
+        let optExiste = Array.from(habTienda.options).find(o => String(o.value) === habCtx);
+        if (!optExiste) {
+          optExiste = document.createElement('option');
+          optExiste.value = habCtx;
+          optExiste.textContent = `Hab. ${habCtx} — ${nomHuesped}`;
+          habTienda.appendChild(optExiste);
+        }
+        const isoCheckIn = convertirDMYaISO(contextoTienda.checkIn) || optExiste.dataset.checkin || FECHA_HOY || '';
+        optExiste.dataset.checkin = isoCheckIn;
+        habTienda.value = habCtx;
+        if (isoCheckIn) fechaInTienda.value = isoCheckIn;
+      }
+
+      actualizarReglasTienda();
+      limpiarErroresVisuales();
+      if (prodSelects[0]) prodSelects[0].focus();
+    }
+
+    window.addEventListener('message', (e) => {
+      if (!e.data) return;
+      if (e.data.type === 'SET_CONTEXT') {
+        aplicarContextoTienda(e.data.context || {});
+      }
+    });
+
+    document.addEventListener('input', (e) => {
+      if (e.target.classList && e.target.classList.contains('campo-invalido')) {
+        if (e.target.value.trim() !== '') e.target.classList.remove('campo-invalido');
+      }
+    });
+    document.addEventListener('change', (e) => {
+      if (e.target.classList && e.target.classList.contains('campo-invalido')) {
+        if (e.target.value.trim() !== '') e.target.classList.remove('campo-invalido');
+      }
+    });
+
+    function limpiarErroresVisuales() {
+      tiendaForm.querySelectorAll('.campo-invalido').forEach((el) => el.classList.remove('campo-invalido'));
+    }
+
+    let timerBgEstado = null;
+    function mostrarBanner(tipo, htmlMsg) {
+      statusBanner.className = tipo;
+      statusBanner.innerHTML = htmlMsg;
+
+      if (timerBgEstado) {
+        clearTimeout(timerBgEstado);
+        timerBgEstado = null;
+      }
+      document.body.classList.remove('bg-state-saving', 'bg-state-success', 'bg-state-error');
+
+      if (tipo === 'saving' || tipo === 'success' || tipo === 'error') {
+        document.body.classList.add('bg-state-' + tipo);
+      }
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'DRAWER_BG_STATE', state: tipo || 'idle' }, '*');
+        }
+      } catch (e) {}
+
+      if (tipo === 'success' || tipo === 'error') {
+        timerBgEstado = setTimeout(() => {
+          document.body.classList.remove('bg-state-saving', 'bg-state-success', 'bg-state-error');
+          try {
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: 'DRAWER_BG_STATE', state: 'idle' }, '*');
+            }
+          } catch (e) {}
+        }, tipo === 'success' ? 2200 : 2800);
+      }
+    }
+
+    function cargarCatalogo() {
+      syncInfo.textContent = 'Sincronizando catálogo...';
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler((res) => {
+            HABITACIONES = res.habitaciones || [];
+            PRODUCTOS_TIENDA = res.productosTienda || [];
+            LISTA_PERSONAL = res.listaPersonal || [];
+            FECHA_HOY = res.fechaHoy || "";
+
+            if (!fechaInTienda.value && FECHA_HOY) fechaInTienda.value = FECHA_HOY;
+            renderizarCatalogo();
+            aplicarContextoTienda(contextoTienda);
+            calcularTotalTienda();
+            syncInfo.textContent = `Listo • ${PRODUCTOS_TIENDA.length} productos`;
+          })
+          .withFailureHandler((err) => {
+            syncInfo.textContent = 'Error: ' + (err.message || err);
+          })
+          .obtenerDatosTienda();
+      }
+    }
+
+    function renderizarCatalogo() {
+      prodSelects.forEach((sel, idx) => {
+        const valActual = sel.value;
+        sel.innerHTML = idx === 0
+          ? '<option value="">-- Seleccionar Producto --</option>'
+          : '<option value="">-- Ninguno --</option>';
+        PRODUCTOS_TIENDA.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = p.nombre;
+          opt.dataset.precio = p.precio;
+          opt.textContent = `${p.nombre} — S/ ${Number(p.precio).toFixed(2)}`;
+          sel.appendChild(opt);
+        });
+        if (valActual) sel.value = valActual;
+      });
+
+      habTienda.innerHTML = '<option value="">-- Venta Libre (Sin Habitación) --</option>';
+      const grpOcup = document.createElement('optgroup');
+      grpOcup.label = '🛏️ HABITACIONES OCUPADAS';
+
+      HABITACIONES.forEach((h) => {
+        if (!h.libre) {
+          const opt = document.createElement('option');
+          opt.value = h.hab;
+          opt.dataset.checkin = h.checkInISO || FECHA_HOY || '';
+          opt.textContent = `Hab. ${h.hab} — ${h.huespedActual || 'Ocupada'}`;
+          grpOcup.appendChild(opt);
+        }
+      });
+      if (grpOcup.children.length > 0) habTienda.appendChild(grpOcup);
+
+      personalTienda.innerHTML = '<option value="">-- Ninguno --</option>';
+      LISTA_PERSONAL.forEach((emp) => {
+        const opt = document.createElement('option');
+        opt.value = emp;
+        opt.textContent = emp;
+        personalTienda.appendChild(opt);
+      });
+    }
+
+    prodSelects.forEach((sel) => sel.addEventListener('change', calcularTotalTienda));
+    cantInputs.forEach((inp) => inp.addEventListener('input', calcularTotalTienda));
+
+    function calcularTotalTienda() {
+      let total = 0;
+      for (let i = 0; i < 3; i++) {
+        const sel = prodSelects[i];
+        const cant = parseFloat(cantInputs[i].value) || 0;
+        if (sel.value && cant > 0) {
+          const opt = sel.options[sel.selectedIndex];
+          const precio = opt ? (parseFloat(opt.dataset.precio) || 0) : 0;
+          total += cant * precio;
+        }
+      }
+      document.getElementById('totalTiendaLabel').textContent = `S/ ${total.toFixed(2)}`;
+      return total;
+    }
+
+    metodoTienda.addEventListener('change', actualizarReglasTienda);
+    habTienda.addEventListener('change', () => {
+      const opt = habTienda.options[habTienda.selectedIndex];
+      if (opt && opt.dataset.checkin) {
+        fechaInTienda.value = opt.dataset.checkin;
+        fechaInTienda.classList.remove('campo-invalido');
+      }
+      if (habTienda.value && habTienda.value !== contextoTienda.hab) {
+        contextoTienda.filaEstancia = 0;
+      }
+      actualizarReglasTienda();
+    });
+
+    function actualizarReglasTienda() {
+      const met = metodoTienda.value;
+      if (met === 'Yape') {
+        yapeBoxTienda.classList.add('visible');
+        nroOpYapeTienda.setAttribute('required', 'required');
+      } else {
+        yapeBoxTienda.classList.remove('visible');
+        nroOpYapeTienda.removeAttribute('required');
+        nroOpYapeTienda.classList.remove('campo-invalido');
+      }
+      if (met === 'Cargar a Habitación' || met === 'Cargar a la Cuenta') {
+        habTienda.setAttribute('required', 'required');
+      } else {
+        habTienda.removeAttribute('required');
+        habTienda.classList.remove('campo-invalido');
+      }
+      if (habTienda.value) {
+        fechaInTienda.setAttribute('required', 'required');
+      } else {
+        fechaInTienda.removeAttribute('required');
+        fechaInTienda.classList.remove('campo-invalido');
+      }
+    }
+
+    function limpiarFormularioTienda() {
+      prodSelects.forEach((sel) => { sel.value = ''; });
+      cantInputs.forEach((inp) => { inp.value = '1'; });
+      nroOpYapeTienda.value = '';
+      personalTienda.value = '';
+      metodoTienda.value = 'Efectivo';
+      aplicarContextoTienda(contextoTienda);
+      calcularTotalTienda();
+      prodSelects[0].focus();
+    }
+
+    document.getElementById('btnClearTienda').addEventListener('click', limpiarFormularioTienda);
+
+    tiendaForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      actualizarReglasTienda();
+      limpiarErroresVisuales();
+
+      const requeridos = tiendaForm.querySelectorAll('input[required], select[required]');
+      let invalido = null;
+      requeridos.forEach((el) => {
+        if (!el.value || el.value.trim() === '') {
+          el.classList.add('campo-invalido');
+          if (!invalido) invalido = el;
+        }
+      });
+      if (invalido) {
+        invalido.focus();
+        return;
+      }
+
+      const items = [];
+      for (let i = 0; i < 3; i++) {
+        const prod = prodSelects[i].value;
+        const cant = parseFloat(cantInputs[i].value) || 0;
+        if (prod && cant > 0) {
+          const opt = prodSelects[i].options[prodSelects[i].selectedIndex];
+          const precio = opt ? (parseFloat(opt.dataset.precio) || 0) : 0;
+          items.push({ prod: prod, cant: cant, precio: precio });
+        }
+      }
+
+      const totalVenta = calcularTotalTienda();
+      const habEnviar = (contextoTienda.modo === 'libre') ? '' : habTienda.value;
+      const payloadTienda = {
+        items: items,
+        metodo: metodoTienda.value,
+        hab: habEnviar,
+        fechaCheckIn: habEnviar ? fechaInTienda.value : '',
+        filaEstancia: (habEnviar && habEnviar === contextoTienda.hab) ? (contextoTienda.filaEstancia || 0) : 0,
+        personal: personalTienda.value,
+        nroOpYape: nroOpYapeTienda.value.trim(),
+        totalVenta: totalVenta
+      };
+
+      const resumenProd = items.map((it) => `${it.cant}x ${it.prod}`).join(', ');
+      limpiarFormularioTienda();
+      mostrarBanner('saving', `⏳ Guardando venta (${resumenProd} • S/ ${totalVenta.toFixed(2)})...`);
+
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler((res) => {
+            if (res && res.ok) {
+              const habTxt = res.hab ? ` • Hab. ${res.hab}` : ' • Venta Libre';
+              mostrarBanner('success', `✅ ¡Venta registrada (S/ ${Number(res.total).toFixed(2)}${habTxt})! (${resumenProd})`);
+              try {
+                if (window.parent && window.parent !== window) {
+                  window.parent.postMessage({ type: 'REFRESH_PANEL', closeDrawer: false }, '*');
+                }
+              } catch (e) {}
+            }
+          })
+          .withFailureHandler((err) => {
+            mostrarBanner('error', `❌ Error al guardar venta: ${err.message || err}`);
+          })
+          .guardarVentaTiendaDesdeApp(payloadTienda);
+      }
+    });
+
+    document.getElementById('btnRefresh').addEventListener('click', cargarCatalogo);
+    window.addEventListener('DOMContentLoaded', cargarCatalogo);
+  </script>
+<!-- FECHA_DMY_BEGIN -->
+<script>
+/**
+ * Fechas siempre en formato DD/MM/AAAA (25/10/2026), sin depender del idioma de Chrome.
+ * Los <input type="date"> conservan su valor interno ISO (AAAA-MM-DD) para cálculos y para el servidor,
+ * pero el texto visible se reemplaza por una etiqueta DD/MM/AAAA. Al hacer clic se abre el calendario.
+ */
+(function () {
+  if (window.__dmyFechaInit) return;
+  window.__dmyFechaInit = true;
+
+  var estilo = document.createElement('style');
+  estilo.setAttribute('data-dmy', '1');
+  estilo.textContent =
+    '.dmy-wrap{position:relative;display:block;}' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-fields-wrapper,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-text,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-month-field,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-day-field,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-year-field{color:transparent !important;background:transparent !important;}' +
+    '.dmy-wrap input[type="date"]{cursor:pointer;}' +
+    '.dmy-label{position:absolute;pointer-events:none;display:flex;align-items:center;white-space:nowrap;overflow:hidden;line-height:1;}';
+  (document.head || document.documentElement).appendChild(estilo);
+
+  function aDMY(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    return m ? (m[3] + '/' + m[2] + '/' + m[1]) : '';
+  }
+
+  function envolver(inp) {
+    if (inp.__dmy || inp.id === 'inputFecha' || (inp.closest && inp.closest('[data-dmy-skip]'))) return;
+    inp.__dmy = true;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'dmy-wrap';
+    var lab = document.createElement('span');
+    lab.className = 'dmy-label';
+    inp.parentNode.insertBefore(wrap, inp);
+    wrap.appendChild(inp);
+    wrap.appendChild(lab);
+
+    function actualizar() {
+      var cs = window.getComputedStyle(inp);
+      lab.style.left = ((parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0) + 1) + 'px';
+      lab.style.top = cs.borderTopWidth;
+      lab.style.bottom = cs.borderBottomWidth;
+      lab.style.right = ((parseFloat(cs.borderRightWidth) || 0) + 30) + 'px';
+      lab.style.fontFamily = cs.fontFamily;
+      lab.style.fontSize = cs.fontSize;
+      lab.style.fontWeight = cs.fontWeight;
+      var txt = aDMY(inp.value);
+      lab.textContent = txt || 'dd/mm/aaaa';
+      lab.style.color = txt ? cs.color : '#94a3b8';
+    }
+
+    // Cambios programáticos (inp.value = '...') no disparan eventos: se intercepta el setter
+    var desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    Object.defineProperty(inp, 'value', {
+      configurable: true,
+      get: function () { return desc.get.call(this); },
+      set: function (v) { desc.set.call(this, v); actualizar(); }
+    });
+
+    inp.addEventListener('input', actualizar);
+    inp.addEventListener('change', actualizar);
+    inp.addEventListener('focus', actualizar);
+    if (inp.form) inp.form.addEventListener('reset', function () { setTimeout(actualizar, 0); });
+
+    function abrir() { try { if (inp.showPicker) inp.showPicker(); } catch (e) {} }
+    inp.addEventListener('click', abrir);
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Tab' || e.key === 'Escape' || e.key === 'Shift') return;
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') abrir();
+      // Evita teclear segmentos en orden MM/DD/AAAA del navegador: la fecha se elige en el calendario
+      e.preventDefault();
+    });
+
+    actualizar();
+    // Si el campo estaba oculto al envolver (modales), se recalcula al mostrarse
+    setTimeout(actualizar, 300);
+  }
+
+  function iniciar() {
+    var lista = document.querySelectorAll('input[type="date"]');
+    for (var i = 0; i < lista.length; i++) envolver(lista[i]);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
+  else iniciar();
+})();
+
+</script>
+<!-- FECHA_DMY_END -->
+</body>
+</html>

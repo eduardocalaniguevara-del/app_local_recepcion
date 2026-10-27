@@ -1,0 +1,18 @@
+# Datos locales de cada hotel (Base de datos SQLite y Perfil con SPREADSHEET_ID)
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+hotel_perfil.json
+
+# Credenciales de Google Service Account (nunca subir a GitHub)
+credentials.json
+*credentials*.json
+
+# Archivos temporales de Python y logs
+__pycache__/
+*.py[cod]
+*.log
+.DS_Store
+Thumbs.db

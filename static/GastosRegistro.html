@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registro de Gastos — Hostal Óvalo</title>
+  <style>
+    :root {
+      --gasto: #c2410c;
+      --gasto-hover: #9a3412;
+      --accent: #059669;
+      --accent-light: #d1fae5;
+      --warn: #d97706;
+      --warn-light: #fef3c7;
+      --danger: #dc2626;
+      --danger-light: #fee2e2;
+      --bg: #ffffff;
+      --card: #ffffff;
+      --border: #cbd5e1;
+      --text: #0f172a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      font-size: 13.5px;
+      line-height: 1.4;
+      padding: 8px 10px 24px;
+      transition: background-color 0.35s ease;
+    }
+    /* Estados de color de fondo en toda la interfaz derecha (Blanco -> Naranja Clarito -> Verde Claro -> Blanco) */
+    body.bg-state-saving {
+      background-color: #ffedd5 !important;
+    }
+    body.bg-state-saving fieldset {
+      background-color: #fff7ed !important;
+      border-color: #fdba74 !important;
+    }
+    body.bg-state-success {
+      background-color: #dcfce7 !important;
+    }
+    body.bg-state-success fieldset {
+      background-color: #f0fdf4 !important;
+      border-color: #86efac !important;
+    }
+    body.bg-state-error {
+      background-color: #fee2e2 !important;
+    }
+    body.bg-state-error fieldset {
+      background-color: #fef2f2 !important;
+      border-color: #fca5a5 !important;
+    }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      background: linear-gradient(135deg, #c2410c 0%, #7c2d12 100%);
+      color: #fff; padding: 9px 12px; border-radius: 10px; margin-bottom: 10px;
+      box-shadow: 0 2px 6px rgba(194, 65, 12, 0.2);
+    }
+    .topbar-title { font-size: 14.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+    .topbar-sub { font-size: 11px; opacity: 0.9; display: block; font-weight: 400; }
+    .btn-refresh {
+      background: rgba(255, 255, 255, 0.18); color: #fff; border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 6px; padding: 5px 9px; font-size: 11.5px; cursor: pointer; font-weight: 600;
+    }
+
+    #statusBanner { display: none; padding: 9px 11px; border-radius: 8px; font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+    #statusBanner.saving  { display: none !important; background: var(--warn-light);   color: #92400e; border: 1px solid #f59e0b; }
+    #statusBanner.success { display: none !important; background: var(--accent-light); color: #065f46; border: 1px solid #10b981; }
+    #statusBanner.error   { display: block; background: var(--danger-light); color: #991b1b; border: 1px solid #ef4444; }
+
+    fieldset {
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 9px 11px 11px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+      transition: background-color 0.35s ease, border-color 0.35s ease;
+    }
+    legend { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--gasto); padding: 0 6px; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .field { margin-bottom: 8px; }
+    .field:last-child { margin-bottom: 0; }
+    label { display: block; font-size: 11.5px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+    .req { color: var(--danger); margin-left: 2px; }
+    .opt { color: #64748b; font-weight: 400; }
+
+    input[type="text"], input[type="date"], select {
+      width: 100%; min-height: 36px; padding: 5px 9px; font-size: 13.5px;
+      border: 1.5px solid #94a3b8; border-radius: 7px; background-color: #fff; color: var(--text);
+    }
+    input:focus, select:focus { outline: none; border-color: var(--gasto); box-shadow: 0 0 0 2px rgba(194,65,12,0.15); }
+    #montoGasto { font-size: 17px; font-weight: 800; color: var(--gasto); }
+
+    input.campo-invalido, select.campo-invalido { border-color: var(--danger) !important; background-color: #fef2f2 !important; }
+    .error-hint { display: none; font-size: 11px; color: var(--danger); font-weight: 600; margin-top: 2px; }
+    input.campo-invalido ~ .error-hint, select.campo-invalido ~ .error-hint { display: block; }
+
+    .caja-hint {
+      margin-top: 4px; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 6px;
+    }
+    .caja-hint.si { background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; }
+    .caja-hint.no { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+    .actions { display: flex; gap: 7px; margin-top: 10px; }
+    .btn-submit {
+      flex: 1; min-height: 44px; background: var(--gasto); color: #fff; font-size: 14px; font-weight: 700;
+      border: none; border-radius: 9px; cursor: pointer; box-shadow: 0 3px 8px rgba(194, 65, 12, 0.25);
+    }
+    .btn-submit:hover { background: var(--gasto-hover); }
+    .btn-submit:disabled { opacity: 0.6; cursor: wait; }
+    .btn-clear {
+      min-height: 44px; padding: 0 12px; background: #e2e8f0; color: #334155; font-size: 12.5px;
+      font-weight: 600; border: 1px solid #cbd5e1; border-radius: 9px; cursor: pointer;
+    }
+
+    .resumen-hoy { display: flex; gap: 6px; margin-bottom: 8px; }
+    .resumen-hoy div {
+      flex: 1; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 6px 8px; text-align: center;
+    }
+    .resumen-hoy span { display: block; font-size: 10.5px; color: #9a3412; font-weight: 600; }
+    .resumen-hoy strong { font-size: 15px; color: var(--gasto); }
+    .lista-gastos { list-style: none; max-height: 230px; overflow-y: auto; }
+    .lista-gastos li {
+      display: grid; grid-template-columns: 40px 1fr auto; gap: 6px; align-items: center;
+      padding: 5px 2px; border-bottom: 1px solid #f1f5f9; font-size: 12px;
+    }
+    .lista-gastos li:last-child { border-bottom: none; }
+    .lg-hora { color: #64748b; font-size: 11px; font-weight: 600; }
+    .lg-desc { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lg-meta { display: block; font-size: 10.5px; color: #64748b; font-weight: 400; }
+    .lg-monto { font-weight: 800; color: var(--gasto); white-space: nowrap; }
+    .vacio { color: #94a3b8; font-size: 12px; text-align: center; padding: 8px 0; }
+  </style>
+  <script src="/static/js/api_bridge.js"></script>
+</head>
+<body>
+
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">💸 Registro de Gastos</div>
+      <span class="topbar-sub" id="syncInfo">Cargando listas...</span>
+    </div>
+    <button type="button" class="btn-refresh" id="btnRefresh">🔄 Actualizar</button>
+  </div>
+
+  <form id="gastoForm" action="#" method="POST" novalidate>
+    <fieldset>
+      <legend>1. Datos del Gasto</legend>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="fechaGasto">Fecha <span class="req">*</span></label>
+          <input type="date" id="fechaGasto" required>
+          <span class="error-hint">Indica la fecha.</span>
+        </div>
+        <div class="field">
+          <label for="montoGasto">Monto S/ <span class="req">*</span></label>
+          <input type="text" id="montoGasto" inputmode="decimal" placeholder="0.00" autocomplete="off" required>
+          <span class="error-hint">Monto mayor a 0.</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="descGasto">Descripción <span class="req">*</span></label>
+        <input type="text" id="descGasto" placeholder="Ej. compra de detergente, pago gasfitero..." autocomplete="off" required>
+        <span class="error-hint">Describe el gasto.</span>
+      </div>
+
+      <div class="field">
+        <label for="categoriaGasto">Categoría <span class="req">*</span></label>
+        <select id="categoriaGasto" required>
+          <option value="">-- Seleccionar Categoría --</option>
+        </select>
+        <span class="error-hint">Elige una categoría.</span>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>2. Pago y Comprobante</legend>
+
+      <div class="field">
+        <label for="metodoGasto">Método de Pago <span class="req">*</span></label>
+        <select id="metodoGasto" required>
+          <option value="Efectivo">Efectivo</option>
+        </select>
+        <span class="error-hint">Elige el método de pago.</span>
+        <div id="cajaHint" class="caja-hint si">💵 Se descontará de la Caja Efectivo</div>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="tipoCompGasto">Comprobante <span class="opt">(opcional)</span></label>
+          <select id="tipoCompGasto">
+            <option value="">-- Sin comprobante --</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="nroCompGasto">N° Comprobante <span class="opt">(opcional)</span></label>
+          <input type="text" id="nroCompGasto" placeholder="Ej. B001-1234" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="responsableGasto">Responsable</label>
+        <select id="responsableGasto">
+          <option value="Admin">Admin</option>
+        </select>
+      </div>
+    </fieldset>
+
+    <div id="statusBanner" role="status" aria-live="polite"></div>
+
+    <div class="actions">
+      <button type="submit" class="btn-submit" id="btnSubmitGasto">💸 REGISTRAR GASTO</button>
+      <button type="button" class="btn-clear" id="btnClearGasto">Limpiar</button>
+    </div>
+  </form>
+
+  <fieldset style="margin-top: 12px;">
+    <legend>Gastos de Hoy</legend>
+    <div class="resumen-hoy">
+      <div><span>Total del día</span><strong id="lblTotalHoy">S/ 0.00</strong></div>
+      <div><span>Salió de Caja (Efectivo)</span><strong id="lblEfectivoHoy">S/ 0.00</strong></div>
+    </div>
+    <ul class="lista-gastos" id="listaGastosHoy">
+      <li class="vacio">Sin gastos registrados hoy</li>
+    </ul>
+  </fieldset>
+
+  <script>
+    let CATEGORIAS = [];
+    let METODOS = [];
+    let PERSONAL = [];
+    let TIPOS_COMP = [];
+    let FECHA_HOY = "";
+    let GASTOS_HOY = [];
+    let guardando = false;
+
+    const gastoForm = document.getElementById('gastoForm');
+    const fechaGasto = document.getElementById('fechaGasto');
+    const montoGasto = document.getElementById('montoGasto');
+    const descGasto = document.getElementById('descGasto');
+    const categoriaGasto = document.getElementById('categoriaGasto');
+    const metodoGasto = document.getElementById('metodoGasto');
+    const cajaHint = document.getElementById('cajaHint');
+    const tipoCompGasto = document.getElementById('tipoCompGasto');
+    const nroCompGasto = document.getElementById('nroCompGasto');
+    const responsableGasto = document.getElementById('responsableGasto');
+    const btnSubmitGasto = document.getElementById('btnSubmitGasto');
+    const statusBanner = document.getElementById('statusBanner');
+    const syncInfo = document.getElementById('syncInfo');
+
+    const fmt = (n) => 'S/ ' + (Number(n) || 0).toFixed(2);
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    function recordarResponsable(valor) {
+      try { if (valor) localStorage.setItem('ovalo_resp_gasto', valor); } catch (e) {}
+    }
+    function responsableRecordado() {
+      try { return localStorage.getItem('ovalo_resp_gasto') || ''; } catch (e) { return ''; }
+    }
+
+    ['input', 'change'].forEach((ev) => document.addEventListener(ev, (e) => {
+      if (e.target.classList && e.target.classList.contains('campo-invalido') && e.target.value.trim() !== '') {
+        e.target.classList.remove('campo-invalido');
+      }
+    }));
+
+    let timerBgEstado = null;
+    function mostrarBanner(tipo, htmlMsg) {
+      statusBanner.className = tipo;
+      statusBanner.innerHTML = htmlMsg;
+
+      if (timerBgEstado) {
+        clearTimeout(timerBgEstado);
+        timerBgEstado = null;
+      }
+      document.body.classList.remove('bg-state-saving', 'bg-state-success', 'bg-state-error');
+
+      if (tipo === 'saving' || tipo === 'success' || tipo === 'error') {
+        document.body.classList.add('bg-state-' + tipo);
+      }
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'DRAWER_BG_STATE', state: tipo || 'idle' }, '*');
+        }
+      } catch (e) {}
+
+      if (tipo === 'success' || tipo === 'error') {
+        timerBgEstado = setTimeout(() => {
+          document.body.classList.remove('bg-state-saving', 'bg-state-success', 'bg-state-error');
+          try {
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: 'DRAWER_BG_STATE', state: 'idle' }, '*');
+            }
+          } catch (e) {}
+        }, tipo === 'success' ? 2200 : 2800);
+      }
+    }
+
+    function llenarSelect(sel, lista, placeholder) {
+      const actual = sel.value;
+      sel.innerHTML = placeholder !== null ? `<option value="">${placeholder}</option>` : '';
+      lista.forEach((v) => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        sel.appendChild(opt);
+      });
+      if (actual && lista.indexOf(actual) !== -1) sel.value = actual;
+    }
+
+    function cargarDatosGastos() {
+      syncInfo.textContent = 'Sincronizando...';
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(aplicarDatos)
+          .withFailureHandler((err) => { syncInfo.textContent = 'Error: ' + (err.message || err); })
+          .obtenerDatosGastos();
+      }
+    }
+
+    function aplicarDatos(res) {
+      res = res || {};
+      CATEGORIAS = res.categorias || [];
+      METODOS = res.metodos || [];
+      PERSONAL = res.personal || [];
+      TIPOS_COMP = res.tiposComp || [];
+      FECHA_HOY = res.fechaHoy || FECHA_HOY;
+      GASTOS_HOY = res.gastosHoy || [];
+
+      llenarSelect(categoriaGasto, CATEGORIAS, '-- Seleccionar Categoría --');
+
+      const metodoActual = metodoGasto.value || 'Efectivo';
+      const metodos = METODOS.length ? METODOS.slice() : ['Efectivo'];
+      if (metodos.indexOf('Efectivo') === -1) metodos.unshift('Efectivo');
+      llenarSelect(metodoGasto, metodos, null);
+      metodoGasto.value = metodos.indexOf(metodoActual) !== -1 ? metodoActual : 'Efectivo';
+
+      llenarSelect(tipoCompGasto, TIPOS_COMP.filter((t) => t.toLowerCase() !== 'ninguno'), '-- Sin comprobante --');
+
+      const personas = ['Admin'].concat(PERSONAL.filter((p) => p !== 'Admin'));
+      llenarSelect(responsableGasto, personas, null);
+      const recordado = responsableRecordado();
+      if (recordado && personas.indexOf(recordado) !== -1) responsableGasto.value = recordado;
+
+      if (!fechaGasto.value && FECHA_HOY) fechaGasto.value = FECHA_HOY;
+      actualizarHintCaja();
+      renderGastosHoy(res.totalHoy, res.totalEfectivoHoy);
+      syncInfo.textContent = `Listo • ${CATEGORIAS.length} categorías`;
+    }
+
+    function renderGastosHoy(total, efectivo) {
+      const lista = document.getElementById('listaGastosHoy');
+      if (total === undefined) total = GASTOS_HOY.reduce((s, g) => s + (Number(g.monto) || 0), 0);
+      if (efectivo === undefined) efectivo = GASTOS_HOY.filter((g) => g.metodo === 'Efectivo').reduce((s, g) => s + (Number(g.monto) || 0), 0);
+      document.getElementById('lblTotalHoy').textContent = fmt(total);
+      document.getElementById('lblEfectivoHoy').textContent = fmt(efectivo);
+
+      if (!GASTOS_HOY.length) {
+        lista.innerHTML = '<li class="vacio">Sin gastos registrados hoy</li>';
+        return;
+      }
+      lista.innerHTML = GASTOS_HOY.map((g) => `
+        <li>
+          <span class="lg-hora">${esc(g.hora || '--:--')}</span>
+          <span class="lg-desc">${esc(g.descripcion)}<span class="lg-meta">${esc(g.categoria)} • ${esc(g.metodo)}${g.responsable ? ' • ' + esc(g.responsable) : ''}</span></span>
+          <span class="lg-monto">${fmt(g.monto)}</span>
+        </li>`).join('');
+    }
+
+    function actualizarHintCaja() {
+      const esEfectivo = metodoGasto.value === 'Efectivo';
+      cajaHint.className = 'caja-hint ' + (esEfectivo ? 'si' : 'no');
+      cajaHint.textContent = esEfectivo
+        ? '💵 Se descontará de la Caja Efectivo'
+        : 'ℹ️ No afecta la Caja Efectivo (pago por ' + metodoGasto.value + ')';
+    }
+    metodoGasto.addEventListener('change', actualizarHintCaja);
+
+    function leerMonto() {
+      const s = montoGasto.value.replace(/[^\d.,]/g, '');
+      // "1,200.50" → 1200.50 (coma de miles) | "15,50" → 15.50 (coma decimal)
+      const limpio = (s.indexOf(',') !== -1 && s.indexOf('.') !== -1) ? s.replace(/,/g, '') : s.replace(',', '.');
+      const n = parseFloat(limpio);
+      return isNaN(n) ? 0 : Math.round(n * 100) / 100;
+    }
+
+    function limpiarFormularioGasto() {
+      descGasto.value = '';
+      montoGasto.value = '';
+      categoriaGasto.value = '';
+      tipoCompGasto.value = '';
+      nroCompGasto.value = '';
+      metodoGasto.value = 'Efectivo';
+      if (FECHA_HOY) fechaGasto.value = FECHA_HOY;
+      gastoForm.querySelectorAll('.campo-invalido').forEach((el) => el.classList.remove('campo-invalido'));
+      actualizarHintCaja();
+      descGasto.focus();
+    }
+    document.getElementById('btnClearGasto').addEventListener('click', limpiarFormularioGasto);
+
+    gastoForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (guardando) return;
+      gastoForm.querySelectorAll('.campo-invalido').forEach((el) => el.classList.remove('campo-invalido'));
+
+      let invalido = null;
+      [fechaGasto, montoGasto, descGasto, categoriaGasto, metodoGasto].forEach((el) => {
+        const vacio = !el.value || el.value.trim() === '';
+        const montoMalo = el === montoGasto && leerMonto() <= 0;
+        if (vacio || montoMalo) {
+          el.classList.add('campo-invalido');
+          if (!invalido) invalido = el;
+        }
+      });
+      if (invalido) { invalido.focus(); return; }
+
+      const payload = {
+        fecha: fechaGasto.value,
+        descripcion: descGasto.value.trim(),
+        monto: leerMonto(),
+        categoria: categoriaGasto.value,
+        metodo: metodoGasto.value,
+        tipoComp: tipoCompGasto.value,
+        nroComp: nroCompGasto.value.trim(),
+        responsable: responsableGasto.value || 'Admin'
+      };
+      recordarResponsable(payload.responsable);
+
+      guardando = true;
+      btnSubmitGasto.disabled = true;
+      mostrarBanner('saving', `⏳ Guardando gasto: ${esc(payload.descripcion)} • ${fmt(payload.monto)}...`);
+
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler((res) => {
+            guardando = false;
+            btnSubmitGasto.disabled = false;
+            if (res && res.ok) {
+              const cajaTxt = res.afectaCaja ? ' — descontado de Caja' : '';
+              mostrarBanner('success', `✅ Gasto registrado: ${esc(res.descripcion)} • ${fmt(res.monto)} (${esc(res.metodo)})${cajaTxt}`);
+              limpiarFormularioGasto();
+              cargarDatosGastos();
+            }
+          })
+          .withFailureHandler((err) => {
+            guardando = false;
+            btnSubmitGasto.disabled = false;
+            mostrarBanner('error', `❌ No se guardó el gasto: ${esc(err.message || err)}`);
+          })
+          .guardarGastoDesdeApp(payload);
+      }
+    });
+
+    document.getElementById('btnRefresh').addEventListener('click', cargarDatosGastos);
+    window.addEventListener('DOMContentLoaded', cargarDatosGastos);
+  </script>
+<!-- FECHA_DMY_BEGIN -->
+<script>
+/**
+ * Fechas siempre en formato DD/MM/AAAA (25/10/2026), sin depender del idioma de Chrome.
+ * Los <input type="date"> conservan su valor interno ISO (AAAA-MM-DD) para cálculos y para el servidor,
+ * pero el texto visible se reemplaza por una etiqueta DD/MM/AAAA. Al hacer clic se abre el calendario.
+ */
+(function () {
+  if (window.__dmyFechaInit) return;
+  window.__dmyFechaInit = true;
+
+  var estilo = document.createElement('style');
+  estilo.setAttribute('data-dmy', '1');
+  estilo.textContent =
+    '.dmy-wrap{position:relative;display:block;}' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-fields-wrapper,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-text,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-month-field,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-day-field,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-year-field{color:transparent !important;background:transparent !important;}' +
+    '.dmy-wrap input[type="date"]{cursor:pointer;}' +
+    '.dmy-label{position:absolute;pointer-events:none;display:flex;align-items:center;white-space:nowrap;overflow:hidden;line-height:1;}';
+  (document.head || document.documentElement).appendChild(estilo);
+
+  function aDMY(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    return m ? (m[3] + '/' + m[2] + '/' + m[1]) : '';
+  }
+
+  function envolver(inp) {
+    if (inp.__dmy || inp.id === 'inputFecha' || (inp.closest && inp.closest('[data-dmy-skip]'))) return;
+    inp.__dmy = true;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'dmy-wrap';
+    var lab = document.createElement('span');
+    lab.className = 'dmy-label';
+    inp.parentNode.insertBefore(wrap, inp);
+    wrap.appendChild(inp);
+    wrap.appendChild(lab);
+
+    function actualizar() {
+      var cs = window.getComputedStyle(inp);
+      lab.style.left = ((parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0) + 1) + 'px';
+      lab.style.top = cs.borderTopWidth;
+      lab.style.bottom = cs.borderBottomWidth;
+      lab.style.right = ((parseFloat(cs.borderRightWidth) || 0) + 30) + 'px';
+      lab.style.fontFamily = cs.fontFamily;
+      lab.style.fontSize = cs.fontSize;
+      lab.style.fontWeight = cs.fontWeight;
+      var txt = aDMY(inp.value);
+      lab.textContent = txt || 'dd/mm/aaaa';
+      lab.style.color = txt ? cs.color : '#94a3b8';
+    }
+
+    // Cambios programáticos (inp.value = '...') no disparan eventos: se intercepta el setter
+    var desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    Object.defineProperty(inp, 'value', {
+      configurable: true,
+      get: function () { return desc.get.call(this); },
+      set: function (v) { desc.set.call(this, v); actualizar(); }
+    });
+
+    inp.addEventListener('input', actualizar);
+    inp.addEventListener('change', actualizar);
+    inp.addEventListener('focus', actualizar);
+    if (inp.form) inp.form.addEventListener('reset', function () { setTimeout(actualizar, 0); });
+
+    function abrir() { try { if (inp.showPicker) inp.showPicker(); } catch (e) {} }
+    inp.addEventListener('click', abrir);
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Tab' || e.key === 'Escape' || e.key === 'Shift') return;
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') abrir();
+      // Evita teclear segmentos en orden MM/DD/AAAA del navegador: la fecha se elige en el calendario
+      e.preventDefault();
+    });
+
+    actualizar();
+    // Si el campo estaba oculto al envolver (modales), se recalcula al mostrarse
+    setTimeout(actualizar, 300);
+  }
+
+  function iniciar() {
+    var lista = document.querySelectorAll('input[type="date"]');
+    for (var i = 0; i < lista.length; i++) envolver(lista[i]);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
+  else iniciar();
+})();
+
+</script>
+<!-- FECHA_DMY_END -->
+</body>
+</html>

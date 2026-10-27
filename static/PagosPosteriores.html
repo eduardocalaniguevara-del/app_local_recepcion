@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pagos Posteriores — Hostal Óvalo</title>
+  <style>
+    :root {
+      --primary: #0f766e;
+      --primary-hover: #115e59;
+      --accent: #059669;
+      --accent-light: #d1fae5;
+      --warn: #d97706;
+      --warn-light: #fef3c7;
+      --danger: #dc2626;
+      --danger-light: #fee2e2;
+      --bg: #ffffff;
+      --card: #ffffff;
+      --border: #cbd5e1;
+      --text: #0f172a;
+      --muted: #475569;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100%;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.35;
+      padding: 6px 8px 24px;
+      transition: background-color 0.35s ease;
+    }
+
+    /* Estados de color de fondo en toda la interfaz derecha (Blanco -> Naranja Clarito -> Verde Claro -> Blanco) */
+    body.bg-state-saving {
+      background-color: #ffedd5 !important;
+    }
+    body.bg-state-saving fieldset,
+    body.bg-state-saving .account-card {
+      background-color: #fff7ed !important;
+      border-color: #fdba74 !important;
+    }
+    body.bg-state-success {
+      background-color: #dcfce7 !important;
+    }
+    body.bg-state-success fieldset,
+    body.bg-state-success .account-card {
+      background-color: #f0fdf4 !important;
+      border-color: #86efac !important;
+    }
+    body.bg-state-error {
+      background-color: #fee2e2 !important;
+    }
+    body.bg-state-error fieldset {
+      background-color: #fef2f2 !important;
+      border-color: #fca5a5 !important;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+      color: #fff;
+      padding: 8px 10px;
+      border-radius: 9px;
+      margin-bottom: 8px;
+      box-shadow: 0 2px 5px rgba(15, 118, 110, 0.2);
+    }
+    .topbar-title {
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .topbar-sub {
+      font-size: 11px;
+      opacity: 0.9;
+      display: block;
+      font-weight: 400;
+    }
+    .btn-refresh {
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .btn-refresh:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    #statusBanner {
+      display: none;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    #statusBanner.saving {
+      display: none !important;
+      background: var(--warn-light);
+      color: #92400e;
+      border: 1px solid #f59e0b;
+    }
+    #statusBanner.success {
+      display: none !important;
+      background: var(--accent-light);
+      color: #065f46;
+      border: 1px solid #10b981;
+    }
+    #statusBanner.error {
+      display: block;
+      background: var(--danger-light);
+      color: #991b1b;
+      border: 1px solid #ef4444;
+    }
+
+    fieldset {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 8px 9px 10px;
+      margin-bottom: 8px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+      transition: background-color 0.35s ease, border-color 0.35s ease;
+    }
+    legend {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--primary);
+      padding: 0 5px;
+    }
+
+    .field {
+      margin-bottom: 7px;
+    }
+    .field:last-child {
+      margin-bottom: 0;
+    }
+
+    label {
+      display: block;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .req {
+      color: var(--danger);
+      margin-left: 2px;
+    }
+
+    input[type="text"],
+    select {
+      width: 100%;
+      min-height: 35px;
+      padding: 5px 8px;
+      font-size: 13px;
+      border: 1.5px solid #94a3b8;
+      border-radius: 6px;
+      background-color: #fff;
+      color: var(--text);
+    }
+
+    input:focus-visible,
+    select:focus-visible,
+    button:focus-visible {
+      outline: 2px solid #0f766e;
+      outline-offset: 1px;
+      border-color: #0f766e;
+    }
+
+    input.campo-invalido,
+    select.campo-invalido {
+      border-color: var(--danger) !important;
+      background-color: #fef2f2 !important;
+    }
+    .error-hint {
+      display: none;
+      font-size: 11px;
+      color: var(--danger);
+      font-weight: 600;
+      margin-top: 2px;
+    }
+    input.campo-invalido ~ .error-hint,
+    select.campo-invalido ~ .error-hint {
+      display: block;
+    }
+
+    /* TARJETA DE CUENTA OPTIMIZADA (NUNCA SE CORTA) */
+    .account-card {
+      background: #f0fdfa;
+      border: 1.5px solid #99f6e4;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-top: 6px;
+    }
+
+    .acc-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+    .acc-nombre {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.25;
+      word-break: break-word;
+    }
+    .acc-hab-badge {
+      background: #0f766e;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 5px;
+      white-space: nowrap;
+    }
+
+    .acc-fechas-bar {
+      font-size: 11.5px;
+      color: #0f766e;
+      background: #ccfbf1;
+      padding: 3px 6px;
+      border-radius: 5px;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+    }
+
+    /* Fila de 3 Métricas Claves */
+    .acc-metrics-strip {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.15fr;
+      gap: 5px;
+      background: #ffffff;
+      border: 1px solid #99f6e4;
+      border-radius: 6px;
+      padding: 5px 6px;
+      margin-bottom: 6px;
+      text-align: center;
+      align-items: center;
+    }
+    .metric-col {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 4px 2px;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+    }
+    .metric-lbl {
+      font-size: 9.5px;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: #64748b;
+    }
+    .metric-val {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    /* Saldo Deuda: RESALTANTE EN ROJO CON LETRAS BLANCAS */
+    .metric-col.deuda-col-debe {
+      background: #dc2626 !important;
+      box-shadow: 0 2px 6px rgba(220, 38, 38, 0.4);
+    }
+    .metric-col.deuda-col-debe .metric-lbl {
+      color: #fee2e2 !important;
+      font-weight: 800;
+      font-size: 9.5px;
+      letter-spacing: 0.3px;
+    }
+    .metric-col.deuda-col-debe .metric-val {
+      color: #ffffff !important;
+      font-size: 13.5px !important;
+      font-weight: 900 !important;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    }
+
+    .metric-col.deuda-col-ok {
+      background: #059669 !important;
+      box-shadow: 0 2px 5px rgba(5, 150, 105, 0.3);
+    }
+    .metric-col.deuda-col-ok .metric-lbl {
+      color: #d1fae5 !important;
+      font-weight: 800;
+      font-size: 9.5px;
+    }
+    .metric-col.deuda-col-ok .metric-val {
+      color: #ffffff !important;
+      font-size: 13px !important;
+      font-weight: 800 !important;
+    }
+
+    /* Banner adicional de alerta de saldo deuda */
+    .saldo-alert-box {
+      border-radius: 6px;
+      padding: 6px 10px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+      font-size: 12.5px;
+    }
+    .saldo-alert-box.debe {
+      background: #fef2f2;
+      border: 1.5px solid #dc2626;
+      color: #991b1b;
+    }
+    .saldo-alert-box.ok {
+      background: #f0fdf4;
+      border: 1.5px solid #16a34a;
+      color: #166534;
+    }
+    .saldo-alert-box .saldo-alert-monto {
+      font-size: 14.5px;
+      font-weight: 900;
+      color: #b91c1c;
+    }
+    .saldo-alert-box.ok .saldo-alert-monto {
+      font-size: 13px;
+      font-weight: 800;
+      color: #15803d;
+    }
+
+    /* Hint de búsqueda rápida de habitación */
+    .prev-stay-hint {
+      display: none;
+      font-size: 11.5px;
+      color: #0f766e;
+      background: #f0fdfa;
+      border: 1px solid #99f6e4;
+      border-radius: 6px;
+      padding: 5px 8px;
+      margin-top: 5px;
+    }
+    .prev-stay-hint.visible {
+      display: block;
+    }
+
+    /* Lista limpia de desglose */
+    .acc-list {
+      border-top: 1px dashed #99f6e4;
+      padding-top: 5px;
+      font-size: 11.5px;
+    }
+    .acc-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 2px 0;
+      color: #334155;
+    }
+    .acc-row strong {
+      color: #0f172a;
+    }
+
+    .yape-box {
+      display: none;
+      margin-top: 6px;
+      padding: 6px 8px;
+      background: #fdf4ff;
+      border: 1.5px solid #c026d3;
+      border-radius: 7px;
+    }
+    .yape-box.visible {
+      display: block;
+    }
+    .yape-box label {
+      color: #86198f;
+    }
+
+    details {
+      background: #f8fafc;
+      border: 1px dashed #94a3b8;
+      border-radius: 7px;
+      padding: 5px 8px;
+      margin-top: 6px;
+    }
+    summary {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--primary);
+      cursor: pointer;
+    }
+    .details-body {
+      margin-top: 6px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .btn-submit {
+      flex: 1;
+      min-height: 42px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 13.5px;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(15, 118, 110, 0.25);
+    }
+    .btn-submit:hover {
+      background: var(--primary-hover);
+    }
+    .btn-clear {
+      min-height: 42px;
+      padding: 0 10px;
+      background: #e2e8f0;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+  </style>
+  <script src="/static/js/api_bridge.js"></script>
+</head>
+<body>
+
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">💳 Pagos Posteriores</div>
+      <span class="topbar-sub" id="syncInfo">Cargando cuentas...</span>
+    </div>
+    <button type="button" class="btn-refresh" id="btnRefresh">🔄 Actualizar</button>
+  </div>
+
+  <form id="pagosForm" action="#" method="POST" novalidate>
+
+    <!-- 1. RESUMEN DE CUENTA DE LA HABITACIÓN -->
+    <fieldset>
+      <legend id="legendSeccion1">1. Resumen de Cuenta de la Habitación</legend>
+
+      <div id="bloqueSeleccionHabPago" style="display: none;">
+        <div class="field">
+          <label for="pagoHabBuscar">⚡ Digita N° de Habitación</label>
+          <input type="text" id="pagoHabBuscar" inputmode="numeric" autocomplete="off"
+                 autocorrect="off" autocapitalize="off" spellcheck="false"
+                 placeholder="Ej. 103" maxlength="5">
+          <div id="pagoBuscarHint" class="prev-stay-hint"></div>
+        </div>
+
+        <div class="field">
+          <label for="estanciaSelect">Habitaciones Recientes / En Curso <span class="req">*</span></label>
+          <select id="estanciaSelect" required>
+            <option value="">-- Seleccionar Habitación --</option>
+          </select>
+          <span class="error-hint">Selecciona una habitación para ver su cuenta.</span>
+        </div>
+      </div>
+
+      <!-- ÁREA DE VISUALIZACIÓN DE LA CUENTA (100% RESPONSIVA, NUNCA CORTA DATOS) -->
+      <div id="accountCard" class="account-card" style="display: none;">
+        
+        <div class="acc-top">
+          <div class="acc-nombre" id="visNombre">-</div>
+          <div class="acc-hab-badge" id="visHab">Hab. -</div>
+        </div>
+
+        <div class="acc-fechas-bar">
+          <span id="visFechas">📅 - → -</span>
+          <span id="visHora">00:00</span>
+        </div>
+
+        <!-- TIRA DE 3 MÉTRICAS: TOTAL CUENTA, TOTAL PAGADO, SALDO -->
+        <div class="acc-metrics-strip">
+          <div class="metric-col">
+            <span class="metric-lbl">Total Cuenta</span>
+            <span class="metric-val" id="visCuenta">S/ 0.00</span>
+          </div>
+          <div class="metric-col">
+            <span class="metric-lbl">Pagado</span>
+            <span class="metric-val" id="visPagado">S/ 0.00</span>
+          </div>
+          <div class="metric-col" id="colSaldo">
+            <span class="metric-lbl" id="lblSaldo">Saldo Deuda</span>
+            <span class="metric-val" id="visSaldo">S/ 0.00</span>
+          </div>
+        </div>
+
+        <!-- BANNER NOTORIO DE ALERTA DE SALDO DEUDA (FONDO ROJO CON LETRAS BLANCAS) -->
+        <div id="saldoAlertBanner" class="saldo-alert-box debe" style="display: none;">
+          <span id="saldoAlertTexto">⚠️ Saldo Deuda Pendiente:</span>
+          <span class="saldo-alert-monto" id="visSaldoBanner">S/ 0.00</span>
+        </div>
+
+        <!-- DESGLOSE DETALLADO LÍNEA POR LÍNEA -->
+        <div class="acc-list">
+          <div class="acc-row">
+            <span>Tarifa por Noche:</span>
+            <strong id="visTarifa">S/ 0.00</strong>
+          </div>
+          <div class="acc-row" id="rowSnacks" style="display: none;">
+            <span>Snacks de Tienda:</span>
+            <strong id="visSnacks">S/ 0.00</strong>
+          </div>
+          <div class="acc-row" id="rowServicios" style="display: none;">
+            <span>Servicios Adicionales:</span>
+            <strong id="visServicios">S/ 0.00</strong>
+          </div>
+          <div class="acc-row" id="rowCompExtra" style="display: none;">
+            <span>Cargo Comprobante:</span>
+            <strong id="visCompExtra">S/ 0.00</strong>
+          </div>
+          <div class="acc-row" id="rowDeudaAnt" style="display: none;">
+            <span>Deuda Anterior Arrastrada:</span>
+            <strong id="visDeudaAnt">S/ 0.00</strong>
+          </div>
+        </div>
+
+      </div>
+    </fieldset>
+
+    <!-- 2. ÁREA DE EDICIÓN / REGISTRO DE PAGO POSTERIOR -->
+    <fieldset>
+      <legend>2. Registrar Pago o Cargo</legend>
+
+      <div class="field">
+        <label for="montoPago">Monto a Cobrar / Pagar (S/) <span class="req">*</span></label>
+        <input type="text" id="montoPago" inputmode="decimal" value="0" placeholder="0">
+        <span class="error-hint">Ingresa el monto.</span>
+      </div>
+
+      <div class="field">
+        <label for="conceptoPago">Concepto <span class="req">*</span></label>
+        <select id="conceptoPago">
+          <option value="Pago de Saldo" selected>Pago de Saldo</option>
+          <option value="Servicio Adicional">Servicio Adicional</option>
+          <option value="Servicio por Comprobante">Servicio por Comprobante</option>
+          <option value="Carga Deuda Anterior">Carga Deuda Anterior</option>
+          <option value="Vuelto a cliente">Vuelto a cliente</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="metodoPago">Método de Pago <span class="req">*</span></label>
+        <select id="metodoPago">
+          <option value="Efectivo" selected>💵 Efectivo</option>
+          <option value="Yape">📱 Yape</option>
+          <option value="VISA">💳 VISA</option>
+          <option value="BCP">🏦 BCP</option>
+          <option value="Transferencia">🏦 Transferencia bancaria</option>
+          <option value="Cargar a la Cuenta">🛏️ Cargar a la Cuenta (Sin pago hoy)</option>
+        </select>
+      </div>
+
+      <div id="yapeBoxPago" class="yape-box">
+        <label for="nroOpYapePago">📱 N° de Operación Yape / Hora <span class="req">* (OBLIGATORIO CON YAPE)</span></label>
+        <input type="text" id="nroOpYapePago"
+               autocorrect="off" autocapitalize="off" spellcheck="false"
+               placeholder="Ej. 654981 / 19:10">
+        <span class="error-hint">Ingresa el N° de operación Yape.</span>
+      </div>
+
+      <div id="tipoAdicionalBox" class="field" style="display:none;">
+        <label for="tipoAdicionalPago">🧾 Tipo de Servicio Adicional</label>
+        <select id="tipoAdicionalPago">
+          <option value="">— Selecciona el tipo —</option>
+          <option value="Guardar equipaje">🧳 Guardar equipaje</option>
+          <option value="Ducha">🚿 Ducha</option>
+          <option value="Uso de baño">🚻 Uso de baño</option>
+          <option value="Lavandería">🧺 Lavandería</option>
+          <option value="Garaje">🚗 Garaje</option>
+          <option value="Impresiones">🖨️ Impresiones</option>
+          <option value="Otros">➕ Otros</option>
+        </select>
+      </div>
+
+      <div id="bancoBoxPago" class="field" style="display:none;">
+        <label for="cuentaDestinoPago">🏦 Cuenta destino</label>
+        <select id="cuentaDestinoPago">
+          <option value="Interbank">Interbank</option>
+          <option value="BCP">BCP</option>
+          <option value="BBVA">BBVA</option>
+          <option value="Otro">Otro banco</option>
+        </select>
+        <label for="nroOpBancoPago" style="margin-top:8px;">N° de operación bancaria</label>
+        <input type="text" id="nroOpBancoPago" autocomplete="off" placeholder="Ej. 00492817">
+      </div>
+
+      <details id="compDetails">
+        <summary>🧾 Actualizar Estado / Monto Comprobante (Opcional)</summary>
+        <div class="details-body">
+          <div class="field">
+            <label for="estadoComp">Estado Comprobante</label>
+            <select id="estadoComp">
+              <option value="">-- Sin cambio --</option>
+              <option value="Pendiente">Pendiente</option>
+              <option value="Emitido">Emitido</option>
+              <option value="Anulado">Anulado</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="montoComp">Monto Comprobante (S/)</label>
+            <input type="text" id="montoComp" inputmode="decimal" placeholder="Ej. 75">
+          </div>
+        </div>
+      </details>
+    </fieldset>
+
+    <div id="statusBanner" role="status" aria-live="polite"></div>
+
+    <div class="actions">
+      <button type="submit" class="btn-submit" id="btnSubmitPago">💳 GUARDAR PAGO POSTERIOR</button>
+      <button type="button" class="btn-clear" id="btnClearPago">Limpiar</button>
+    </div>
+  </form>
+
+  <script>
+    let ESTANCIAS = [];
+    const pagosForm = document.getElementById('pagosForm');
+    const pagoHabBuscar = document.getElementById('pagoHabBuscar');
+    const pagoBuscarHint = document.getElementById('pagoBuscarHint');
+    const estanciaSelect = document.getElementById('estanciaSelect');
+    const accountCard = document.getElementById('accountCard');
+    const colSaldo = document.getElementById('colSaldo');
+    const lblSaldo = document.getElementById('lblSaldo');
+    const saldoAlertBanner = document.getElementById('saldoAlertBanner');
+    const saldoAlertTexto = document.getElementById('saldoAlertTexto');
+    const visSaldoBanner = document.getElementById('visSaldoBanner');
+    const montoPago = document.getElementById('montoPago');
+    const conceptoPago = document.getElementById('conceptoPago');
+    const metodoPago = document.getElementById('metodoPago');
+    const yapeBoxPago = document.getElementById('yapeBoxPago');
+    const nroOpYapePago = document.getElementById('nroOpYapePago');
+    const estadoComp = document.getElementById('estadoComp');
+    const montoComp = document.getElementById('montoComp');
+    const statusBanner = document.getElementById('statusBanner');
+    const syncInfo = document.getElementById('syncInfo');
+
+    document.addEventListener('input', (e) => {
+      if (e.target.classList && e.target.classList.contains('campo-invalido')) {
+        if (e.target.value.trim() !== '') e.target.classList.remove('campo-invalido');
+      }
+    });
+
+    function limpiarErroresVisuales() {
+      pagosForm.querySelectorAll('.campo-invalido').forEach((el) => el.classList.remove('campo-invalido'));
+    }
+
+    let timerBgEstado = null;
+    function mostrarBanner(tipo, htmlMsg) {
+      statusBanner.className = tipo;
+      statusBanner.innerHTML = htmlMsg;
+
+      if (timerBgEstado) {
+        clearTimeout(timerBgEstado);
+        timerBgEstado = null;
+      }
+      document.body.classList.remove('bg-state-saving', 'bg-state-success', 'bg-state-error');
+
+      if (tipo === 'saving' || tipo === 'success' || tipo === 'error') {
+        document.body.classList.add('bg-state-' + tipo);
+      }
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'DRAWER_BG_STATE', state: tipo || 'idle' }, '*');
+        }
+      } catch (e) {}
+
+      if (tipo === 'success' || tipo === 'error') {
+        timerBgEstado = setTimeout(() => {
+          document.body.classList.remove('bg-state-saving', 'bg-state-success', 'bg-state-error');
+          try {
+            if (window.parent && window.parent !== window) {
+              window.parent.postMessage({ type: 'DRAWER_BG_STATE', state: 'idle' }, '*');
+            }
+          } catch (e) {}
+        }, tipo === 'success' ? 2200 : 2800);
+      }
+    }
+
+    let CTX_HAB_PANEL = null;
+    const bloqueSeleccionHabPago = document.getElementById('bloqueSeleccionHabPago');
+
+    function vincularEstanciaDesdeContexto() {
+      if (!CTX_HAB_PANEL || !CTX_HAB_PANEL.hab) return false;
+      const habTarget = String(CTX_HAB_PANEL.hab).trim();
+      const filaTarget = Number(CTX_HAB_PANEL.fila) || 0;
+      const idTarget = String(CTX_HAB_PANEL.id || '').trim();
+      const checkInTarget = String(CTX_HAB_PANEL.checkIn || '').trim();
+
+      let idx = -1;
+      if (filaTarget > 0) {
+        idx = ESTANCIAS.findIndex(e => Number(e.fila) === filaTarget);
+      }
+      if (idx === -1 && idTarget) {
+        idx = ESTANCIAS.findIndex(e => String(e.id || '').trim() === idTarget);
+      }
+      if (idx === -1 && checkInTarget && checkInTarget !== '-') {
+        idx = ESTANCIAS.findIndex(e => String(e.hab).trim() === habTarget && String(e.fechaIn || '').trim() === checkInTarget);
+      }
+      if (idx === -1) {
+        idx = ESTANCIAS.findIndex(e => String(e.hab).trim() === habTarget);
+      }
+
+      if (idx === -1 && (CTX_HAB_PANEL.huesped || filaTarget > 0)) {
+        const tarifa = Number(CTX_HAB_PANEL.tarifa) || 0;
+        const snacks = Number(CTX_HAB_PANEL.snacks) || 0;
+        const servicios = Number(CTX_HAB_PANEL.servicios) || 0;
+        const compExtra = Number(CTX_HAB_PANEL.compExtra) || 0;
+        const deudaAnt = Number(CTX_HAB_PANEL.deudaAnt) || 0;
+        const pagado = Number(CTX_HAB_PANEL.totalPagado) || 0;
+        const saldo = Number(CTX_HAB_PANEL.saldo) || 0;
+        const cuentaCalc = Math.round((pagado + saldo - deudaAnt) * 100) / 100 > 0
+          ? Math.round((pagado + saldo - deudaAnt) * 100) / 100
+          : Math.round((tarifa + snacks + servicios + compExtra) * 100) / 100;
+        ESTANCIAS.unshift({
+          fila: filaTarget,
+          id: idTarget,
+          estanciaUuid: CTX_HAB_PANEL.estanciaUuid || '',
+          hab: habTarget,
+          nombre: CTX_HAB_PANEL.huesped || '-',
+          fechaIn: checkInTarget || '-',
+          fechaOut: CTX_HAB_PANEL.checkOut || '-',
+          hora: CTX_HAB_PANEL.hora || '--:--',
+          tarifa: tarifa,
+          snacks: snacks,
+          servicios: servicios,
+          compExtra: compExtra,
+          deudaAnt: deudaAnt,
+          totalCuenta: cuentaCalc,
+          totalPagado: pagado,
+          saldo: saldo
+        });
+        renderizarSelectorEstancias();
+        idx = ESTANCIAS.findIndex(e =>
+          (filaTarget > 0 && Number(e.fila) === filaTarget) || String(e.hab).trim() === habTarget
+        );
+      }
+
+      if (idx !== -1) {
+        estanciaSelect.value = String(idx);
+        pagoHabBuscar.value = ESTANCIAS[idx].hab;
+        estanciaSelect.classList.remove('campo-invalido');
+        mostrarDetalleEstancia(ESTANCIAS[idx]);
+        syncInfo.textContent = `Habitación ${ESTANCIAS[idx].hab} • Cuenta activa`;
+        return true;
+      }
+      return false;
+    }
+
+    window.aplicarContextoPago = function(ctx) {
+      if (!ctx || !ctx.hab) return;
+      CTX_HAB_PANEL = ctx;
+      if (bloqueSeleccionHabPago) bloqueSeleccionHabPago.style.display = 'none';
+      vincularEstanciaDesdeContexto();
+    };
+
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'SET_CONTEXT' && e.data.context) {
+        window.aplicarContextoPago(e.data.context);
+      }
+    });
+
+    function cargarCuentas() {
+      syncInfo.textContent = 'Sincronizando cuentas...';
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler((res) => {
+            ESTANCIAS = (res && Array.isArray(res.estanciasActivas)) ? res.estanciasActivas : (Array.isArray(res) ? res : []);
+            renderizarSelectorEstancias();
+            if (CTX_HAB_PANEL && CTX_HAB_PANEL.hab) {
+              vincularEstanciaDesdeContexto();
+            } else {
+              syncInfo.textContent = `Listo • ${ESTANCIAS.length} estancias cargadas`;
+              if (window.parent === window && bloqueSeleccionHabPago) {
+                bloqueSeleccionHabPago.style.display = 'block';
+              }
+            }
+          })
+          .withFailureHandler((err) => {
+            syncInfo.textContent = 'Error: ' + (err.message || err);
+          })
+          .obtenerDatosPagosPosteriores();
+      }
+    }
+
+    function renderizarSelectorEstancias() {
+      const prevVal = estanciaSelect.value;
+      estanciaSelect.innerHTML = '<option value="">-- Seleccionar Habitación / Huésped --</option>';
+
+      // Ordenar por número de habitación
+      ESTANCIAS.sort((a, b) => (parseInt(a.hab, 10) || 0) - (parseInt(b.hab, 10) || 0));
+
+      const grpDebe = document.createElement('optgroup');
+      grpDebe.label = '🟥 CON SALDO PENDIENTE (DEBE)';
+      const grpAlDia = document.createElement('optgroup');
+      grpAlDia.label = '🟩 AL DÍA / PAGADAS';
+
+      ESTANCIAS.forEach((est, idx) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        const saldo = Number(est.saldo) || 0;
+        if (saldo > 0) {
+          opt.textContent = `${est.hab} — ${est.nombre} (Debe: S/ ${saldo.toFixed(2)})`;
+          grpDebe.appendChild(opt);
+        } else {
+          opt.textContent = `${est.hab} — ${est.nombre} (Pagado)`;
+          grpAlDia.appendChild(opt);
+        }
+      });
+
+      if (grpDebe.children.length > 0) estanciaSelect.appendChild(grpDebe);
+      if (grpAlDia.children.length > 0) estanciaSelect.appendChild(grpAlDia);
+
+      if (prevVal !== '' && ESTANCIAS[prevVal]) {
+        estanciaSelect.value = prevVal;
+        mostrarDetalleEstancia(ESTANCIAS[prevVal]);
+      } else {
+        accountCard.style.display = 'none';
+      }
+    }
+
+    function mostrarDetalleEstancia(est) {
+      if (!est) {
+        accountCard.style.display = 'none';
+        return;
+      }
+      document.getElementById('visNombre').textContent = est.nombre || '-';
+      document.getElementById('visHab').textContent = `Hab. ${est.hab}`;
+      document.getElementById('visFechas').textContent = `📅 ${est.fechaIn} → ${est.fechaOut}`;
+      document.getElementById('visHora').textContent = `⏰ ${est.hora || '--:--'}`;
+
+      const tarifa = Number(est.tarifa) || 0;
+      const cuenta = Number(est.totalCuenta) || 0;
+      const pagado = Number(est.totalPagado) || 0;
+      const saldo = Number(est.saldo) || 0;
+      const snacks = Number(est.snacks) || 0;
+      const serv = Number(est.servicios) || 0;
+      const compExtra = Number(est.compExtra) || 0;
+      const deudaAnt = Number(est.deudaAnt) || 0;
+
+      document.getElementById('visTarifa').textContent = `S/ ${tarifa.toFixed(2)}`;
+      document.getElementById('visCuenta').textContent = `S/ ${cuenta.toFixed(2)}`;
+      document.getElementById('visPagado').textContent = `S/ ${pagado.toFixed(2)}`;
+
+      const saldoEl = document.getElementById('visSaldo');
+      saldoEl.textContent = `S/ ${saldo.toFixed(2)}`;
+
+      if (saldo > 0) {
+        colSaldo.className = 'metric-col deuda-col-debe';
+        lblSaldo.textContent = 'SALDO DEUDA';
+        saldoAlertBanner.className = 'saldo-alert-box debe';
+        saldoAlertTexto.textContent = '⚠️ Saldo Deuda Pendiente:';
+        visSaldoBanner.textContent = `S/ ${saldo.toFixed(2)}`;
+        saldoAlertBanner.style.display = 'flex';
+      } else {
+        colSaldo.className = 'metric-col deuda-col-ok';
+        lblSaldo.textContent = 'AL DÍA';
+        saldoAlertBanner.className = 'saldo-alert-box ok';
+        saldoAlertTexto.textContent = '✅ Cuenta al Día:';
+        visSaldoBanner.textContent = 'S/ 0.00 (Pagado)';
+        saldoAlertBanner.style.display = 'flex';
+      }
+
+      // Mostrar extras solo si existen (> 0) para mantener la vista 100% limpia
+      const setFilaExtra = (rowId, valId, val) => {
+        const row = document.getElementById(rowId);
+        if (val > 0) {
+          document.getElementById(valId).textContent = `S/ ${val.toFixed(2)}`;
+          row.style.display = 'flex';
+        } else {
+          row.style.display = 'none';
+        }
+      };
+
+      setFilaExtra('rowSnacks', 'visSnacks', snacks);
+      setFilaExtra('rowServicios', 'visServicios', serv);
+      setFilaExtra('rowCompExtra', 'visCompExtra', compExtra);
+      setFilaExtra('rowDeudaAnt', 'visDeudaAnt', deudaAnt);
+
+      montoPago.value = '0';
+      accountCard.style.display = 'block';
+    }
+
+    // Búsqueda instantánea al digitar el número de habitación (ej. 103)
+    pagoHabBuscar.addEventListener('input', () => {
+      const val = pagoHabBuscar.value.trim();
+      pagoBuscarHint.classList.remove('visible');
+      if (!val) {
+        estanciaSelect.value = '';
+        accountCard.style.display = 'none';
+        return;
+      }
+      const idx = ESTANCIAS.findIndex((e) => String(e.hab).trim() === val);
+      if (idx !== -1) {
+        estanciaSelect.value = String(idx);
+        estanciaSelect.classList.remove('campo-invalido');
+        montoPago.value = '0';
+        mostrarDetalleEstancia(ESTANCIAS[idx]);
+      } else {
+        estanciaSelect.value = '';
+        accountCard.style.display = 'none';
+        if (val.length >= 3) {
+          pagoBuscarHint.textContent = `⚠️ La Habitación ${val} no tiene estancia reciente en la lista.`;
+          pagoBuscarHint.classList.add('visible');
+        }
+      }
+    });
+
+    pagoHabBuscar.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        if (estanciaSelect.value !== '') montoPago.focus();
+      }
+    });
+
+    estanciaSelect.addEventListener('change', () => {
+      estanciaSelect.classList.remove('campo-invalido');
+      const idx = estanciaSelect.value;
+      if (idx === '' || !ESTANCIAS[idx]) {
+        accountCard.style.display = 'none';
+        pagoHabBuscar.value = '';
+        pagoBuscarHint.classList.remove('visible');
+        return;
+      }
+      pagoHabBuscar.value = ESTANCIAS[idx].hab;
+      pagoBuscarHint.classList.remove('visible');
+      montoPago.value = '0';
+      mostrarDetalleEstancia(ESTANCIAS[idx]);
+    });
+
+    conceptoPago.addEventListener('change', actualizarCamposExtra);
+    metodoPago.addEventListener('change', actualizarCamposExtra);
+    function actualizarCamposExtra() {
+      document.getElementById('tipoAdicionalBox').style.display = (conceptoPago.value === 'Servicio Adicional') ? '' : 'none';
+      document.getElementById('bancoBoxPago').style.display = (metodoPago.value === 'Transferencia') ? '' : 'none';
+    }
+    metodoPago.addEventListener('change', actualizarEstadoYape);
+    function actualizarEstadoYape() {
+      if (metodoPago.value === 'Yape') {
+        yapeBoxPago.classList.add('visible');
+      } else {
+        yapeBoxPago.classList.remove('visible');
+        nroOpYapePago.classList.remove('campo-invalido');
+      }
+    }
+
+    function limpiarCamposEdicion() {
+      montoPago.value = '0';
+      conceptoPago.value = 'Pago de Saldo';
+      metodoPago.value = 'Efectivo';
+      nroOpYapePago.value = '';
+      document.getElementById('tipoAdicionalPago').value = '';
+      document.getElementById('nroOpBancoPago').value = '';
+      actualizarCamposExtra();
+      estadoComp.value = '';
+      montoComp.value = '';
+      document.getElementById('compDetails').open = false;
+      actualizarEstadoYape();
+      limpiarErroresVisuales();
+    }
+
+    document.getElementById('btnClearPago').addEventListener('click', () => {
+      if (!CTX_HAB_PANEL || !CTX_HAB_PANEL.hab) {
+        pagoHabBuscar.value = '';
+        pagoBuscarHint.classList.remove('visible');
+        estanciaSelect.value = '';
+        accountCard.style.display = 'none';
+      }
+      limpiarCamposEdicion();
+    });
+
+    pagosForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      limpiarErroresVisuales();
+
+      const idx = estanciaSelect.value;
+      if (idx === '' || !ESTANCIAS[idx]) {
+        estanciaSelect.classList.add('campo-invalido');
+        estanciaSelect.focus();
+        return;
+      }
+
+      const est = ESTANCIAS[idx];
+      const montoVal = parseFloat(montoPago.value) || 0;
+      const estCVal = estadoComp.value;
+      const monCVal = montoComp.value.trim();
+
+      if (montoVal <= 0 && !estCVal && !monCVal) {
+        montoPago.classList.add('campo-invalido');
+        montoPago.focus();
+        return;
+      }
+
+      if (montoVal > 0 && metodoPago.value === 'Yape' && nroOpYapePago.value.trim() === '') {
+        nroOpYapePago.classList.add('campo-invalido');
+        nroOpYapePago.focus();
+        return;
+      }
+
+      if (montoVal > 0 && metodoPago.value === 'Transferencia' && document.getElementById('nroOpBancoPago').value.trim() === '') {
+        document.getElementById('nroOpBancoPago').classList.add('campo-invalido');
+        document.getElementById('nroOpBancoPago').focus();
+        return;
+      }
+
+      const payload = {
+        fila: est.fila,
+        id: est.id,
+        hab: est.hab,
+        nombre: est.nombre,
+        monto: montoVal,
+        concepto: conceptoPago.value,
+        metodo: metodoPago.value,
+        nroOpYape: nroOpYapePago.value.trim(),
+        tipoAdicional: conceptoPago.value === 'Servicio Adicional' ? document.getElementById('tipoAdicionalPago').value : '',
+        cuentaDestino: metodoPago.value === 'Transferencia' ? document.getElementById('cuentaDestinoPago').value : '',
+        nroOpBanco: metodoPago.value === 'Transferencia' ? document.getElementById('nroOpBancoPago').value.trim() : '',
+        estadoComp: estCVal,
+        montoComp: monCVal
+      };
+
+      // Actualizar vista en memoria de forma optimista
+      if (montoVal > 0) {
+        if (payload.concepto === 'Servicio Adicional') {
+          est.servicios = (Number(est.servicios) || 0) + montoVal;
+          est.totalCuenta = (Number(est.totalCuenta) || 0) + montoVal;
+          est.saldo = (Number(est.saldo) || 0) + montoVal;
+        } else if (payload.concepto === 'Servicio por Comprobante') {
+          est.compExtra = (Number(est.compExtra) || 0) + montoVal;
+          est.totalCuenta = (Number(est.totalCuenta) || 0) + montoVal;
+          est.saldo = (Number(est.saldo) || 0) + montoVal;
+        } else if (payload.concepto === 'Carga Deuda Anterior') {
+          est.deudaAnt = (Number(est.deudaAnt) || 0) + montoVal;
+          est.totalCuenta = (Number(est.totalCuenta) || 0) + montoVal;
+          est.saldo = (Number(est.saldo) || 0) + montoVal;
+        }
+
+        if (payload.metodo !== 'Cargar a la Cuenta') {
+          const factor = payload.concepto === 'Vuelto a cliente' ? -1 : 1;
+          est.totalPagado = (Number(est.totalPagado) || 0) + (montoVal * factor);
+          est.saldo = (Number(est.saldo) || 0) - (montoVal * factor);
+        }
+      }
+
+      limpiarCamposEdicion();
+      renderizarSelectorEstancias();
+      if (CTX_HAB_PANEL && CTX_HAB_PANEL.hab) {
+        vincularEstanciaDesdeContexto();
+      }
+      mostrarBanner('saving', `⏳ Guardando operación en Hab. ${est.hab} (${est.nombre})...`);
+
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler((res) => {
+            if (res && res.ok) {
+              mostrarBanner('success', `✅ ¡Guardado exitoso en Hab. ${res.hab}! (${res.detalle})`);
+            }
+          })
+          .withFailureHandler((err) => {
+            mostrarBanner('error', `❌ Error al guardar pago: ${err.message || err}`);
+          })
+          .guardarPagoPosteriorDesdeApp(payload);
+      }
+    });
+
+    document.getElementById('btnRefresh').addEventListener('click', cargarCuentas);
+    window.addEventListener('DOMContentLoaded', cargarCuentas);
+  </script>
+<!-- FECHA_DMY_BEGIN -->
+<script>
+/**
+ * Fechas siempre en formato DD/MM/AAAA (25/10/2026), sin depender del idioma de Chrome.
+ * Los <input type="date"> conservan su valor interno ISO (AAAA-MM-DD) para cálculos y para el servidor,
+ * pero el texto visible se reemplaza por una etiqueta DD/MM/AAAA. Al hacer clic se abre el calendario.
+ */
+(function () {
+  if (window.__dmyFechaInit) return;
+  window.__dmyFechaInit = true;
+
+  var estilo = document.createElement('style');
+  estilo.setAttribute('data-dmy', '1');
+  estilo.textContent =
+    '.dmy-wrap{position:relative;display:block;}' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-fields-wrapper,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-text,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-month-field,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-day-field,' +
+    '.dmy-wrap input[type="date"]::-webkit-datetime-edit-year-field{color:transparent !important;background:transparent !important;}' +
+    '.dmy-wrap input[type="date"]{cursor:pointer;}' +
+    '.dmy-label{position:absolute;pointer-events:none;display:flex;align-items:center;white-space:nowrap;overflow:hidden;line-height:1;}';
+  (document.head || document.documentElement).appendChild(estilo);
+
+  function aDMY(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    return m ? (m[3] + '/' + m[2] + '/' + m[1]) : '';
+  }
+
+  function envolver(inp) {
+    if (inp.__dmy || inp.id === 'inputFecha' || (inp.closest && inp.closest('[data-dmy-skip]'))) return;
+    inp.__dmy = true;
+
+    var wrap = document.createElement('div');
+    wrap.className = 'dmy-wrap';
+    var lab = document.createElement('span');
+    lab.className = 'dmy-label';
+    inp.parentNode.insertBefore(wrap, inp);
+    wrap.appendChild(inp);
+    wrap.appendChild(lab);
+
+    function actualizar() {
+      var cs = window.getComputedStyle(inp);
+      lab.style.left = ((parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.paddingLeft) || 0) + 1) + 'px';
+      lab.style.top = cs.borderTopWidth;
+      lab.style.bottom = cs.borderBottomWidth;
+      lab.style.right = ((parseFloat(cs.borderRightWidth) || 0) + 30) + 'px';
+      lab.style.fontFamily = cs.fontFamily;
+      lab.style.fontSize = cs.fontSize;
+      lab.style.fontWeight = cs.fontWeight;
+      var txt = aDMY(inp.value);
+      lab.textContent = txt || 'dd/mm/aaaa';
+      lab.style.color = txt ? cs.color : '#94a3b8';
+    }
+
+    // Cambios programáticos (inp.value = '...') no disparan eventos: se intercepta el setter
+    var desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    Object.defineProperty(inp, 'value', {
+      configurable: true,
+      get: function () { return desc.get.call(this); },
+      set: function (v) { desc.set.call(this, v); actualizar(); }
+    });
+
+    inp.addEventListener('input', actualizar);
+    inp.addEventListener('change', actualizar);
+    inp.addEventListener('focus', actualizar);
+    if (inp.form) inp.form.addEventListener('reset', function () { setTimeout(actualizar, 0); });
+
+    function abrir() { try { if (inp.showPicker) inp.showPicker(); } catch (e) {} }
+    inp.addEventListener('click', abrir);
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Tab' || e.key === 'Escape' || e.key === 'Shift') return;
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown' || e.key === 'ArrowUp') abrir();
+      // Evita teclear segmentos en orden MM/DD/AAAA del navegador: la fecha se elige en el calendario
+      e.preventDefault();
+    });
+
+    actualizar();
+    // Si el campo estaba oculto al envolver (modales), se recalcula al mostrarse
+    setTimeout(actualizar, 300);
+  }
+
+  function iniciar() {
+    var lista = document.querySelectorAll('input[type="date"]');
+    for (var i = 0; i < lista.length; i++) envolver(lista[i]);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
+  else iniciar();
+})();
+
+</script>
+<!-- FECHA_DMY_END -->
+</body>
+</html>
