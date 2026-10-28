@@ -157,6 +157,9 @@ def build_panel_disponibilidad():
         const p = s.split("/");
         if (p.length === 3) lbl.textContent = `${p[0].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[2]}`;
       }
+      if (typeof actualizarResaltadoFechaPanel === "function") {
+        actualizarResaltadoFechaPanel(isoOrDmy);
+      }
     }
 
     // Sincronizar input type="date" con formato dd/MM/yyyy

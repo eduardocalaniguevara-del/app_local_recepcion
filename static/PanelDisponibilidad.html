@@ -94,36 +94,10 @@
   <div class="rounded-lg shadow-xs border px-2.5 py-1.5 mb-1.5 space-y-1.5 shrink-0"
        style="background-color: #FAF6F3; border-color: #DFD2C5;">
     
-    <!-- Fila 1: Fecha pegada a la izquierda como antes + Caja Efectivo + Badges ... Filtros + Buscador + Actualizar + Gastos -->
+    <!-- Fila 1: Caja Efectivo + Badges ... Filtros + Buscador + Actualizar + Gastos -->
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <!-- Lado Izquierdo: Fecha pegada a la izquierda como antes + Caja Efectivo Prominente -->
+      <!-- Lado Izquierdo: Caja Efectivo Prominente + Estado Sync -->
       <div class="flex items-center gap-2.5 flex-wrap">
-        <!-- SELECTOR Y CAMBIO DE FECHA INTERACTIVO (MÁS GRANDE) -->
-        <div id="grupoFechaPanel" class="flex items-center gap-1.5 border px-2 py-0.5 rounded-lg shadow-2xs"
-             style="background-color: #F7EFEA; border-color: #D8C7B8;">
-          <span class="text-xs sm:text-sm font-black text-slate-800">📅 Fecha:</span>
-          <button type="button" onclick="navegarFecha(-1)" title="Ver día anterior (Ayer)"
-                  class="px-2 py-0.5 rounded bg-white hover:bg-amber-50 text-slate-800 border border-[#D8C7B8] font-black text-xs transition-colors cursor-pointer">
-            ◀
-          </button>
-        <div class="relative inline-flex items-center bg-white rounded border border-[#D8C7B8] px-2.5 py-0.5 cursor-pointer hover:bg-amber-50/40 focus-within:ring-2 focus-within:ring-blue-600"
-             onclick="const inp=document.getElementById('inputFecha'); if(inp && inp.showPicker) inp.showPicker();"
-             title="Clic para elegir fecha en el calendario (Formato Día/Mes/Año)">
-          <span id="lblFechaVisibleDMY" class="font-black text-slate-900 text-xs sm:text-sm tracking-tight select-none">24/10/2026</span>
-          <span class="ml-1.5 text-[11px] text-slate-500 select-none">📆</span>
-          <input type="date" id="inputFecha" onchange="alCambiarFechaInput(event)"
-                 class="absolute inset-0 opacity-0 w-full h-full cursor-pointer">
-        </div>
-          <button type="button" onclick="navegarFecha(1)" title="Ver día siguiente (Mañana)"
-                  class="px-2 py-0.5 rounded bg-white hover:bg-amber-50 text-slate-800 border border-[#D8C7B8] font-black text-xs transition-colors cursor-pointer">
-            ▶
-          </button>
-          <button type="button" onclick="irAHoy()" title="Restablecer a la fecha de hoy"
-                  class="ml-0.5 px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs transition-colors cursor-pointer shadow-2xs">
-            Hoy
-          </button>
-        </div>
-
         <!-- CAJA DE EFECTIVO GRANDE Y PROMINENTE -->
         <div class="flex items-center gap-2 bg-emerald-600 text-white px-3 py-0.5 rounded-lg shadow-xs border border-emerald-700">
           <span class="text-xs sm:text-sm font-extrabold tracking-tight">💵 Caja Efectivo:</span>
@@ -174,19 +148,46 @@
     </div>
   </div>
 
-  <!-- Fila 2: CAMBIO DE HOJA DEBAJO: Panel / Registro de Pagos + Menú de Movimientos (reloj) -->
-  <div class="flex items-center gap-2 pt-1 border-t border-[#DFD2C5]/60">
-    <div class="flex items-center rounded-lg overflow-hidden border border-[#D8C7B8] shadow-2xs">
+  <!-- Fila 2: Pestañas a la izquierda + FECHA CENTRADA ENCIMA DE NOMBRES HUÉSPED CON RESALTADO VISUAL -->
+  <div class="relative flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#DFD2C5]/60 min-h-[34px]">
+    <div class="flex items-center rounded-lg overflow-hidden border border-[#D8C7B8] shadow-2xs z-10">
       <button type="button" id="tabVistaPanel" onclick="cambiarVista('panel')"
-              class="px-2.5 py-1 text-xs font-black bg-slate-800 text-white cursor-pointer transition-colors">🏨 Panel</button>
+              class="px-2 py-1 text-[11.5px] font-black bg-slate-800 text-white cursor-pointer transition-colors">🏨 Panel</button>
       <button type="button" id="tabVistaPagos" onclick="cambiarVista('pagos')"
-              class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">💰 Registro de Pagos</button>
+              class="px-2 py-1 text-[11.5px] font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">💰 Registro de Pagos</button>
       <button type="button" id="tabVistaEmpresas" onclick="cambiarVista('empresas')"
-              class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🏦 Pago Empresas</button>
+              class="px-2 py-1 text-[11.5px] font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🏦 Pago Empresas</button>
       <button type="button" id="tabVistaVitrina" onclick="cambiarVista('vitrina')"
-              class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🏪 Vitrina Tienda</button>
+              class="px-2 py-1 text-[11.5px] font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🏪 Vitrina Tienda</button>
       <button type="button" id="btnMovimientos" onclick="abrirMovimientos()" title="Historial de movimientos (quién hizo qué y cuándo)"
-              class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🕒 Movimientos</button>
+              class="px-2 py-1 text-[11.5px] font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🕒 Movimientos</button>
+    </div>
+
+    <!-- SELECTOR Y CAMBIO DE FECHA CENTRADO ENCIMA DE NOMBRES HUÉSPED -->
+    <div id="grupoFechaPanel" class="lg:absolute lg:left-1/2 lg:-translate-x-1/2 mx-auto flex items-center gap-1.5 border-2 px-3 py-0.5 rounded-lg shadow-xs transition-all z-10"
+         style="background: linear-gradient(180deg, #FFFFFF 0%, #F3E8DF 100%); border-color: #8C5D3A; box-shadow: 0 2px 6px rgba(140, 93, 58, 0.16);">
+      <span id="badgeEstadoFechaPanel" class="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10.5px] font-black tracking-tight shadow-2xs select-none">🟢 HOY</span>
+      <span class="text-xs sm:text-sm font-black text-slate-800 select-none">📅 Fecha:</span>
+      <button type="button" onclick="navegarFecha(-1)" title="Ver día anterior (Ayer)"
+              class="px-2 py-0.5 rounded bg-white hover:bg-amber-50 text-slate-800 border border-[#D8C7B8] font-black text-xs transition-colors cursor-pointer shadow-2xs">
+        ◀
+      </button>
+        <div class="relative inline-flex items-center bg-white rounded border border-[#D8C7B8] px-2.5 py-0.5 cursor-pointer hover:bg-amber-50/40 focus-within:ring-2 focus-within:ring-blue-600"
+             onclick="const inp=document.getElementById('inputFecha'); if(inp && inp.showPicker) inp.showPicker();"
+             title="Clic para elegir fecha en el calendario (Formato Día/Mes/Año)">
+          <span id="lblFechaVisibleDMY" class="font-black text-slate-900 text-xs sm:text-sm tracking-tight select-none">24/10/2026</span>
+          <span class="ml-1.5 text-[11px] text-slate-500 select-none">📆</span>
+          <input type="date" id="inputFecha" onchange="alCambiarFechaInput(event)"
+                 class="absolute inset-0 opacity-0 w-full h-full cursor-pointer">
+        </div>
+      <button type="button" onclick="navegarFecha(1)" title="Ver día siguiente (Mañana)"
+              class="px-2 py-0.5 rounded bg-white hover:bg-amber-50 text-slate-800 border border-[#D8C7B8] font-black text-xs transition-colors cursor-pointer shadow-2xs">
+        ▶
+      </button>
+      <button type="button" id="btnIrAHoyPanel" onclick="irAHoy()" title="Restablecer a la fecha de hoy"
+              class="ml-0.5 px-2.5 py-0.5 rounded bg-slate-600 hover:bg-slate-700 text-white font-extrabold text-xs transition-colors cursor-pointer shadow-2xs">
+        Hoy
+      </button>
     </div>
   </div>
 </div>
@@ -980,6 +981,9 @@
         const p = s.split("/");
         if (p.length === 3) lbl.textContent = `${p[0].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[2]}`;
       }
+      if (typeof actualizarResaltadoFechaPanel === "function") {
+        actualizarResaltadoFechaPanel(isoOrDmy);
+      }
     }
 
     // Sincronizar input type="date" con formato dd/MM/yyyy
@@ -1236,16 +1240,95 @@
       }
     }
 
+    function actualizarResaltadoFechaPanel(isoOrDmy) {
+      const grp = document.getElementById("grupoFechaPanel");
+      const badge = document.getElementById("badgeEstadoFechaPanel");
+      const btnHoy = document.getElementById("btnIrAHoyPanel");
+      const lblDmy = document.getElementById("lblFechaVisibleDMY");
+      if (!grp) return;
+      const hoyISO = (typeof fechaHoyServidorISO !== "undefined" && fechaHoyServidorISO) ? fechaHoyServidorISO : new Date().toISOString().split("T")[0];
+      let actISO = (inputFecha && inputFecha.value) ? inputFecha.value : hoyISO;
+      if (isoOrDmy && String(isoOrDmy).includes("-")) actISO = String(isoOrDmy).trim();
+      else if (isoOrDmy && String(isoOrDmy).includes("/")) {
+        const p = String(isoOrDmy).trim().split("/");
+        if (p.length === 3) actISO = `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}`;
+      }
+      const esHoy = (actISO === hoyISO);
+      if (esHoy) {
+        grp.style.background = "linear-gradient(180deg, #FFFFFF 0%, #F3E8DF 100%)";
+        grp.style.borderColor = "#8C5D3A";
+        grp.style.boxShadow = "0 2px 6px rgba(140, 93, 58, 0.16)";
+        if (badge) {
+          badge.className = "px-2 py-0.5 rounded bg-emerald-600 text-white text-[10.5px] font-black tracking-tight shadow-2xs select-none";
+          badge.textContent = "🟢 HOY";
+        }
+        if (lblDmy) lblDmy.className = "font-black text-slate-900 text-xs sm:text-sm tracking-tight select-none";
+        if (btnHoy) {
+          btnHoy.textContent = "Hoy";
+          btnHoy.className = "ml-0.5 px-2.5 py-0.5 rounded bg-slate-600 hover:bg-slate-700 text-white font-extrabold text-xs transition-colors cursor-pointer shadow-2xs";
+        }
+      } else {
+        grp.style.background = "linear-gradient(180deg, #FEF3C7 0%, #FDE68A 100%)";
+        grp.style.borderColor = "#D97706";
+        grp.style.boxShadow = "0 0 0 3px rgba(217, 119, 6, 0.28), 0 3px 8px rgba(180, 83, 9, 0.2)";
+        if (badge) {
+          badge.className = "px-2 py-0.5 rounded bg-amber-600 text-white text-[10.5px] font-black tracking-tight shadow-2xs select-none animate-pulse";
+          badge.textContent = "⚠️ OTRA FECHA";
+        }
+        if (lblDmy) lblDmy.className = "font-black text-amber-950 text-xs sm:text-sm tracking-tight select-none";
+        if (btnHoy) {
+          btnHoy.textContent = "⏭ Volver a Hoy";
+          btnHoy.className = "ml-0.5 px-2.5 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-black text-xs ring-2 ring-blue-300 transition-colors cursor-pointer shadow-xs";
+        }
+      }
+    }
+
+    function enriquecerOcupadaAyerDesdeCache(isoFecha) {
+      if (!habitacionesData || !habitacionesData.length || !estanciasCacheRAM || !estanciasCacheRAM.length) return;
+      const fIso = isoFecha || window.fechaActivaPanelISO || (inputFecha && inputFecha.value) || fechaHoyServidorISO || new Date().toISOString().split("T")[0];
+      const dAyer = new Date(fIso + "T12:00:00");
+      dAyer.setDate(dAyer.getDate() - 1);
+      const isoAyer = dAyer.toISOString().split("T")[0];
+      const ymdAyer = isoAYMDNum(isoAyer);
+      const dmyAyer = isoADMY(isoAyer);
+      const mapaAyer = {};
+      for (let i = 0; i < estanciasCacheRAM.length; i++) {
+        const st = estanciasCacheRAM[i];
+        const hab = String(st.hab || "").trim();
+        if (!hab || mapaAyer[hab]) continue;
+        const estLow = String(st.estadoEstancia || "").toLowerCase();
+        const esContinuaCerrada = estLow.includes("continúa") || estLow.includes("continua");
+        const esLibOCanc = estLow === "liberado" || estLow === "cancelado" || estLow.includes("cancel") || Boolean(st.esInactiva);
+        if (esLibOCanc || esContinuaCerrada) continue;
+        const activaAyer = (st.ymdIn > 0 && st.ymdIn <= ymdAyer && st.ymdOut > ymdAyer) || (st.checkIn === dmyAyer);
+        if (activaAyer) mapaAyer[hab] = st;
+      }
+      habitacionesData.forEach(h => {
+        if (h.estado === "libre") {
+          const stA = mapaAyer[String(h.hab)];
+          if (stA) {
+            h.ocupadaAyer = true;
+            h.huespedAyer = stA.huesped || h.huespedAyer || "";
+          } else if (h.ocupadaAyer === undefined) {
+            h.ocupadaAyer = false;
+            h.huespedAyer = "";
+          }
+        }
+      });
+    }
+
     // Cambio de fecha ultra-rápido: renderiza al instante desde la caché RAM del cliente y sincroniza en segundo plano
     function solicitarCambioFecha(isoFecha) {
       if (isoFecha) {
         window.fechaActivaPanelISO = isoFecha;
         try { sessionStorage.setItem("OVALO_FECHA_PANEL_ISO", isoFecha); } catch (e) {}
       }
+      actualizarResaltadoFechaPanel(isoFecha);
       const miReqId = ++reqFechaCounter;
       const renderInstantaneo = recalcularHabitacionesEnCliente(isoFecha);
 
       if (renderInstantaneo) {
+        enriquecerOcupadaAyerDesdeCache(isoFecha);
         actualizarContadores();
         renderTabla();
         toast.textContent = `📅 Mostrando fecha: ${isoADMY(isoFecha)}`;
@@ -1270,6 +1353,8 @@
               if (res.fechaHoyISO) fechaHoyServidorISO = res.fechaHoyISO;
               if (res.fechaVisualizada) sincronizarInputFecha(res.fechaVisualizada);
               if (res.totalCaja !== undefined) lblCaja.textContent = res.totalCaja;
+              enriquecerOcupadaAyerDesdeCache(isoFecha);
+              actualizarResaltadoFechaPanel(isoFecha);
             }
             if (res && res.syncStatus && typeof actualizarBadgeEstadoRed === "function") {
               actualizarBadgeEstadoRed(res.syncStatus);
@@ -3516,6 +3601,8 @@
                 sincronizarInputFecha(res.fechaVisualizada);
               }
               if (lblCaja && res.totalCaja !== undefined) lblCaja.textContent = res.totalCaja;
+              enriquecerOcupadaAyerDesdeCache(window.fechaActivaPanelISO || (inputFecha && inputFecha.value));
+              actualizarResaltadoFechaPanel(window.fechaActivaPanelISO || (inputFecha && inputFecha.value));
             }
             if (res && res.syncStatus && typeof actualizarBadgeEstadoRed === "function") {
               actualizarBadgeEstadoRed(res.syncStatus);

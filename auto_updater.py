@@ -69,15 +69,41 @@ def obtener_version_actual() -> str:
     return "git-unknown"
 
 
+_LAST_DL_MTIME: float = 0.0
+
+
+def _verificar_recarga_local_mtime() -> bool:
+    global _LAST_DL_MTIME
+    try:
+        dl_path = BASE_APP_DIR / "domain_logic.py"
+        if not dl_path.exists():
+            return False
+        mt = dl_path.stat().st_mtime
+        if _LAST_DL_MTIME == 0.0:
+            _LAST_DL_MTIME = mt
+            return False
+        if mt > _LAST_DL_MTIME:
+            _LAST_DL_MTIME = mt
+            recargar_en_memoria_sin_cortes()
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def recargar_en_memoria_sin_cortes() -> None:
     """
     Recarga domain_logic directamente en memoria y actualiza el timestamp
     de PanelDisponibilidad.html para que el navegador refresque la vista sin
     matar el servidor ni interrumpir el hilo de sincronización de sync_engine.
     """
+    global _LAST_DL_MTIME
     try:
         if "domain_logic" in sys.modules:
             importlib.reload(sys.modules["domain_logic"])
+        dl_path = BASE_APP_DIR / "domain_logic.py"
+        if dl_path.exists():
+            _LAST_DL_MTIME = dl_path.stat().st_mtime
     except Exception as exc:
         print(f"[AUTO-UPDATER] Aviso recargando domain_logic en memoria: {exc}")
 
@@ -96,6 +122,7 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
     Si hay cambios, ejecuta git reset --hard origin/main (preservando data/)
     y recarga en memoria sin desconectar el servidor.
     """
+    _verificar_recarga_local_mtime()
     git_dir = BASE_APP_DIR / ".git"
     if not git_dir.exists():
         return {"actualizado": False, "motivo": "sin_repo_git", "version": obtener_version_actual()}
