@@ -1477,6 +1477,8 @@ def guardar_venta_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("Selecciona el método de pago.")
     if met == "Yape" and not nro_op_yape:
         raise ValueError("Ingresa el N° de Operación Yape.")
+    if met == "Cargar a la Cuenta" and not pers:
+        raise ValueError("Debes indicar a quién le pertenece el consumo personal.")
 
     ahora = datetime.now()
     ahora_ts = ahora.strftime("%d/%m/%Y %H:%M:%S")

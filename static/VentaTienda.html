@@ -369,10 +369,14 @@
       </div>
 
       <div class="field" id="bloquePersonalTienda" style="margin-top: 6px;">
-        <label for="personalTienda">Consumo Personal (Opcional)</label>
-        <select id="personalTienda">
-          <option value="">-- Ninguno --</option>
-        </select>
+        <label for="personalTienda" id="lblPersonalTienda">👤 Consumo Personal / A quién le pertenece</label>
+        <div style="display:flex; gap:6px;">
+          <select id="personalTienda" style="flex:1;">
+            <option value="">-- Seleccionar Persona --</option>
+          </select>
+          <input type="text" id="personalTiendaOtro" placeholder="O escribir nombre..." style="flex:1;">
+        </div>
+        <span class="error-hint" id="errPersonalTienda">Indica a quién le pertenece el consumo.</span>
       </div>
     </fieldset>
 
@@ -418,6 +422,8 @@
     const habTienda = document.getElementById('habTienda');
     const fechaInTienda = document.getElementById('fechaInTienda');
     const personalTienda = document.getElementById('personalTienda');
+    const personalTiendaOtro = document.getElementById('personalTiendaOtro');
+    const lblPersonalTienda = document.getElementById('lblPersonalTienda');
     const statusBanner = document.getElementById('statusBanner');
     const syncInfo = document.getElementById('syncInfo');
 
@@ -453,15 +459,13 @@
           modoTiendaBanner.innerHTML = '🛍️ <strong>VENTA LIBRE (SIN HABITACIÓN)</strong> — Solo guarda en Registro Ventas Tienda';
         }
         if (optCargarHab) {
-          optCargarHab.disabled = true;
-          optCargarHab.hidden = true;
-        }
-        if (metodoTienda.value === 'Cargar a Habitación' || metodoTienda.value === 'Cargar a la Cuenta') {
-          metodoTienda.value = 'Efectivo';
+          optCargarHab.value = 'Cargar a la Cuenta';
+          optCargarHab.textContent = '👤 Cargar a la Cuenta (Consumo Personal)';
+          optCargarHab.disabled = false;
+          optCargarHab.hidden = false;
         }
         habTienda.value = '';
         if (bloqueHabTienda) bloqueHabTienda.style.display = 'none';
-        // Consumo Personal solo aplica a Venta Libre (carrito del encabezado)
         if (bloquePersonalTienda) bloquePersonalTienda.style.display = '';
       } else {
         // Venta para Habitación Ocupada desde el carrito de la fila
@@ -473,13 +477,16 @@
           modoTiendaBanner.innerHTML = `🛏️ <strong>HAB. ${habCtx} — ${nomHuesped}</strong> (Check-In: ${contextoTienda.checkIn || 'Hoy'})`;
         }
         if (optCargarHab) {
+          optCargarHab.value = 'Cargar a Habitación';
+          optCargarHab.textContent = '🛏️ Cargar a Habitación (Suma a Deuda/Saldo)';
           optCargarHab.disabled = false;
           optCargarHab.hidden = false;
         }
-        // La habitación ya está definida por la fila (banner superior): se oculta el selector y el consumo personal.
         if (bloqueHabTienda) bloqueHabTienda.style.display = 'none';
         if (bloquePersonalTienda) bloquePersonalTienda.style.display = 'none';
         personalTienda.value = '';
+      if (personalTiendaOtro) personalTiendaOtro.value = '';
+        if (personalTiendaOtro) personalTiendaOtro.value = '';
 
         // Asegurar que la habitación exista en el select y seleccionarla
         let optExiste = Array.from(habTienda.options).find(o => String(o.value) === habCtx);
@@ -658,11 +665,40 @@
         nroOpYapeTienda.removeAttribute('required');
         nroOpYapeTienda.classList.remove('campo-invalido');
       }
-      if (met === 'Cargar a Habitación' || met === 'Cargar a la Cuenta') {
+      if (met === 'Cargar a la Cuenta') {
+        habTienda.removeAttribute('required');
+        habTienda.classList.remove('campo-invalido');
+        if (bloquePersonalTienda) {
+          bloquePersonalTienda.style.display = '';
+          bloquePersonalTienda.style.background = '#fef3c7';
+          bloquePersonalTienda.style.padding = '8px';
+          bloquePersonalTienda.style.borderRadius = '7px';
+          bloquePersonalTienda.style.border = '1px solid #f59e0b';
+        }
+        if (lblPersonalTienda) {
+          lblPersonalTienda.innerHTML = '👤 A quién le pertenece el consumo <span class="req">* (OBLIGATORIO)</span>';
+        }
+      } else if (met === 'Cargar a Habitación') {
         habTienda.setAttribute('required', 'required');
+        if (bloquePersonalTienda) {
+          bloquePersonalTienda.style.background = '';
+          bloquePersonalTienda.style.padding = '';
+          bloquePersonalTienda.style.border = '';
+        }
+        if (lblPersonalTienda) {
+          lblPersonalTienda.innerHTML = '👤 Consumo Personal (Opcional)';
+        }
       } else {
         habTienda.removeAttribute('required');
         habTienda.classList.remove('campo-invalido');
+        if (bloquePersonalTienda) {
+          bloquePersonalTienda.style.background = '';
+          bloquePersonalTienda.style.padding = '';
+          bloquePersonalTienda.style.border = '';
+        }
+        if (lblPersonalTienda) {
+          lblPersonalTienda.innerHTML = '👤 Consumo Personal (Opcional)';
+        }
       }
       if (habTienda.value) {
         fechaInTienda.setAttribute('required', 'required');
@@ -714,6 +750,18 @@
         }
       }
 
+      const persFinal = (personalTiendaOtro && personalTiendaOtro.value.trim())
+        ? personalTiendaOtro.value.trim()
+        : (personalTienda.value || '');
+
+      if (metodoTienda.value === 'Cargar a la Cuenta' && !persFinal) {
+        if (personalTiendaOtro) personalTiendaOtro.classList.add('campo-invalido');
+        personalTienda.classList.add('campo-invalido');
+        (personalTiendaOtro || personalTienda).focus();
+        mostrarBanner('error', '⚠️ Debes seleccionar o escribir a quién le pertenece el consumo personal.');
+        return;
+      }
+
       const totalVenta = calcularTotalTienda();
       const habEnviar = (contextoTienda.modo === 'libre') ? '' : habTienda.value;
       const payloadTienda = {
@@ -722,7 +770,7 @@
         hab: habEnviar,
         fechaCheckIn: habEnviar ? fechaInTienda.value : '',
         filaEstancia: (habEnviar && habEnviar === contextoTienda.hab) ? (contextoTienda.filaEstancia || 0) : 0,
-        personal: personalTienda.value,
+        personal: persFinal,
         nroOpYape: nroOpYapeTienda.value.trim(),
         totalVenta: totalVenta
       };
