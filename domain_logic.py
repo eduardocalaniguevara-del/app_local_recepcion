@@ -2884,11 +2884,9 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
         por_hab_rangos: Dict[str, List[Tuple[str, str, str]]] = {}
 
         for est in conn.execute(
-            "SELECT estancia_uuid, hab, huesped, fecha_in, ymd_in, ymd_out FROM estancias WHERE deleted = 0 ORDER BY rowid ASC"
+            "SELECT estancia_uuid, hab, huesped, ymd_in, ymd_out FROM estancias WHERE deleted = 0 ORDER BY rowid ASC"
         ).fetchall():
-            f_in = str(est["fecha_in"] or "").strip()
-            if not f_in and est["ymd_in"]:
-                f_in = iso_to_dmy(str(est["ymd_in"]))
+            f_in = iso_to_dmy(str(est["ymd_in"] or "").strip())
             if not f_in:
                 continue
             uid_e = str(est["estancia_uuid"] or "").strip()
