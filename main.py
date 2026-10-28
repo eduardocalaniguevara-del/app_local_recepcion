@@ -196,13 +196,33 @@ BRIDGE_BODY_LOCAL = """
 
     window.aplicarContextoDesdePanel = function(ctx) {
       if (!ctx) return;
+      if (ctx.fechaPanelISO) {
+        var fInIso = String(ctx.fechaPanelISO).trim();
+        var dNext = new Date(fInIso + 'T12:00:00');
+        dNext.setDate(dNext.getDate() + 1);
+        var fOutIso = dNext.toISOString().split('T')[0];
+        try { FECHA_HOY = fInIso; FECHA_MANANA = fOutIso; } catch (e) {}
+        var elFIn = document.getElementById('fechaIn');
+        var elFOut = document.getElementById('fechaOut');
+        if (elFIn) { elFIn.value = fInIso; elFIn.dispatchEvent(new Event('change', { bubbles: true })); }
+        if (elFOut) { elFOut.value = fOutIso; elFOut.dispatchEvent(new Event('change', { bubbles: true })); }
+        var elGrIn = document.getElementById('grFechaIn');
+        var elGrOut = document.getElementById('grFechaOut');
+        if (elGrIn) elGrIn.value = fInIso;
+        if (elGrOut) elGrOut.value = fOutIso;
+        var elFGasto = document.getElementById('fechaGasto') || document.getElementById('fecha');
+        if (elFGasto && elFGasto.type === 'date' && elFGasto.id !== 'fechaIn') elFGasto.value = fInIso;
+      }
+      if (typeof cargarDatosServidor === 'function') {
+        try { cargarDatosServidor(); } catch (e) {}
+      }
       if (ctx.tab) {
         var btn = document.getElementById(ctx.tab === 'continuar' ? 'tabBtnContinuar' : 'tabBtnCheckIn');
         if (btn) btn.click();
       }
       if (!ctx.hab) return;
       var hab = String(ctx.hab);
-      var intentos = 15;
+      var intentos = 18;
       var intentar = function() {
         var porValor = function(o) { return String(o.value).trim() === hab; };
         var porTexto = function(o) {
@@ -210,9 +230,29 @@ BRIDGE_BODY_LOCAL = """
           return t.indexOf(hab + ' —') === 0 || t.indexOf(hab + ' -') === 0 || t.indexOf('Hab. ' + hab) !== -1;
         };
         var ok = false;
-        if (seleccionarEn(document.getElementById('hab'), porValor)) ok = true;
-        if (seleccionarEn(document.getElementById('estanciaActivaSelect') || document.getElementById('estanciaSelect'), porTexto)) ok = true;
-        if (seleccionarEn(document.getElementById('habTienda'), porValor)) ok = true;
+        if (ctx.tab === 'continuar') {
+          var inpContHab = document.getElementById('contHabBuscar');
+          if (inpContHab && typeof ESTANCIAS_ACTIVAS !== 'undefined' && ESTANCIAS_ACTIVAS.length > 0) {
+            inpContHab.value = hab;
+            inpContHab.dispatchEvent(new Event('input', { bubbles: true }));
+            if (document.getElementById('estanciaActivaSelect') && document.getElementById('estanciaActivaSelect').value !== '') {
+              if (ctx.fechaPanelISO) {
+                var cIn = document.getElementById('contFechaIn');
+                var cOut = document.getElementById('contFechaOut');
+                var dN = new Date(ctx.fechaPanelISO + 'T12:00:00');
+                dN.setDate(dN.getDate() + 1);
+                if (cIn) cIn.value = ctx.fechaPanelISO;
+                if (cOut) cOut.value = dN.toISOString().split('T')[0];
+              }
+              ok = true;
+            }
+          }
+          if (!ok && seleccionarEn(document.getElementById('estanciaActivaSelect') || document.getElementById('estanciaSelect'), porTexto)) ok = true;
+        } else {
+          if (seleccionarEn(document.getElementById('hab'), porValor)) ok = true;
+          if (seleccionarEn(document.getElementById('estanciaActivaSelect') || document.getElementById('estanciaSelect'), porTexto)) ok = true;
+          if (seleccionarEn(document.getElementById('habTienda'), porValor)) ok = true;
+        }
         if (!ok && intentos-- > 0) setTimeout(intentar, 200);
       };
       intentar();

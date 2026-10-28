@@ -548,7 +548,11 @@ def obtener_estado_red_cola(conn=None) -> Dict[str, Any]:
             conn.close()
 
 
+_ULTIMA_FECHA_PANEL_ISO: Optional[str] = None
+
+
 def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str, Any]:
+    global _ULTIMA_FECHA_PANEL_ISO
     conn = get_connection()
     try:
         fecha_hoy_iso_val = hoy_iso()
@@ -556,10 +560,21 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
 
         if fecha_override:
             fecha_vis = normalizar_fecha_dmy(fecha_override) or fecha_hoy_dmy_val
+            _ULTIMA_FECHA_PANEL_ISO = dmy_a_iso(fecha_vis)
+        elif _ULTIMA_FECHA_PANEL_ISO:
+            fecha_vis = normalizar_fecha_dmy(_ULTIMA_FECHA_PANEL_ISO) or fecha_hoy_dmy_val
         else:
             fecha_vis = fecha_hoy_dmy_val
+            _ULTIMA_FECHA_PANEL_ISO = fecha_hoy_iso_val
 
         ymd_vis = fecha_dmy_a_ymd(fecha_vis)
+        try:
+            dt_vis = datetime.strptime(fecha_vis, "%d/%m/%Y")
+            fecha_ayer_dmy = (dt_vis - timedelta(days=1)).strftime("%d/%m/%Y")
+        except Exception:
+            fecha_ayer_dmy = ""
+        ymd_ayer = fecha_dmy_a_ymd(fecha_ayer_dmy) if fecha_ayer_dmy else 0
+        mapa_ayer_por_hab: Dict[str, Dict[str, Any]] = {}
         total_caja = obtener_caja_efectivo_actual(conn)
         idx_fact = cargar_indices_facturacion_memoria(conn)
 
@@ -722,6 +737,14 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
             if not hotel_apoyo and len(estancias_cache) < 350:
                 estancias_cache.append(info_fila)
 
+            # Detectar si la habitación estuvo ocupada el día inmediatamente anterior (para botón 🔁 junto a Check-in)
+            activa_ayer = (not hotel_apoyo) and (not es_inactiva) and (not es_continuacion_cerrada) and (
+                (ymd_ayer > 0 and ymd_in > 0 and ymd_in <= ymd_ayer < ymd_out)
+                or (fecha_ayer_dmy and f_in == fecha_ayer_dmy)
+            )
+            if activa_ayer and hab not in mapa_ayer_por_hab:
+                mapa_ayer_por_hab[hab] = info_fila
+
             # REGLA EXACTA DE NOCHE DE HOSPEDAJE (Corrige de raíz falsos positivos de check-out del día anterior):
             # Una estancia corresponde a la fecha visualizada SOLO si:
             # 1) (ymd_in <= ymd_vis < ymd_out)  -> Noche dentro del rango de hospedaje
@@ -809,6 +832,7 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
                 hist_filtrado.append(ant)
 
             if not st:
+                st_ayer = mapa_ayer_por_hab.get(hab_num)
                 habitaciones.append({
                     "colorPersonalizado": color_pers,
                     "notaColor": nota_color,
@@ -816,6 +840,8 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
                     "hab": hab_num,
                     "tipo": tipo,
                     "estado": "libre",
+                    "ocupadaAyer": bool(st_ayer),
+                    "huespedAyer": st_ayer["huesped"] if st_ayer else "",
                     "deudaAnt": 0,
                     "continuoEstancia": False,
                     "esVueltoContinua": False,
@@ -2470,12 +2496,16 @@ def guardar_color_habitacion_local(hab: str, color_hex: str, fecha_ref: Optional
 # ==============================================================================
 
 def obtener_datos_iniciales_checkin_local() -> Dict[str, Any]:
-    panel = obtener_datos_panel_local()
+    panel = obtener_datos_panel_local(_ULTIMA_FECHA_PANEL_ISO)
     conn = get_connection()
     try:
-        ahora = datetime.now()
-        f_hoy = ahora.strftime("%Y-%m-%d")
-        f_man = (ahora + timedelta(days=1)).strftime("%Y-%m-%d")
+        f_vis_dmy = str(panel.get("fechaVisualizada") or hoy_dmy()).strip()
+        f_hoy = dmy_a_iso(f_vis_dmy) or hoy_iso()
+        try:
+            dt_ref = datetime.strptime(f_hoy, "%Y-%m-%d")
+            f_man = (dt_ref + timedelta(days=1)).strftime("%Y-%m-%d")
+        except Exception:
+            f_man = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
         hoteles_apoyo = [
             r["clave"]
@@ -2561,7 +2591,7 @@ def obtener_datos_iniciales_checkin_local() -> Dict[str, Any]:
 
 
 def obtener_datos_pagos_posteriores_local() -> Dict[str, Any]:
-    panel = obtener_datos_panel_local()
+    panel = obtener_datos_panel_local(_ULTIMA_FECHA_PANEL_ISO)
     res = []
     habs_vistas: Dict[str, bool] = {}
     for st in panel["estanciasCache"][:150]:
@@ -2612,7 +2642,7 @@ def obtener_datos_pagos_posteriores_local() -> Dict[str, Any]:
 
 
 def obtener_datos_tienda_local() -> Dict[str, Any]:
-    panel = obtener_datos_panel_local()
+    panel = obtener_datos_panel_local(_ULTIMA_FECHA_PANEL_ISO)
     conn = get_connection()
     try:
         prods = [

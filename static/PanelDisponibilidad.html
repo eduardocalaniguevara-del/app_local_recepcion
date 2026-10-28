@@ -1034,9 +1034,15 @@
 
       // Buscar estancia activa e historial del mismo día (excluyendo continuaciones y mismo huésped)
       const mapaPorHab = {};
+      const mapaAyerPorHab = {};
       const historialPorHab = {};
       const hoyYMD = isoAYMDNum(fechaHoyServidorISO || new Date().toISOString().split("T")[0]);
       const esVisualizacionPasada = hoyYMD > 0 && ymdTarget < hoyYMD;
+      const dAyerRef = new Date(isoFecha + "T12:00:00");
+      dAyerRef.setDate(dAyerRef.getDate() - 1);
+      const isoAyerRef = dAyerRef.toISOString().split("T")[0];
+      const ymdAyerRef = isoAYMDNum(isoAyerRef);
+      const dmyAyerRef = isoADMY(isoAyerRef);
 
       for (let i = 0; i < estanciasCacheRAM.length; i++) {
         const st = estanciasCacheRAM[i];
@@ -1045,6 +1051,11 @@
         const estLow = String(st.estadoEstancia || "").toLowerCase();
         const esContinuaCerrada = estLow.includes("continúa") || estLow.includes("continua");
         const esLibOCanc = estLow === "liberado" || estLow === "cancelado" || estLow.includes("cancel");
+
+        if (!esLibOCanc && !esContinuaCerrada && !mapaAyerPorHab[hab]) {
+          const activaAyer = (st.ymdIn > 0 && st.ymdIn <= ymdAyerRef && st.ymdOut > ymdAyerRef) || (st.checkIn === dmyAyerRef);
+          if (activaAyer) mapaAyerPorHab[hab] = st;
+        }
 
         if (esContinuaCerrada && !esVisualizacionPasada) continue;
 
@@ -1095,6 +1106,8 @@
             adicDetalle: "",
             saldo: 0,
             facturacion: null,
+            ocupadaAyer: Boolean(mapaAyerPorHab[String(base.hab)]),
+            huespedAyer: mapaAyerPorHab[String(base.hab)] ? (mapaAyerPorHab[String(base.hab)].huesped || "") : "",
             historialDia: (historialPorHab[String(base.hab)] || [])
           };
         }
@@ -1225,6 +1238,10 @@
 
     // Cambio de fecha ultra-rápido: renderiza al instante desde la caché RAM del cliente y sincroniza en segundo plano
     function solicitarCambioFecha(isoFecha) {
+      if (isoFecha) {
+        window.fechaActivaPanelISO = isoFecha;
+        try { sessionStorage.setItem("OVALO_FECHA_PANEL_ISO", isoFecha); } catch (e) {}
+      }
       const miReqId = ++reqFechaCounter;
       const renderInstantaneo = recalcularHabitacionesEnCliente(isoFecha);
 
@@ -1389,11 +1406,19 @@
                 🟢 Libre
               </button>`;
             accionBtn = `
-              <button class="px-1.5 py-0.5 rounded-md bg-transparent hover:bg-slate-200/80 text-slate-900 font-extrabold text-[11px] leading-none transition-all hover:scale-105 cursor-pointer"
-                      onclick="accionDirecta(event, 'checkin', '${h.hab}')"
-                      title="Registrar Check-In en Hab. ${h.hab}">
-                Check-in
-              </button>`;
+              <div class="flex items-center justify-center gap-1">
+                <button class="px-1.5 py-0.5 rounded-md bg-transparent hover:bg-slate-200/80 text-slate-900 font-extrabold text-[11px] leading-none transition-all hover:scale-105 cursor-pointer"
+                        onclick="accionDirecta(event, 'checkin', '${h.hab}')"
+                        title="Registrar Check-In en Hab. ${h.hab}">
+                  Check-in
+                </button>
+                ${h.ocupadaAyer ? `
+                <button class="p-0.5 rounded-md bg-transparent hover:bg-indigo-100 text-[15px] leading-none transition-all hover:scale-110 cursor-pointer"
+                        onclick="accionDirecta(event, 'continuar', '${h.hab}')"
+                        title="Continuar estancia del día anterior (${escHtmlPanel(h.huespedAyer || '')} — Hab. ${h.hab})">
+                  🔁
+                </button>` : ''}
+              </div>`;
             tiendaBtn = `<span class="text-slate-300 text-[10px]" title="Para venta sin habitación usa el carrito 🛒 del encabezado">—</span>`;
           } else {
             estadoBadge = `
@@ -3239,6 +3264,9 @@
 
     function abrirFormularioDrawer(nombreVista, contexto) {
       contexto = contexto || {};
+      if (!contexto.fechaPanelISO) {
+        contexto.fechaPanelISO = window.fechaActivaPanelISO || (inputFecha && inputFecha.value) || "";
+      }
       const overlay = document.getElementById("appDrawerOverlay");
       const iframe = document.getElementById("drawerIframe");
       const loader = document.getElementById("drawerLoader");
@@ -3398,7 +3426,7 @@
         abrirFormularioDrawer('CheckInRapido', {
           tab: 'continuar',
           hab: hab,
-          huesped: datosHab.huesped || ''
+          huesped: (datosHab.huesped && datosHab.huesped !== '-') ? datosHab.huesped : (datosHab.huespedAyer || '')
         });
       } else if (tipo === 'tienda') {
         abrirFormularioDrawer('VentaTienda', {
@@ -3482,7 +3510,11 @@
               if (res.plantillaHabs) plantillaHabsRAM = res.plantillaHabs;
               if (res.estanciasCache) estanciasCacheRAM = res.estanciasCache;
               if (res.fechaHoyISO) fechaHoyServidorISO = res.fechaHoyISO;
-              if (res.fechaVisualizada) sincronizarInputFecha(res.fechaVisualizada);
+              if (window.fechaActivaPanelISO) {
+                sincronizarInputFecha(isoADMY(window.fechaActivaPanelISO));
+              } else if (res.fechaVisualizada) {
+                sincronizarInputFecha(res.fechaVisualizada);
+              }
               if (lblCaja && res.totalCaja !== undefined) lblCaja.textContent = res.totalCaja;
             }
             if (res && res.syncStatus && typeof actualizarBadgeEstadoRed === "function") {
@@ -3511,7 +3543,7 @@
             }
             console.error(err);
           })
-          .obtenerDatosPanelDisponibilidad((typeof inputFecha !== "undefined" && inputFecha && inputFecha.value) ? inputFecha.value : null);
+          .obtenerDatosPanelDisponibilidad(window.fechaActivaPanelISO || ((typeof inputFecha !== "undefined" && inputFecha && inputFecha.value) ? inputFecha.value : null));
       } else {
         // Modo local
         setTimeout(() => {
@@ -3568,13 +3600,16 @@
       renderTabla();
     });
 
-    // Carga inicial: HOY por defecto
+    // Carga inicial: conserva la fecha en la que estaba trabajando el panel (o HOY por defecto)
     const dtInit = new Date();
     const dInit = String(dtInit.getDate()).padStart(2, "0");
     const mInit = String(dtInit.getMonth() + 1).padStart(2, "0");
     const yInit = dtInit.getFullYear();
     fechaHoyServidorISO = `${yInit}-${mInit}-${dInit}`;
-    sincronizarInputFecha(`${dInit}/${mInit}/${yInit}`);
+    let fechaGuardadaSession = "";
+    try { fechaGuardadaSession = sessionStorage.getItem("OVALO_FECHA_PANEL_ISO") || ""; } catch (e) {}
+    window.fechaActivaPanelISO = fechaGuardadaSession || fechaHoyServidorISO;
+    sincronizarInputFecha(isoADMY(window.fechaActivaPanelISO));
     actualizarContadores();
     renderTabla();
     recargarDatos();

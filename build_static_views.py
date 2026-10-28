@@ -179,9 +179,15 @@ def build_panel_disponibilidad():
 
     new_recalc_loop = """      // Buscar estancia activa e historial del mismo día (excluyendo continuaciones y mismo huésped)
       const mapaPorHab = {};
+      const mapaAyerPorHab = {};
       const historialPorHab = {};
       const hoyYMD = isoAYMDNum(fechaHoyServidorISO || new Date().toISOString().split("T")[0]);
       const esVisualizacionPasada = hoyYMD > 0 && ymdTarget < hoyYMD;
+      const dAyerRef = new Date(isoFecha + "T12:00:00");
+      dAyerRef.setDate(dAyerRef.getDate() - 1);
+      const isoAyerRef = dAyerRef.toISOString().split("T")[0];
+      const ymdAyerRef = isoAYMDNum(isoAyerRef);
+      const dmyAyerRef = isoADMY(isoAyerRef);
 
       for (let i = 0; i < estanciasCacheRAM.length; i++) {
         const st = estanciasCacheRAM[i];
@@ -190,6 +196,11 @@ def build_panel_disponibilidad():
         const estLow = String(st.estadoEstancia || "").toLowerCase();
         const esContinuaCerrada = estLow.includes("continúa") || estLow.includes("continua");
         const esLibOCanc = estLow === "liberado" || estLow === "cancelado" || estLow.includes("cancel");
+
+        if (!esLibOCanc && !esContinuaCerrada && !mapaAyerPorHab[hab]) {
+          const activaAyer = (st.ymdIn > 0 && st.ymdIn <= ymdAyerRef && st.ymdOut > ymdAyerRef) || (st.checkIn === dmyAyerRef);
+          if (activaAyer) mapaAyerPorHab[hab] = st;
+        }
 
         if (esContinuaCerrada && !esVisualizacionPasada) continue;
 
@@ -228,6 +239,8 @@ def build_panel_disponibilidad():
     new_free_ret = """            adicDetalle: "",
             saldo: 0,
             facturacion: null,
+            ocupadaAyer: Boolean(mapaAyerPorHab[String(base.hab)]),
+            huespedAyer: mapaAyerPorHab[String(base.hab)] ? (mapaAyerPorHab[String(base.hab)].huesped || "") : "",
             historialDia: (historialPorHab[String(base.hab)] || [])
           };"""
     assert old_free_ret in html, "No se encontró old_free_ret"
