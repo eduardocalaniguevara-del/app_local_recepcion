@@ -2884,24 +2884,22 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
         por_hab_rangos: Dict[str, List[Tuple[str, str, str]]] = {}
 
         for est in conn.execute(
-            "SELECT estancia_uuid, hab, huesped, ymd_in, ymd_out FROM estancias WHERE deleted = 0 ORDER BY rowid ASC"
+            "SELECT estancia_uuid, hab, huesped, fecha_in_dmy, ymd_in, ymd_out FROM estancias WHERE estado_estancia != 'Cancelada' ORDER BY rowid ASC"
         ).fetchall():
-            f_in = iso_to_dmy(str(est["ymd_in"] or "").strip())
+            f_in = str(est["fecha_in_dmy"] or "").strip()
             if not f_in:
                 continue
             uid_e = str(est["estancia_uuid"] or "").strip()
-            id_e = uid_e
             hab_e = str(est["hab"] or "").strip()
             nom_e = str(est["huesped"] or "").strip().upper()
             if uid_e:
                 por_uuid[uid_e] = f_in
-            if id_e:
-                por_id[id_e] = f_in
+                por_id[uid_e] = f_in
             if hab_e and nom_e:
                 por_hab_huesp[(hab_e, nom_e)] = f_in
             if hab_e:
                 por_hab_rangos.setdefault(hab_e, []).append(
-                    (str(est["ymd_in"] or ""), str(est["ymd_out"] or ""), f_in)
+                    (int(est["ymd_in"] or 0), int(est["ymd_out"] or 0), f_in)
                 )
 
         def _resolver_checkin(uid_p: str, id_p: str, hab_p: str, nom_p: str, ts_p: Any, orig_p: str) -> str:
@@ -2911,7 +2909,7 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
                 return por_id[id_p]
             if hab_p and nom_p and (hab_p, nom_p.upper()) in por_hab_huesp:
                 return por_hab_huesp[(hab_p, nom_p.upper())]
-            ymd_pago = ts_p.strftime("%Y-%m-%d") if ts_p else ""
+            ymd_pago = int(ts_p.strftime("%Y%m%d")) if ts_p else 0
             if hab_p and hab_p in por_hab_rangos and ymd_pago:
                 for yin, yout, fin_val in reversed(por_hab_rangos[hab_p]):
                     if yin and yin <= ymd_pago and (not yout or ymd_pago <= yout):
