@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from config import NOMBRE_HOTEL
 from database import db_transaction, get_connection
 
 
@@ -542,6 +543,7 @@ def obtener_estado_red_cola(conn=None) -> Dict[str, Any]:
             "minutosOffline": minutos_offline,
             "minutosDesdeSync": minutos_desde_sync,
             "lastError": last_error,
+            "nombreHotel": NOMBRE_HOTEL,
         }
     finally:
         if close_after:

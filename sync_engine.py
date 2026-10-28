@@ -33,6 +33,9 @@ _gspread_client = None
 _spreadsheet = None
 
 
+_sheet_tabs_cache = None
+
+
 def _get_spreadsheet():
     global _gspread_client, _spreadsheet
     if _spreadsheet is not None:
@@ -48,10 +51,21 @@ def _get_spreadsheet():
     return _spreadsheet
 
 
+def _get_sheet_tabs(sh):
+    global _sheet_tabs_cache
+    if _sheet_tabs_cache is None:
+        try:
+            _sheet_tabs_cache = {w.title for w in sh.worksheets()}
+        except Exception:
+            _sheet_tabs_cache = set()
+    return _sheet_tabs_cache
+
+
 def _reset_client():
-    global _gspread_client, _spreadsheet
+    global _gspread_client, _spreadsheet, _sheet_tabs_cache
     _gspread_client = None
     _spreadsheet = None
+    _sheet_tabs_cache = None
 
 
 def _set_estado_sistema(conn, clave: str, valor: str) -> None:
@@ -105,34 +119,50 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                 return vr_list[idx].get("values") or []
             return []
 
+        tabs = _get_sheet_tabs(sh)
+
         ranges_step1 = [
             "'Config'!A2:N40",
             "'Panel_Disponibilidad'!D1:G1",
             "'Panel_Disponibilidad'!A3:D31",
-            "'SUNAT_OCT'!A2:M800",
-            "'CALZADO_OCT'!A2:V800",
             "'Registro_Estancias'!A:A",
             "'2.Registro_Ventas_Tienda'!A:A",
             "'Registro_Pagos'!A:A",
             "'Registro_Gastos'!A:A",
-            "'Vitrina_Tienda'!A2:M45",
         ]
+        keys_step1 = [
+            "config", "disp_top", "panel", "col_a_bd", "col_t", "col_pg", "col_g"
+        ]
+        if "SUNAT_OCT" in tabs:
+            ranges_step1.append("'SUNAT_OCT'!A2:M800")
+            keys_step1.append("sunat")
+        if "CALZADO_OCT" in tabs:
+            ranges_step1.append("'CALZADO_OCT'!A2:V800")
+            keys_step1.append("calzado")
+        if "Vitrina_Tienda" in tabs:
+            ranges_step1.append("'Vitrina_Tienda'!A2:M45")
+            keys_step1.append("vitrina")
+
         res_step1 = sh.values_batch_get(ranges_step1)
         vrs1 = res_step1.get("valueRanges", []) if isinstance(res_step1, dict) else []
 
-        cfg_rows = _extraer_vr(vrs1, 0)
-        disp_top = _extraer_vr(vrs1, 1) or [[""]]
+        step1_dict = {}
+        for idx_k, k_name in enumerate(keys_step1):
+            step1_dict[k_name] = _extraer_vr(vrs1, idx_k)
+
+        cfg_rows = step1_dict.get("config", [])
+        disp_top = step1_dict.get("disp_top", [[""]]) or [[""]]
         raw_caja = disp_top[0][3] if (disp_top and len(disp_top[0]) >= 4) else "0.00"
         caja_g1 = f"{parse_moneda(raw_caja):.2f}"
-        panel_rows = _extraer_vr(vrs1, 2)
-        sunat_rows = _extraer_vr(vrs1, 3)
-        calzado_rows = _extraer_vr(vrs1, 4)
+        panel_rows = step1_dict.get("panel", [])
+        sunat_rows = step1_dict.get("sunat", [])
+        calzado_rows = step1_dict.get("calzado", [])
 
-        col_a_bd = _extraer_vr(vrs1, 5)
-        col_t = _extraer_vr(vrs1, 6)
-        col_pg = _extraer_vr(vrs1, 7)
-        col_g = _extraer_vr(vrs1, 8)
-        vitrina_rows = _extraer_vr(vrs1, 9)
+        col_a_bd = step1_dict.get("col_a_bd", [])
+        col_t = step1_dict.get("col_t", [])
+        col_pg = step1_dict.get("col_pg", [])
+        col_g = step1_dict.get("col_g", [])
+        vitrina_rows = step1_dict.get("vitrina", [])
 
         total_rows_bd = max(len(col_a_bd), 1)
         last_t = len(col_t)

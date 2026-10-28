@@ -20,8 +20,10 @@ APP_DIR = Path(__file__).resolve().parent
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-HOST = "127.0.0.1"
-PORT = 8080
+from config import APP_HOST, APP_PORT, NOMBRE_HOTEL
+
+HOST = APP_HOST
+PORT = APP_PORT
 URL = f"http://{HOST}:{PORT}"
 
 CHROME_PATHS = [

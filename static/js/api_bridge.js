@@ -74,6 +74,9 @@
   }
 
   window.actualizarBadgeEstadoRed = function (syncStatus) {
+    if (syncStatus && syncStatus.nombreHotel && window === window.top) {
+      document.title = "Panel de Disponibilidad — " + syncStatus.nombreHotel;
+    }
     const badge = getBadgeEl();
     if (!badge || !syncStatus) return;
 
