@@ -1187,5 +1187,55 @@
 
 </script>
 <!-- FECHA_DMY_END -->
+<script>
+  window.addEventListener('message', function(e) {
+    if (!e.data || e.data.type !== 'SET_CONTEXT' || !e.data.context) return;
+    var ctx = e.data.context;
+    if (ctx.fechaPanelISO) {
+      var fInIso = String(ctx.fechaPanelISO).trim();
+      var dNext = new Date(fInIso + 'T12:00:00');
+      dNext.setDate(dNext.getDate() + 1);
+      var fOutIso = dNext.toISOString().split('T')[0];
+      try { FECHA_HOY = fInIso; FECHA_MANANA = fOutIso; } catch (err) {}
+      var elFIn = document.getElementById('fechaIn');
+      var elFOut = document.getElementById('fechaOut');
+      if (elFIn) { elFIn.value = fInIso; elFIn.dispatchEvent(new Event('change', { bubbles: true })); }
+      if (elFOut) { elFOut.value = fOutIso; elFOut.dispatchEvent(new Event('change', { bubbles: true })); }
+      var elGrIn = document.getElementById('grFechaIn');
+      var elGrOut = document.getElementById('grFechaOut');
+      if (elGrIn) elGrIn.value = fInIso;
+      if (elGrOut) elGrOut.value = fOutIso;
+      var elFGasto = document.getElementById('fechaGasto') || document.getElementById('fecha');
+      if (elFGasto && elFGasto.type === 'date' && elFGasto.id !== 'fechaIn') elFGasto.value = fInIso;
+    }
+    if (typeof cargarDatosServidor === 'function') {
+      try { cargarDatosServidor(); } catch (err) {}
+    }
+    if (ctx.tab === 'continuar' && ctx.hab) {
+      var hab = String(ctx.hab);
+      var tries = 18;
+      var pickCont = function() {
+        var inpContHab = document.getElementById('contHabBuscar');
+        if (inpContHab && typeof ESTANCIAS_ACTIVAS !== 'undefined' && ESTANCIAS_ACTIVAS.length > 0) {
+          inpContHab.value = hab;
+          inpContHab.dispatchEvent(new Event('input', { bubbles: true }));
+          if (document.getElementById('estanciaActivaSelect') && document.getElementById('estanciaActivaSelect').value !== '') {
+            if (ctx.fechaPanelISO) {
+              var cIn = document.getElementById('contFechaIn');
+              var cOut = document.getElementById('contFechaOut');
+              var dN = new Date(ctx.fechaPanelISO + 'T12:00:00');
+              dN.setDate(dN.getDate() + 1);
+              if (cIn) cIn.value = ctx.fechaPanelISO;
+              if (cOut) cOut.value = dN.toISOString().split('T')[0];
+            }
+            return;
+          }
+        }
+        if (tries-- > 0) setTimeout(pickCont, 200);
+      };
+      pickCont();
+    }
+  });
+</script>
 </body>
 </html>
