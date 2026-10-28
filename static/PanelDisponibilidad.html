@@ -251,13 +251,15 @@
         <option value="Check-In">🏨 Check-In</option>
         <option value="Pago Posterior">💳 Pago Posterior</option>
         <option value="Tienda">🛒 Tienda</option>
-        <option value="Ajuste">✏️ Ajuste</option>
+        <option value="Ajuste Corregido">✏️ Ajuste Corregido</option>
         <option value="Extorno">↩️ Extorno</option>
-        <option value="Gasto Efectivo">💸 Gasto Efectivo</option>
       </select>
       <input type="text" id="pagosBuscar" oninput="pagosBuscarDebounce()" placeholder="🔍 Hab, huésped, N° op., producto..."
              class="px-2 py-1 rounded border border-[#D8C7B8] text-xs bg-white w-52 focus:outline-hidden focus:ring-1 focus:ring-blue-600">
       <button type="button" onclick="cargarRegistroPagos()" class="px-2 py-1 rounded font-bold bg-slate-700 hover:bg-slate-800 text-white text-[11px] cursor-pointer">🔄 Actualizar</button>
+      <button type="button" id="btnToggleGastosG" onclick="toggleMostrarGastosG()"
+              class="px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-400 hover:text-slate-700 font-black text-[10px] cursor-pointer transition-colors"
+              title="Mostrar / ocultar Gastos en Efectivo">G</button>
       <span id="pagosEstado" class="text-[11px] font-bold text-slate-500"></span>
     </div>
 
@@ -1493,13 +1495,13 @@
         if (tieneColor) {
           tr.style.backgroundColor = colorManual;
           estadoCellBg = "";
-        } else if (tieneEmpresaOcupada) {
-          // Fondo naranja para habitaciones ocupadas por empresa (ej. 405, 403)
-          tr.style.backgroundColor = "#fed7aa";
-          rowBg = "bg-orange-100/90";
         } else {
           tr.className += rowBg;
           tr.style.backgroundColor = "";
+          if (tieneEmpresaOcupada) {
+            // Solo la columna Estado reemplaza el fondo rojo por fondo naranja cuando es empresa ocupada
+            estadoCellBg = esDeudaContinua ? "border-l-4 border-l-indigo-600" : "";
+          }
         }
 
         function primerNombreYPrimerApellido(str) {
@@ -1650,10 +1652,11 @@
         }
 
         const tarifaStr = Number(h.tarifaPactada) > 0 ? "S/ " + Number(h.tarifaPactada).toFixed(2) : "-";
-        const dotBg = tieneColor ? colorManual : (tieneEmpresaOcupada ? "#fed7aa" : "#ffffff");
-        const cell1Bg = (tieneColor || tieneEmpresaOcupada) ? "" : "bg-[#FAF6F3]";
-        const cell2Bg = (tieneColor || tieneEmpresaOcupada) ? "" : "bg-[#FAF6F3]";
-        const cell3Bg = (tieneColor || tieneEmpresaOcupada) ? "" : "bg-[#F3E9E2]";
+        const dotBg = tieneColor ? colorManual : "#ffffff";
+        const cell1Bg = tieneColor ? "" : "bg-[#FAF6F3]";
+        const cell2Bg = tieneColor ? "" : "bg-[#FAF6F3]";
+        const cell3Bg = tieneColor ? "" : "bg-[#F3E9E2]";
+        const estadoInlineStyle = (!tieneColor && tieneEmpresaOcupada) ? 'style="background-color: #fed7aa;"' : "";
 
         tr.innerHTML = `
           <td class="border-r border-[#E6DCD2] text-center p-0.5 ${cell1Bg}">
@@ -1666,7 +1669,7 @@
           </td>
           <td class="border-r border-[#E6DCD2] text-center font-bold text-slate-700 ${cell2Bg}" title="Precio Ref.: S/ ${h.precioRef || '-'}">${h.precioRef ? 'S/ ' + h.precioRef : '-'}</td>
           <td class="border-r border-[#E6DCD2] text-center font-black text-slate-900 text-xs ${cell3Bg}" ${h.notaColor ? `title="📝 ${String(h.notaColor).replace(/"/g, '&quot;')}"` : ""}>${h.hab}${h.notaColor ? `<div class="text-[9px] font-semibold text-slate-800 leading-tight max-w-[90px] mx-auto truncate">📝 ${String(h.notaColor).replace(/</g, '&lt;')}</div>` : ""}</td>
-          <td class="border-r border-[#E6DCD2] text-center ${estadoCellBg}">
+          <td class="border-r border-[#E6DCD2] text-center ${estadoCellBg}" ${estadoInlineStyle}>
             <div class="flex items-center justify-center">
               ${btnHistorial}
               ${estadoBadge}
@@ -4253,18 +4256,30 @@
     });
   };
 
-  function renderRegistroPagos(res) {
-    var est = document.getElementById('pagosEstado');
-    res = res || { filas: [], totales: {} };
-    var t = res.totales || {};
-    if (est) {
-      var resumenTxt = (t.operaciones || 0) + ' movs | Cobros: ' + soles(t.ingresos || t.total);
-      if (t.gastos_efectivo > 0) {
-        resumenTxt += ' | Gastos Efec.: - ' + soles(t.gastos_efectivo);
+  var pagosUltimaRespuesta = null;
+  window.mostrarGastosEfectivo = false;
+
+  window.toggleMostrarGastosG = function () {
+    window.mostrarGastosEfectivo = !window.mostrarGastosEfectivo;
+    var btnG = document.getElementById('btnToggleGastosG');
+    if (btnG) {
+      if (window.mostrarGastosEfectivo) {
+        btnG.className = 'px-1.5 py-0.5 rounded border border-rose-700 bg-rose-600 text-white font-black text-[10px] cursor-pointer transition-colors shadow-2xs';
+      } else {
+        btnG.className = 'px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-400 hover:text-slate-700 font-black text-[10px] cursor-pointer transition-colors';
       }
-      resumenTxt += ' | Efec. Neto: ' + soles(t.efectivo);
-      est.textContent = resumenTxt;
     }
+    if (pagosUltimaRespuesta) {
+      renderRegistroPagos(pagosUltimaRespuesta);
+    } else {
+      cargarRegistroPagos();
+    }
+  };
+
+  function renderRegistroPagos(res) {
+    pagosUltimaRespuesta = res || { filas: [], totales: {} };
+    var est = document.getElementById('pagosEstado');
+    res = pagosUltimaRespuesta;
     var tarjEl = document.getElementById('pagosTarjetas');
     if (tarjEl) {
       tarjEl.innerHTML = '';
@@ -4276,9 +4291,19 @@
       'Tienda': 'bg-pink-100 text-pink-900',
       'Gasto Efectivo': 'bg-rose-100 text-rose-900 border border-rose-300 font-black',
       'Ajuste': 'bg-amber-100 text-amber-900',
+      'Ajuste Corregido': 'bg-amber-100 text-amber-950 border border-amber-300 font-black',
       'Extorno': 'bg-red-100 text-red-900'
     };
-    var filas = res.filas || [];
+    var todasLasFilas = res.filas || [];
+    var filas = todasLasFilas.filter(function (f) {
+      if (f.origen === 'Gasto Efectivo' && !window.mostrarGastosEfectivo) {
+        return false;
+      }
+      return true;
+    });
+    if (est) {
+      est.textContent = filas.length + ' movs';
+    }
     document.getElementById('pagosBody').innerHTML = filas.length ? filas.map(function (f) {
       var neg = Number(f.monto) < 0;
       var esGasto = f.origen === 'Gasto Efectivo';

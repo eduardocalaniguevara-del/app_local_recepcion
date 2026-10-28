@@ -1973,13 +1973,51 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         pagos_ajuste = []
         if abs(diff_efec) >= 0.01:
             pid = f"{int(time.time()*1000)}-ajE"
-            pagos_ajuste.append([pid, ahora_str, actual["id_timestamp_str"], hab_nueva, nombre, diff_efec, "Efectivo", "Ajuste", "Ajuste modificación estancia (Efectivo)", ""])
+            conc_efec = (
+                "Registro de pago anulado por corrección o duplicación (Efectivo)"
+                if diff_efec < 0
+                else "Pago registrado por corrección de estancia (Efectivo)"
+            )
+            pagos_ajuste.append([pid, ahora_str, actual["id_timestamp_str"], hab_nueva, nombre, diff_efec, "Efectivo", "Ajuste Corregido", conc_efec, ""])
         if abs(diff_yape) >= 0.01:
             pid = f"{int(time.time()*1000)}-ajY"
-            pagos_ajuste.append([pid, ahora_str, actual["id_timestamp_str"], hab_nueva, nombre, diff_yape, "Yape", "Ajuste", "Ajuste modificación estancia (Yape)", nro_op_yape])
+            conc_yape = (
+                "Registro de pago anulado por corrección o duplicación (Yape)"
+                if diff_yape < 0
+                else "Pago registrado por corrección de estancia (Yape)"
+            )
+            pagos_ajuste.append([pid, ahora_str, actual["id_timestamp_str"], hab_nueva, nombre, diff_yape, "Yape", "Ajuste Corregido", conc_yape, nro_op_yape])
         if abs(diff_visa) >= 0.01:
             pid = f"{int(time.time()*1000)}-ajV"
-            pagos_ajuste.append([pid, ahora_str, actual["id_timestamp_str"], hab_nueva, nombre, diff_visa, "VISA", "Ajuste", "Ajuste modificación estancia (VISA)", ""])
+            conc_visa = (
+                "Registro de pago anulado por corrección o duplicación (VISA)"
+                if diff_visa < 0
+                else "Pago registrado por corrección de estancia (VISA)"
+            )
+            pagos_ajuste.append([pid, ahora_str, actual["id_timestamp_str"], hab_nueva, nombre, diff_visa, "VISA", "Ajuste Corregido", conc_visa, ""])
+
+        for paj_r in pagos_ajuste:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO pagos (
+                    pago_id, estancia_uuid, id_estancia, fecha_iso, hab, huesped, monto,
+                    medio_pago, tipo_pago, concepto, nro_operacion, sheet_row, synced
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+                """,
+                (
+                    paj_r[0],
+                    actual["estancia_uuid"],
+                    paj_r[2],
+                    paj_r[1],
+                    paj_r[3],
+                    paj_r[4],
+                    paj_r[5],
+                    paj_r[6],
+                    paj_r[7],
+                    paj_r[8],
+                    paj_r[9],
+                ),
+            )
 
         conn.execute(
             """
@@ -2940,17 +2978,32 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
             return "—"
 
         # 1. Cobros de estancias (pagos)
-        for r in conn.execute("SELECT * FROM pagos ORDER BY rowid DESC LIMIT 1500").fetchall():
+        raw_pagos = conn.execute("SELECT * FROM pagos ORDER BY rowid DESC LIMIT 1500").fetchall()
+        anulaciones_por_est_medio = set()
+        for rp in raw_pagos:
+            t_rp = str(rp["tipo_pago"] or "").strip().lower()
+            m_rp = float(rp["monto"] or 0)
+            if t_rp.startswith("ajuste") and m_rp < 0:
+                clave_an = (
+                    str(rp["id_estancia"] or rp["estancia_uuid"] or "").strip(),
+                    str(rp["hab"] or "").strip(),
+                    str(rp["medio_pago"] or "").strip().upper(),
+                )
+                anulaciones_por_est_medio.add(clave_an)
+
+        for r in raw_pagos:
             ts = _ts_de_pago(r["pago_id"], r["fecha_iso"])
             if not ts:
                 continue
             tipo = str(r["tipo_pago"] or "").strip()
             low = tipo.lower()
+            monto_val = float(r["monto"] or 0)
+            medio_val = str(r["medio_pago"] or "").strip()
             origen = (
                 "Check-In" if low.startswith("inicial") else
                 "Pago Posterior" if low.startswith("posterior") else
                 "Extorno" if low.startswith("extorno") else
-                "Ajuste" if low.startswith("ajuste") else (tipo or "Otro")
+                "Ajuste Corregido" if low.startswith("ajuste") else (tipo or "Otro")
             )
             hab_str = str(r["hab"] or "").strip()
             huesp_str = str(r["huesped"] or "").strip()
@@ -2958,6 +3011,18 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
             id_p = str(r["id_estancia"] or "").strip()
             f_ci = _resolver_checkin(uid_p, id_p, hab_str, huesp_str, ts, origen)
             id_est_show = mapa_est_id.get(uid_p) or mapa_est_id.get(id_p) or (f"#{r['sheet_row']}" if r["sheet_row"] > 0 else (id_p or "—"))
+
+            concepto_txt = str(r["concepto"] or "").strip()
+            if origen == "Ajuste Corregido":
+                if monto_val < 0:
+                    concepto_txt = f"Registro de pago anulado por corrección o duplicación ({medio_val})"
+                elif not concepto_txt or concepto_txt.lower().startswith("ajuste modificaci"):
+                    concepto_txt = f"Pago registrado por corrección de estancia ({medio_val})"
+            elif monto_val > 0 and (
+                (id_p or uid_p, hab_str, medio_val.upper()) in anulaciones_por_est_medio
+            ):
+                if "corregido" not in concepto_txt.lower() and "anulado" not in concepto_txt.lower():
+                    concepto_txt = f"{concepto_txt} — [Registro anulado por corrección]".strip()
 
             filas.append({
                 "ts": ts,
@@ -2967,10 +3032,10 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
                 "huesped": huesp_str,
                 "fechaCheckIn": f_ci,
                 "origen": origen,
-                "concepto": str(r["concepto"] or ""),
-                "medio": str(r["medio_pago"] or ""),
+                "concepto": concepto_txt,
+                "medio": medio_val,
                 "nroOp": str(r["nro_operacion"] or ""),
-                "monto": float(r["monto"] or 0),
+                "monto": monto_val,
             })
 
         # 2. Ventas de Tienda (ventas_tienda)
@@ -3057,7 +3122,7 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
             elif m != medio_f.lower():
                 return False
 
-        if origen_f and x["origen"] != origen_f:
+        if origen_f and x["origen"] != origen_f and not (origen_f.startswith("Ajuste") and x["origen"].startswith("Ajuste")):
             return False
 
         if q:
