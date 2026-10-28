@@ -2985,15 +2985,16 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
             lote = str(r["lote_uuid"] or "")
             hab_t = str(r["hab"] or "").strip()
             uid_t = str(r["estancia_uuid"] or "").strip()
+            id_est_t_raw = str(r["id_estancia"] or "").strip()
             clave = (str(r["fecha_iso"] or ""), met, hab_t, lote if lote != "SHEET" else "")
-            f_ci_t = _resolver_checkin(uid_t, "", hab_t, "", ts, "Tienda") if hab_t else "—"
-            id_est_t = mapa_est_id.get(uid_t) or (hab_t if hab_t else "—")
+            f_ci_t = _resolver_checkin(uid_t, id_est_t_raw, hab_t, "", ts, "Tienda") if hab_t else "—"
+            id_est_t = mapa_est_id.get(uid_t) or mapa_est_id.get(id_est_t_raw) or (id_est_t_raw[:16] if id_est_t_raw else (hab_t if hab_t else "—"))
             nom_hab = hab_t if hab_t else "V. Tienda"
 
             g = grupos.setdefault(clave, {
                 "ts": ts,
                 "idEstancia": id_est_t if hab_t else "—",
-                "idEstanciaCompleto": uid_t or id_est_t,
+                "idEstanciaCompleto": uid_t or id_est_t_raw or id_est_t,
                 "hab": nom_hab,
                 "huesped": "Tienda",
                 "fechaCheckIn": f_ci_t,

@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 import gspread
 from google.oauth2.service_account import Credentials
 
-from config import SCOPES, SPREADSHEET_ID, SYNC_INTERVAL_SECONDS, obtener_ruta_credenciales
+from config import DATA_DIR, SCOPES, SPREADSHEET_ID, SYNC_INTERVAL_SECONDS, obtener_ruta_credenciales
 from database import db_transaction, get_connection
 from config import COL_TIPO_ADICIONAL, COL_TIPO_ADICIONAL_IDX, FORMULA_SNACKS_EN_S2
 from domain_logic import (
@@ -666,7 +666,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                         (
                             f"SH-G-{s_row_g}",
                             id_g_str,
-                            f_g_dmy,
+                            id_g_str if "/" in id_g_str else f_g_dmy,
                             f_g_dmy,
                             hora_g,
                             str(gr[2] or "").strip(),
@@ -1081,16 +1081,58 @@ def process_sync_queue() -> Dict[str, Any]:
                 processed += 1
 
             except Exception as op_err:
+                err_txt = str(op_err)[:300]
+                err_low = err_txt.lower()
+                es_error_red = any(
+                    k in err_low
+                    for k in ("timeout", "timed out", "connection", "socket", "502", "503", "500", "429", "quota", "reset", "eof", "unreachable")
+                )
+                intentos_prev = int(item["attempts"] or 0) + 1
+
+                # Autocuración: si NO es error de red y falla >= 5 veces seguidas, respaldar y destrabar tomando Sheets como base
+                if not es_error_red and intentos_prev >= 5:
+                    try:
+                        DATA_DIR.mkdir(parents=True, exist_ok=True)
+                        with open(DATA_DIR / "autocuracion_backup.jsonl", "a", encoding="utf-8") as fb:
+                            fb.write(
+                                json.dumps(
+                                    {
+                                        "ts": datetime.now().isoformat(),
+                                        "queue_id": qid,
+                                        "op_type": op_type,
+                                        "entity_uuid": item["entity_uuid"],
+                                        "error": err_txt,
+                                        "payload": payload,
+                                    },
+                                    ensure_ascii=False,
+                                )
+                                + "\n"
+                            )
+                    except Exception:
+                        pass
+
+                    with db_transaction() as c_heal:
+                        c_heal.execute(
+                            "UPDATE sync_queue SET status = 'AUTOCURADO', attempts = ?, last_error = ? WHERE queue_id = ?",
+                            (intentos_prev, f"[AUTOCURADO] {err_txt}", qid),
+                        )
+                        if item["entity_uuid"]:
+                            c_heal.execute(
+                                "UPDATE estancias SET dirty = 0 WHERE estancia_uuid = ?",
+                                (item["entity_uuid"],),
+                            )
+                    continue
+
                 with db_transaction() as c_err:
                     c_err.execute(
-                        "UPDATE sync_queue SET status = 'ERROR', attempts = attempts + 1, last_error = ? WHERE queue_id = ?",
-                        (str(op_err)[:300], qid),
+                        "UPDATE sync_queue SET status = 'ERROR', attempts = ?, last_error = ? WHERE queue_id = ?",
+                        (intentos_prev, err_txt, qid),
                     )
                     prev_off = c_err.execute("SELECT valor FROM estado_sistema WHERE clave = 'offline_since_iso'").fetchone()
                     if not prev_off or not prev_off["valor"]:
                         _set_estado_sistema(c_err, "offline_since_iso", datetime.now().isoformat())
                     _set_estado_sistema(c_err, "network_online", "0")
-                    _set_estado_sistema(c_err, "last_sync_error", str(op_err)[:250])
+                    _set_estado_sistema(c_err, "last_sync_error", err_txt[:250])
                 _reset_client()
                 break
 
