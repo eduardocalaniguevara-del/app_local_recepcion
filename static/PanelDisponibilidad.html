@@ -229,14 +229,15 @@
   <!-- ======================= HOJA 2: REGISTRO DE PAGOS (incluye Tienda) ======================= -->
   <div id="vistaPagos" class="hidden flex-1 min-h-0 overflow-y-auto space-y-2">
     <div class="flex flex-wrap items-center gap-2 p-2 rounded-lg border" style="background-color: #FAF6F3; border-color: #DFD2C5;">
-      <span class="text-xs sm:text-sm font-black text-slate-800">📅 Fecha:</span>
-      <button type="button" onclick="pagosNavFecha(-1)" class="px-2 py-0.5 rounded bg-white hover:bg-amber-50 text-slate-800 border border-[#D8C7B8] font-black text-xs cursor-pointer">◀</button>
-      <input type="date" id="pagosFecha" onchange="cargarRegistroPagos()"
-             class="px-2 py-0.5 rounded border border-[#D8C7B8] font-black text-slate-900 text-xs bg-white cursor-pointer">
-      <button type="button" onclick="pagosNavFecha(1)" class="px-2 py-0.5 rounded bg-white hover:bg-amber-50 text-slate-800 border border-[#D8C7B8] font-black text-xs cursor-pointer">▶</button>
-      <button type="button" onclick="pagosHoy()" class="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs cursor-pointer">Hoy</button>
-      <label class="flex items-center gap-1 text-[11px] font-bold text-slate-700 cursor-pointer">
-        <input type="checkbox" id="pagosTodas" onchange="cargarRegistroPagos()"> Todas las fechas
+      <span class="text-xs sm:text-sm font-black text-slate-800">📅 Semana:</span>
+      <button type="button" onclick="pagosNavSemana(-1)" class="px-2.5 py-1 rounded bg-white hover:bg-amber-50 text-slate-800 border border-[#D8C7B8] font-black text-xs cursor-pointer shadow-2xs" title="Semana anterior">◀ Sem.</button>
+      <div id="pagosSemanaLabel" class="px-3 py-1 rounded border border-[#D8C7B8] font-black text-slate-900 text-xs bg-white shadow-2xs min-w-[210px] text-center">
+        Semana actual
+      </div>
+      <button type="button" onclick="pagosNavSemana(1)" class="px-2.5 py-1 rounded bg-white hover:bg-amber-50 text-slate-800 border border-[#D8C7B8] font-black text-xs cursor-pointer shadow-2xs" title="Semana siguiente">Sem. ▶</button>
+      <button type="button" onclick="pagosEstaSemana()" class="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-black text-xs cursor-pointer shadow-2xs">Esta Semana</button>
+      <label class="flex items-center gap-1 text-[11px] font-bold text-slate-700 cursor-pointer ml-1">
+        <input type="checkbox" id="pagosTodas" onchange="cargarRegistroPagos()"> Todas las semanas
       </label>
       <select id="pagosMedio" onchange="cargarRegistroPagos()" class="px-1.5 py-1 rounded border border-[#D8C7B8] text-[11px] bg-white">
         <option value="">Todos los medios</option>
@@ -252,6 +253,7 @@
         <option value="Tienda">🛒 Tienda</option>
         <option value="Ajuste">✏️ Ajuste</option>
         <option value="Extorno">↩️ Extorno</option>
+        <option value="Gasto Efectivo">💸 Gasto Efectivo</option>
       </select>
       <input type="text" id="pagosBuscar" oninput="pagosBuscarDebounce()" placeholder="🔍 Hab, huésped, N° op., producto..."
              class="px-2 py-1 rounded border border-[#D8C7B8] text-xs bg-white w-52 focus:outline-hidden focus:ring-1 focus:ring-blue-600">
@@ -265,15 +267,16 @@
       <table class="w-full text-left text-[11px]">
         <thead class="sticky top-0 bg-slate-800 text-white font-bold uppercase tracking-tight" style="background-color: #2D2623;">
           <tr class="h-8">
-            <th class="px-2 w-[140px]">Fecha / Hora</th>
-            <th class="px-2 w-[60px] text-center">Hab.</th>
+            <th class="px-2 w-[90px] text-center">ID Estancia</th>
+            <th class="px-2 w-[140px] text-center">Fecha / Hora</th>
+            <th class="px-2 w-[80px] text-center">Hab.</th>
             <th class="px-2 w-[95px] text-center">Check-In</th>
             <th class="px-2">Huésped / Cliente</th>
-            <th class="px-2 w-[100px] text-center">Origen</th>
+            <th class="px-2 w-[100px] text-right">Monto</th>
+            <th class="px-2 w-[115px] text-center">Origen</th>
             <th class="px-2">Concepto / Productos</th>
             <th class="px-2 w-[80px] text-center">Medio</th>
             <th class="px-2 w-[110px]">N° Op.</th>
-            <th class="px-2 w-[90px] text-right">Monto</th>
           </tr>
         </thead>
         <tbody id="pagosBody" class="divide-y divide-[#E6DCD2]"></tbody>
@@ -1485,9 +1488,15 @@
 
         // Si la recepcionista le puso un color manual, manda ese color de fondo
         const tieneColor = Boolean(colorManual && colorManual !== "#ffffff");
+        const tieneEmpresaOcupada = h.estado !== "libre" && Boolean(h.empresa && String(h.empresa).trim().length > 0 && String(h.empresa).trim() !== "—" && String(h.empresa).trim() !== "-");
+
         if (tieneColor) {
           tr.style.backgroundColor = colorManual;
           estadoCellBg = "";
+        } else if (tieneEmpresaOcupada) {
+          // Fondo naranja para habitaciones ocupadas por empresa (ej. 405, 403)
+          tr.style.backgroundColor = "#fed7aa";
+          rowBg = "bg-orange-100/90";
         } else {
           tr.className += rowBg;
           tr.style.backgroundColor = "";
@@ -1641,10 +1650,10 @@
         }
 
         const tarifaStr = Number(h.tarifaPactada) > 0 ? "S/ " + Number(h.tarifaPactada).toFixed(2) : "-";
-        const dotBg = tieneColor ? colorManual : "#ffffff";
-        const cell1Bg = tieneColor ? "" : "bg-[#FAF6F3]";
-        const cell2Bg = tieneColor ? "" : "bg-[#FAF6F3]";
-        const cell3Bg = tieneColor ? "" : "bg-[#F3E9E2]";
+        const dotBg = tieneColor ? colorManual : (tieneEmpresaOcupada ? "#fed7aa" : "#ffffff");
+        const cell1Bg = (tieneColor || tieneEmpresaOcupada) ? "" : "bg-[#FAF6F3]";
+        const cell2Bg = (tieneColor || tieneEmpresaOcupada) ? "" : "bg-[#FAF6F3]";
+        const cell3Bg = (tieneColor || tieneEmpresaOcupada) ? "" : "bg-[#F3E9E2]";
 
         tr.innerHTML = `
           <td class="border-r border-[#E6DCD2] text-center p-0.5 ${cell1Bg}">
@@ -4167,63 +4176,135 @@
   // ---------------------------------------------------------------- Registro de Pagos
   var tPag = null;
   window.pagosBuscarDebounce = function () { clearTimeout(tPag); tPag = setTimeout(window.cargarRegistroPagos, 280); };
-  window.pagosNavFecha = function (d) {
-    var inp = document.getElementById('pagosFecha');
-    inp.value = sumarDiasISO(inp.value || hoyISO(), d);
+  var pagosFechaRef = new Date();
+
+  function obtenerLunesYDomingo(dRef) {
+    var d = new Date(dRef);
+    var day = d.getDay(); // 0 Dom, 1 Lun, ...
+    var diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    var lunes = new Date(d.setDate(diff));
+    var domingo = new Date(lunes);
+    domingo.setDate(lunes.getDate() + 6);
+    return { lunes: lunes, domingo: domingo };
+  }
+
+  function aDMYFecha(d) {
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var yyyy = d.getFullYear();
+    return dd + '/' + mm + '/' + yyyy;
+  }
+
+  window.pagosNavSemana = function (delta) {
+    pagosFechaRef.setDate(pagosFechaRef.getDate() + (delta * 7));
     document.getElementById('pagosTodas').checked = false;
     cargarRegistroPagos();
   };
-  window.pagosHoy = function () {
-    document.getElementById('pagosFecha').value = hoyISO();
+
+  window.pagosEstaSemana = function () {
+    pagosFechaRef = new Date();
     document.getElementById('pagosTodas').checked = false;
     cargarRegistroPagos();
   };
+
+  var tPag = null;
+  window.pagosBuscarDebounce = function () { clearTimeout(tPag); tPag = setTimeout(window.cargarRegistroPagos, 280); };
+  window.abrirVistaRegistroPagos = function () {
+    var bD = document.getElementById('btnVistaDisponibilidad');
+    var bP = document.getElementById('btnVistaPagos');
+    var bE = document.getElementById('btnVistaEmpresas');
+    var vD = document.getElementById('vistaDisponibilidad');
+    var vP = document.getElementById('vistaPagos');
+    var vE = document.getElementById('vistaEmpresas');
+    if (bD) { bD.classList.remove('bg-white', 'text-slate-900', 'shadow-xs'); bD.classList.add('text-slate-200'); }
+    if (bE) { bE.classList.remove('bg-white', 'text-slate-900', 'shadow-xs'); bE.classList.add('text-slate-200'); }
+    if (bP) { bP.classList.add('bg-white', 'text-slate-900', 'shadow-xs'); bP.classList.remove('text-slate-200'); }
+    if (vD) vD.classList.add('hidden');
+    if (vE) vE.classList.add('hidden');
+    if (vP) vP.classList.remove('hidden');
+    cargarRegistroPagos();
+  };
+
   window.cargarRegistroPagos = function () {
-    var inp = document.getElementById('pagosFecha');
-    if (!inp.value) inp.value = hoyISO();
     var todas = document.getElementById('pagosTodas').checked;
+    var sem = obtenerLunesYDomingo(pagosFechaRef);
+    var lbl = document.getElementById('pagosSemanaLabel');
+    if (lbl) {
+      if (todas) {
+        lbl.textContent = 'Histórico (Todas las semanas)';
+        lbl.className = 'px-3 py-1 rounded border border-slate-300 font-bold text-slate-500 text-xs bg-slate-100 min-w-[210px] text-center';
+      } else {
+        lbl.textContent = 'Lun ' + aDMYFecha(sem.lunes) + ' al Dom ' + aDMYFecha(sem.domingo);
+        lbl.className = 'px-3 py-1 rounded border border-[#D8C7B8] font-black text-slate-900 text-xs bg-white shadow-2xs min-w-[210px] text-center';
+      }
+    }
     var filtros = {
-      fecha: todas ? 'todas' : aDMY(inp.value),
+      fecha: todas ? 'todas' : 'semana',
+      desde: aDMYFecha(sem.lunes),
+      hasta: aDMYFecha(sem.domingo),
       medio: document.getElementById('pagosMedio').value,
       origen: document.getElementById('pagosOrigen').value,
       q: document.getElementById('pagosBuscar').value.trim()
     };
     var est = document.getElementById('pagosEstado');
-    est.textContent = 'Cargando…';
+    if (est) est.textContent = 'Cargando…';
     runGas('obtenerRegistroPagos', [filtros], renderRegistroPagos, function (err) {
-      est.textContent = 'Error: ' + ((err && err.message) || err);
+      if (est) est.textContent = 'Error: ' + ((err && err.message) || err);
     });
   };
+
   function renderRegistroPagos(res) {
     var est = document.getElementById('pagosEstado');
     res = res || { filas: [], totales: {} };
     var t = res.totales || {};
-    est.textContent = (t.operaciones || 0) + ' operación(es)';
+    if (est) {
+      var resumenTxt = (t.operaciones || 0) + ' movs | Cobros: ' + soles(t.ingresos || t.total);
+      if (t.gastos_efectivo > 0) {
+        resumenTxt += ' | Gastos Efec.: - ' + soles(t.gastos_efectivo);
+      }
+      resumenTxt += ' | Efec. Neto: ' + soles(t.efectivo);
+      est.textContent = resumenTxt;
+    }
     var tarjEl = document.getElementById('pagosTarjetas');
     if (tarjEl) {
       tarjEl.innerHTML = '';
       tarjEl.classList.add('hidden');
     }
-    var todas = document.getElementById('pagosTodas').checked;
     var badge = {
-      'Check-In': 'bg-blue-100 text-blue-900', 'Pago Posterior': 'bg-emerald-100 text-emerald-900',
-      'Tienda': 'bg-pink-100 text-pink-900', 'Ajuste': 'bg-amber-100 text-amber-900', 'Extorno': 'bg-red-100 text-red-900'
+      'Check-In': 'bg-blue-100 text-blue-900',
+      'Pago Posterior': 'bg-emerald-100 text-emerald-900',
+      'Tienda': 'bg-pink-100 text-pink-900',
+      'Gasto Efectivo': 'bg-rose-100 text-rose-900 border border-rose-300 font-black',
+      'Ajuste': 'bg-amber-100 text-amber-900',
+      'Extorno': 'bg-red-100 text-red-900'
     };
     var filas = res.filas || [];
     document.getElementById('pagosBody').innerHTML = filas.length ? filas.map(function (f) {
       var neg = Number(f.monto) < 0;
-      return '<tr class="hover:bg-amber-50/60">' +
-        '<td class="px-2 py-1 font-semibold text-slate-700 whitespace-nowrap">' + esc(f.fecha) + ' <b>' + esc(f.hora) + '</b></td>' +
-        '<td class="px-2 py-1 text-center font-black">' + esc(f.hab) + '</td>' +
+      var esGasto = f.origen === 'Gasto Efectivo';
+      var habTxt = (f.hab === 'Venta libre' || !f.hab || f.hab.indexOf('Venta Li') === 0) ? 'V. Tienda' : f.hab;
+      var habHtml = (habTxt === 'V. Tienda')
+        ? '<span class="px-1.5 py-0.5 rounded font-black text-[10px] bg-pink-100 text-pink-900 border border-pink-200">V. Tienda</span>'
+        : (habTxt === '—' ? '<span class="text-slate-400">—</span>' : '<span class="font-black text-slate-900">' + esc(habTxt) + '</span>');
+
+      var montoHtml = neg
+        ? '<span class="font-black text-rose-700 bg-rose-50 px-1 py-0.5 rounded border border-rose-200">- ' + soles(Math.abs(f.monto)) + '</span>'
+        : '<span class="font-black text-emerald-800">' + soles(f.monto) + '</span>';
+
+      return '<tr class="hover:bg-amber-50/60 ' + (esGasto ? 'bg-rose-50/30' : '') + '">' +
+        '<td class="px-2 py-1 text-center font-mono text-[10.5px] text-slate-700 font-black" title="' + esc(f.idEstanciaCompleto || f.idEstancia || '') + '">' + esc(f.idEstancia || '—') + '</td>' +
+        '<td class="px-2 py-1 text-center font-semibold text-slate-700 whitespace-nowrap">' + esc(f.fecha) + ' <b>' + esc(f.hora) + '</b></td>' +
+        '<td class="px-2 py-1 text-center">' + habHtml + '</td>' +
         '<td class="px-2 py-1 text-center font-bold text-indigo-900">' + esc(f.fechaCheckIn || '—') + '</td>' +
         '<td class="px-2 py-1 font-bold text-slate-900">' + esc(f.huesped) + '</td>' +
+        '<td class="px-2 py-1 text-right whitespace-nowrap">' + montoHtml + '</td>' +
         '<td class="px-2 py-1 text-center"><span class="px-1.5 py-0.5 rounded font-bold text-[10px] ' + (badge[f.origen] || 'bg-slate-100 text-slate-800') + '">' + esc(f.origen) + '</span></td>' +
         '<td class="px-2 py-1 text-slate-700">' + esc(f.concepto) + '</td>' +
         '<td class="px-2 py-1 text-center font-bold">' + esc(f.medio) + '</td>' +
-        '<td class="px-2 py-1 text-slate-600">' + esc(f.nroOp) + '</td>' +
-        '<td class="px-2 py-1 text-right font-black ' + (neg ? 'text-red-700' : 'text-slate-900') + '">' + soles(f.monto) + '</td></tr>';
-    }).join('') : '<tr><td colspan="9" class="px-3 py-6 text-center text-slate-400 font-semibold">Sin pagos para este filtro.</td></tr>';
+        '<td class="px-2 py-1 text-slate-600 font-mono text-[10.5px]">' + esc(f.nroOp || '—') + '</td></tr>';
+    }).join('') : '<tr><td colspan="10" class="px-3 py-6 text-center text-slate-400 font-semibold">Sin pagos ni movimientos para esta semana.</td></tr>';
   }
+  
 
   // ---------------------------------------------------------------- Menú de Movimientos
   var tMov = null, autoMov = null;

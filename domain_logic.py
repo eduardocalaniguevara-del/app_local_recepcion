@@ -2871,9 +2871,20 @@ def _ts_de_pago(pago_id: str, fecha_txt: Any) -> Optional[datetime]:
 def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     f = filtros or {}
     fecha = str(f.get("fecha") or "").strip() or hoy_dmy()
+    desde = str(f.get("desde") or "").strip()
+    hasta = str(f.get("hasta") or "").strip()
     medio_f = str(f.get("medio") or "").strip()
     origen_f = str(f.get("origen") or "").strip()
     q = str(f.get("q") or "").strip().lower()
+
+    d_desde = None
+    d_hasta = None
+    if desde and hasta:
+        try:
+            d_desde = datetime.strptime(desde, "%d/%m/%Y").date()
+            d_hasta = datetime.strptime(hasta, "%d/%m/%Y").date()
+        except Exception:
+            pass
 
     filas: List[Dict[str, Any]] = []
     conn = get_connection()
@@ -2881,20 +2892,28 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
         por_uuid: Dict[str, str] = {}
         por_id: Dict[str, str] = {}
         por_hab_huesp: Dict[Tuple[str, str], str] = {}
-        por_hab_rangos: Dict[str, List[Tuple[str, str, str]]] = {}
+        por_hab_rangos: Dict[str, List[Tuple[int, int, str]]] = {}
+        mapa_est_id: Dict[str, str] = {}
 
         for est in conn.execute(
-            "SELECT estancia_uuid, hab, huesped, fecha_in_dmy, ymd_in, ymd_out FROM estancias WHERE estado_estancia != 'Cancelada' ORDER BY rowid ASC"
+            "SELECT estancia_uuid, id_timestamp_str, sheet_row, hab, huesped, fecha_in_dmy, ymd_in, ymd_out FROM estancias WHERE estado_estancia != 'Cancelada' ORDER BY rowid ASC"
         ).fetchall():
             f_in = str(est["fecha_in_dmy"] or "").strip()
             if not f_in:
                 continue
             uid_e = str(est["estancia_uuid"] or "").strip()
+            ts_id = str(est["id_timestamp_str"] or "").strip()
+            s_row = int(est["sheet_row"] or 0)
+            id_legible = f"#{s_row}" if s_row > 0 else (ts_id[:16] if ts_id else (uid_e[:8] if uid_e else "—"))
+
             hab_e = str(est["hab"] or "").strip()
             nom_e = str(est["huesped"] or "").strip().upper()
             if uid_e:
                 por_uuid[uid_e] = f_in
-                por_id[uid_e] = f_in
+                mapa_est_id[uid_e] = id_legible
+            if ts_id:
+                por_id[ts_id] = f_in
+                mapa_est_id[ts_id] = id_legible
             if hab_e and nom_e:
                 por_hab_huesp[(hab_e, nom_e)] = f_in
             if hab_e:
@@ -2918,6 +2937,7 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
                 return ts_p.strftime("%d/%m/%Y")
             return "—"
 
+        # 1. Cobros de estancias (pagos)
         for r in conn.execute("SELECT * FROM pagos ORDER BY rowid DESC LIMIT 1500").fetchall():
             ts = _ts_de_pago(r["pago_id"], r["fecha_iso"])
             if not ts:
@@ -2932,48 +2952,100 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
             )
             hab_str = str(r["hab"] or "").strip()
             huesp_str = str(r["huesped"] or "").strip()
-            f_ci = _resolver_checkin(
-                str(r["estancia_uuid"] or "").strip(),
-                str(r["id_estancia"] or "").strip(),
-                hab_str, huesp_str, ts, origen
-            )
+            uid_p = str(r["estancia_uuid"] or "").strip()
+            id_p = str(r["id_estancia"] or "").strip()
+            f_ci = _resolver_checkin(uid_p, id_p, hab_str, huesp_str, ts, origen)
+            id_est_show = mapa_est_id.get(uid_p) or mapa_est_id.get(id_p) or (f"#{r['sheet_row']}" if r["sheet_row"] > 0 else (id_p or "—"))
+
             filas.append({
-                "ts": ts, "hab": hab_str, "huesped": huesp_str, "fechaCheckIn": f_ci,
-                "origen": origen, "concepto": str(r["concepto"] or ""),
-                "medio": str(r["medio_pago"] or ""), "nroOp": str(r["nro_operacion"] or ""),
+                "ts": ts,
+                "idEstancia": id_est_show,
+                "idEstanciaCompleto": id_p or uid_p or id_est_show,
+                "hab": hab_str,
+                "huesped": huesp_str,
+                "fechaCheckIn": f_ci,
+                "origen": origen,
+                "concepto": str(r["concepto"] or ""),
+                "medio": str(r["medio_pago"] or ""),
+                "nroOp": str(r["nro_operacion"] or ""),
                 "monto": float(r["monto"] or 0),
             })
 
+        # 2. Ventas de Tienda (ventas_tienda)
         grupos: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
         for r in conn.execute("SELECT * FROM ventas_tienda ORDER BY rowid DESC LIMIT 2500").fetchall():
             met = str(r["metodo_pago"] or "").strip()
             if met.lower().startswith("cargar"):
-                continue  # cargo a la cuenta: todavía no es dinero cobrado
+                continue
             ts = _parse_ts_flexible(r["fecha_iso"]) or _parse_ts_flexible(r["fecha_dmy"])
             if not ts:
                 continue
             lote = str(r["lote_uuid"] or "")
             hab_t = str(r["hab"] or "").strip()
+            uid_t = str(r["estancia_uuid"] or "").strip()
             clave = (str(r["fecha_iso"] or ""), met, hab_t, lote if lote != "SHEET" else "")
-            f_ci_t = _resolver_checkin(
-                str(r["estancia_uuid"] or "").strip(), "", hab_t, "", ts, "Tienda"
-            ) if hab_t else "—"
+            f_ci_t = _resolver_checkin(uid_t, "", hab_t, "", ts, "Tienda") if hab_t else "—"
+            id_est_t = mapa_est_id.get(uid_t) or (hab_t if hab_t else "—")
+            nom_hab = hab_t if hab_t else "V. Tienda"
+
             g = grupos.setdefault(clave, {
-                "ts": ts, "hab": hab_t or "Venta libre", "huesped": "Tienda", "fechaCheckIn": f_ci_t,
-                "origen": "Tienda", "medio": met, "nroOp": str(r["nro_op_yape"] or ""),
-                "monto": 0.0, "items": [],
+                "ts": ts,
+                "idEstancia": id_est_t if hab_t else "—",
+                "idEstanciaCompleto": uid_t or id_est_t,
+                "hab": nom_hab,
+                "huesped": "Tienda",
+                "fechaCheckIn": f_ci_t,
+                "origen": "Tienda",
+                "medio": met,
+                "nroOp": str(r["nro_op_yape"] or ""),
+                "monto": 0.0,
+                "items": [],
             })
             g["monto"] = round(g["monto"] + float(r["subtotal"] or 0), 2)
             g["items"].append(f"{int(r['cantidad'] or 1)}× {r['producto']}")
         for g in grupos.values():
             g["concepto"] = ", ".join(g.pop("items"))
             filas.append(g)
+
+        # 3. Gastos en Efectivo (gastos - solo efectivo)
+        for r in conn.execute("SELECT * FROM gastos ORDER BY rowid DESC LIMIT 1000").fetchall():
+            met_g = str(r["metodo_pago"] or "").strip()
+            if "efectivo" not in met_g.lower() and met_g.lower() != "efec":
+                continue
+            ts_g = _parse_ts_flexible(r["fecha_gasto_iso"]) or _parse_ts_flexible(r["fecha_gasto_dmy"])
+            if not ts_g:
+                continue
+            cat = str(r["categoria"] or "").strip()
+            desc = str(r["descripcion"] or "").strip()
+            concepto_g = f"[{cat}] {desc}".strip() if cat else desc
+            monto_g = abs(float(r["monto"] or 0))
+            resp_g = str(r["responsable"] or "Gasto Efectivo").strip()
+
+            filas.append({
+                "ts": ts_g,
+                "idEstancia": "—",
+                "idEstanciaCompleto": str(r["gasto_uuid"] or ""),
+                "hab": "—",
+                "huesped": resp_g,
+                "fechaCheckIn": "—",
+                "origen": "Gasto Efectivo",
+                "concepto": concepto_g or "Salida de caja",
+                "medio": "Efectivo",
+                "nroOp": str(r["nro_comp"] or ""),
+                "monto": -monto_g,
+            })
     finally:
         conn.close()
 
     def pasa(x: Dict[str, Any]) -> bool:
-        if fecha != "todas" and x["ts"].strftime("%d/%m/%Y") != fecha:
-            return False
+        if fecha != "todas":
+            if d_desde and d_hasta:
+                if not (d_desde <= x["ts"].date() <= d_hasta):
+                    return False
+            elif fecha and fecha != "semana":
+                if x["ts"].strftime("%d/%m/%Y") != fecha:
+                    return False
+
         if medio_f:
             m = x["medio"].lower()
             if medio_f == "Otros":
@@ -2981,36 +3053,77 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
                     return False
             elif m != medio_f.lower():
                 return False
+
         if origen_f and x["origen"] != origen_f:
             return False
-        if q and q not in " ".join([x["hab"], x["huesped"], x["concepto"], x["nroOp"], x["medio"], x["origen"]]).lower():
-            return False
+
+        if q:
+            texto_todo = " ".join([
+                str(x.get("idEstancia") or ""),
+                str(x.get("hab") or ""),
+                str(x.get("huesped") or ""),
+                str(x.get("concepto") or ""),
+                str(x.get("nroOp") or ""),
+                str(x.get("medio") or ""),
+                str(x.get("origen") or ""),
+            ]).lower()
+            if q not in texto_todo:
+                return False
         return True
 
-    sel = sorted([x for x in filas if pasa(x)], key=lambda x: x["ts"], reverse=True)[:800]
-    tot = {"total": 0.0, "efectivo": 0.0, "yape": 0.0, "visa": 0.0, "otros": 0.0, "tienda": 0.0, "operaciones": len(sel)}
+    sel = sorted([x for x in filas if pasa(x)], key=lambda x: x["ts"], reverse=True)[:1000]
+
+    tot = {
+        "total": 0.0,
+        "ingresos": 0.0,
+        "gastos_efectivo": 0.0,
+        "efectivo": 0.0,
+        "yape": 0.0,
+        "visa": 0.0,
+        "otros": 0.0,
+        "tienda": 0.0,
+        "neto": 0.0,
+        "operaciones": len(sel),
+    }
+
     for x in sel:
-        tot["total"] += x["monto"]
-        m = x["medio"].lower()
-        clave = "efectivo" if m == "efectivo" else "yape" if m == "yape" else "visa" if m == "visa" else "otros"
-        tot[clave] += x["monto"]
-        if x["origen"] == "Tienda":
-            tot["tienda"] += x["monto"]
+        m_val = x["monto"]
+        m_medio = x["medio"].lower()
+        if x["origen"] == "Gasto Efectivo":
+            tot["gastos_efectivo"] += abs(m_val)
+            tot["efectivo"] -= abs(m_val)
+            tot["neto"] -= abs(m_val)
+        else:
+            tot["ingresos"] += m_val
+            tot["total"] += m_val
+            tot["neto"] += m_val
+            clave = "efectivo" if m_medio == "efectivo" else "yape" if m_medio == "yape" else "visa" if m_medio == "visa" else "otros"
+            tot[clave] += m_val
+            if x["origen"] == "Tienda":
+                tot["tienda"] += m_val
+
     tot = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in tot.items()}
 
     salida = [
         {
-            "fecha": x["ts"].strftime("%d/%m/%Y"), "hora": x["ts"].strftime("%H:%M:%S"),
-            "hab": x["hab"], "huesped": x["huesped"], "fechaCheckIn": x.get("fechaCheckIn", "—"), "origen": x["origen"],
-            "concepto": x["concepto"], "medio": x["medio"], "nroOp": x["nroOp"], "monto": round(x["monto"], 2),
+            "idEstancia": x.get("idEstancia", "—"),
+            "idEstanciaCompleto": x.get("idEstanciaCompleto", ""),
+            "fecha": x["ts"].strftime("%d/%m/%Y"),
+            "hora": x["ts"].strftime("%H:%M:%S"),
+            "hab": x["hab"],
+            "fechaCheckIn": x.get("fechaCheckIn", "—"),
+            "huesped": x["huesped"],
+            "monto": round(x["monto"], 2),
+            "origen": x["origen"],
+            "concepto": x["concepto"],
+            "medio": x["medio"],
+            "nroOp": x["nroOp"],
         }
         for x in sel
     ]
-    return {"fecha": fecha, "filas": salida, "totales": tot}
+    return {"fecha": fecha, "desde": desde, "hasta": hasta, "filas": salida, "totales": tot}
 
 
-# ==============================================================================
-# VITRINA_TIENDA: CONTEO DE INVENTARIO Y ÚLTIMOS 3 HISTÓRICOS (OFFLINE-FIRST)
 # ==============================================================================
 
 def _limpiar_header_vitrina(raw_hdr: str, fallback: str) -> str:
