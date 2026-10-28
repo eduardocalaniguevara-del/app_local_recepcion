@@ -939,6 +939,7 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
 
         sync_info = obtener_estado_red_cola(conn)
         return {
+            "nombreHotel": NOMBRE_HOTEL,
             "coloresGlobales": colores_panel["globales"],
             "coloresPorFecha": colores_panel["porFecha"],
             "fechaHoyISO": fecha_hoy_iso_val,
