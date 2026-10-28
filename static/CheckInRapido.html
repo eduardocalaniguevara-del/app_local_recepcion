@@ -963,22 +963,27 @@
     <form id="continuarForm" action="#" method="POST" novalidate>
 
       <fieldset>
-        <legend class="cont-legend">1. Seleccionar Estancia Activa</legend>
+        <legend class="cont-legend" id="legendSeccion1Cont" style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+          <span>1. Estancia Seleccionada</span>
+          <button type="button" id="btnMostrarBusquedaCont" onclick="mostrarBusquedaManualContinuar()" style="display:none;font-size:10.5px;font-weight:700;color:#2563eb;background:transparent;border:none;cursor:pointer;text-decoration:underline;padding:0;">Cambiar otra hab.</button>
+        </legend>
 
-        <div class="field">
-          <label for="contHabBuscar">⚡ Digita N° de Habitación</label>
-          <input type="text" id="contHabBuscar" inputmode="numeric" autocomplete="off"
-                 autocorrect="off" autocapitalize="off" spellcheck="false"
-                 placeholder="Ej. 103" maxlength="5">
-          <div id="contBuscarHint" class="prev-stay-hint"></div>
-        </div>
+        <div id="bloqueBusquedaManualCont">
+          <div class="field">
+            <label for="contHabBuscar">⚡ Digita N° de Habitación</label>
+            <input type="text" id="contHabBuscar" inputmode="numeric" autocomplete="off"
+                   autocorrect="off" autocapitalize="off" spellcheck="false"
+                   placeholder="Ej. 103" maxlength="5">
+            <div id="contBuscarHint" class="prev-stay-hint"></div>
+          </div>
 
-        <div class="field">
-          <label for="estanciaActivaSelect">Habitación Ocupada / Huésped <span class="req">*</span></label>
-          <select id="estanciaActivaSelect" required>
-            <option value="">-- Seleccionar Habitación Ocupada --</option>
-          </select>
-          <span class="error-hint">Selecciona la estancia que deseas continuar.</span>
+          <div class="field">
+            <label for="estanciaActivaSelect">Habitación Ocupada / Huésped <span class="req">*</span></label>
+            <select id="estanciaActivaSelect" required>
+              <option value="">-- Seleccionar Habitación Ocupada --</option>
+            </select>
+            <span class="error-hint">Selecciona la estancia que deseas continuar.</span>
+          </div>
         </div>
 
         <div id="resumenContinuarBox" class="summary-card" style="display: none;">
@@ -1077,7 +1082,16 @@
       document.getElementById('dni').focus();
     });
 
-    tabBtnContinuar.addEventListener('click', () => {
+    function mostrarBusquedaManualContinuar() {
+      const blq = document.getElementById('bloqueBusquedaManualCont');
+      const btn = document.getElementById('btnMostrarBusquedaCont');
+      if (blq) blq.style.display = 'block';
+      if (btn) btn.style.display = 'none';
+      const sel = document.getElementById('estanciaActivaSelect');
+      if (sel) sel.focus();
+    }
+
+    tabBtnContinuar.addEventListener('click', (ev) => {
       tabBtnContinuar.className = 'tab-btn active-continuar';
       tabBtnCheckIn.className = 'tab-btn';
       tabBtnContinuar.setAttribute('aria-selected', 'true');
@@ -1086,7 +1100,9 @@
       panelCheckIn.classList.remove('active');
       document.getElementById('tabBtnGrupal').className = 'tab-btn';
       document.getElementById('panelGrupal').classList.remove('active');
-      document.getElementById('estanciaActivaSelect').focus();
+      if (ev && ev.isTrusted) {
+        mostrarBusquedaManualContinuar();
+      }
     });
 
     // Limpieza automática de errores al escribir
@@ -1369,6 +1385,9 @@
             renderizarEstanciasActivas();
             renderizarGrupal();
             calcularTotalesCheckIn();
+            if (window._ctxDrawerPendiente && typeof window.aplicarSeleccionDesdeContextoCheckIn === 'function') {
+              window.aplicarSeleccionDesdeContextoCheckIn(window._ctxDrawerPendiente, true);
+            }
 
             syncInfo.textContent = `Listo • ${HABITACIONES.length} habitaciones sincronizadas`;
           })
@@ -1922,6 +1941,7 @@
       };
 
       // Quitar de la lista local para evitar doble continuación por doble clic
+      window._ctxDrawerPendiente = null;
       ESTANCIAS_ACTIVAS.splice(Number(idx), 1);
       renderizarEstanciasActivas();
       contHabBuscar.value = '';
@@ -1941,6 +1961,70 @@
             cargarDatosServidor();
           })
           .continuarEstanciaDesdeApp(payloadCont);
+      }
+    });
+
+    window._ctxDrawerPendiente = null;
+    window.aplicarSeleccionDesdeContextoCheckIn = function(ctx, desdeCargaServidor) {
+      if (!ctx) return;
+      window._ctxDrawerPendiente = ctx;
+      if (ctx.fechaPanelISO) {
+        const fInIso = String(ctx.fechaPanelISO).trim();
+        const fOutIso = sumarDiasIso(fInIso, 1);
+        FECHA_HOY = fInIso;
+        FECHA_MANANA = fOutIso;
+        if (fechaInInput) fechaInInput.value = fInIso;
+        if (fechaOutInput) fechaOutInput.value = fOutIso;
+        if (grFechaIn) grFechaIn.value = fInIso;
+        if (grFechaOut) grFechaOut.value = fOutIso;
+      }
+      if (ctx.tab === 'continuar') {
+        tabBtnContinuar.click();
+        const hab = String(ctx.hab || '').trim();
+        if (hab && ESTANCIAS_ACTIVAS && ESTANCIAS_ACTIVAS.length > 0) {
+          let idx = -1;
+          if (ctx.estanciaUuid) {
+            idx = ESTANCIAS_ACTIVAS.findIndex((e) => e.estanciaUuid && String(e.estanciaUuid) === String(ctx.estanciaUuid));
+          }
+          if (idx === -1 && ctx.idEstancia) {
+            idx = ESTANCIAS_ACTIVAS.findIndex((e) => e.id && String(e.id) === String(ctx.idEstancia));
+          }
+          if (idx === -1 && ctx.fila) {
+            idx = ESTANCIAS_ACTIVAS.findIndex((e) => e.fila && Number(e.fila) === Number(ctx.fila));
+          }
+          if (idx === -1) {
+            idx = ESTANCIAS_ACTIVAS.findIndex((e) => String(e.hab).trim() === hab);
+          }
+          if (idx !== -1) {
+            contHabBuscar.value = hab;
+            contBuscarHint.classList.remove('visible');
+            seleccionarEstancia(idx);
+            const blq = document.getElementById('bloqueBusquedaManualCont');
+            const btnM = document.getElementById('btnMostrarBusquedaCont');
+            if (blq) blq.style.display = 'none';
+            if (btnM) btnM.style.display = 'inline';
+          } else {
+            mostrarBusquedaManualContinuar();
+          }
+        } else if (!hab) {
+          mostrarBusquedaManualContinuar();
+        }
+      } else if (ctx.tab === 'checkin') {
+        tabBtnCheckIn.click();
+        const hab = String(ctx.hab || '').trim();
+        if (hab && HABITACIONES && HABITACIONES.length > 0 && habSelect) {
+          habSelect.value = hab;
+          habSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+      if (!desdeCargaServidor) {
+        cargarDatosServidor();
+      }
+    };
+
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'SET_CONTEXT' && e.data.context) {
+        window.aplicarSeleccionDesdeContextoCheckIn(e.data.context, false);
       }
     });
 
@@ -2138,55 +2222,5 @@
 
 </script>
 <!-- FECHA_DMY_END -->
-<script>
-  window.addEventListener('message', function(e) {
-    if (!e.data || e.data.type !== 'SET_CONTEXT' || !e.data.context) return;
-    var ctx = e.data.context;
-    if (ctx.fechaPanelISO) {
-      var fInIso = String(ctx.fechaPanelISO).trim();
-      var dNext = new Date(fInIso + 'T12:00:00');
-      dNext.setDate(dNext.getDate() + 1);
-      var fOutIso = dNext.toISOString().split('T')[0];
-      try { FECHA_HOY = fInIso; FECHA_MANANA = fOutIso; } catch (err) {}
-      var elFIn = document.getElementById('fechaIn');
-      var elFOut = document.getElementById('fechaOut');
-      if (elFIn) { elFIn.value = fInIso; elFIn.dispatchEvent(new Event('change', { bubbles: true })); }
-      if (elFOut) { elFOut.value = fOutIso; elFOut.dispatchEvent(new Event('change', { bubbles: true })); }
-      var elGrIn = document.getElementById('grFechaIn');
-      var elGrOut = document.getElementById('grFechaOut');
-      if (elGrIn) elGrIn.value = fInIso;
-      if (elGrOut) elGrOut.value = fOutIso;
-      var elFGasto = document.getElementById('fechaGasto') || document.getElementById('fecha');
-      if (elFGasto && elFGasto.type === 'date' && elFGasto.id !== 'fechaIn') elFGasto.value = fInIso;
-    }
-    if (typeof cargarDatosServidor === 'function') {
-      try { cargarDatosServidor(); } catch (err) {}
-    }
-    if (ctx.tab === 'continuar' && ctx.hab) {
-      var hab = String(ctx.hab);
-      var tries = 18;
-      var pickCont = function() {
-        var inpContHab = document.getElementById('contHabBuscar');
-        if (inpContHab && typeof ESTANCIAS_ACTIVAS !== 'undefined' && ESTANCIAS_ACTIVAS.length > 0) {
-          inpContHab.value = hab;
-          inpContHab.dispatchEvent(new Event('input', { bubbles: true }));
-          if (document.getElementById('estanciaActivaSelect') && document.getElementById('estanciaActivaSelect').value !== '') {
-            if (ctx.fechaPanelISO) {
-              var cIn = document.getElementById('contFechaIn');
-              var cOut = document.getElementById('contFechaOut');
-              var dN = new Date(ctx.fechaPanelISO + 'T12:00:00');
-              dN.setDate(dN.getDate() + 1);
-              if (cIn) cIn.value = ctx.fechaPanelISO;
-              if (cOut) cOut.value = dN.toISOString().split('T')[0];
-            }
-            return;
-          }
-        }
-        if (tries-- > 0) setTimeout(pickCont, 200);
-      };
-      pickCont();
-    }
-  });
-</script>
 </body>
 </html>

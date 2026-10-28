@@ -19,6 +19,7 @@ DST_DIR = Path(__file__).resolve().parent / "static"
 BRIDGE_OVERRIDE_SCRIPT = """<script>
   window.addEventListener('message', function(e) {
     if (!e.data || e.data.type !== 'SET_CONTEXT' || !e.data.context) return;
+    if (typeof window.aplicarSeleccionDesdeContextoCheckIn === 'function') return;
     var ctx = e.data.context;
     if (ctx.fechaPanelISO) {
       var fInIso = String(ctx.fechaPanelISO).trim();
@@ -298,6 +299,9 @@ def build_panel_disponibilidad():
             facturacion: null,
             ocupadaAyer: Boolean(mapaAyerPorHab[String(base.hab)]),
             huespedAyer: mapaAyerPorHab[String(base.hab)] ? (mapaAyerPorHab[String(base.hab)].huesped || "") : "",
+            filaAyer: mapaAyerPorHab[String(base.hab)] ? (mapaAyerPorHab[String(base.hab)].fila || mapaAyerPorHab[String(base.hab)].filaNum || 0) : 0,
+            idAyer: mapaAyerPorHab[String(base.hab)] ? (mapaAyerPorHab[String(base.hab)].id || "") : "",
+            estanciaUuidAyer: mapaAyerPorHab[String(base.hab)] ? (mapaAyerPorHab[String(base.hab)].estanciaUuid || "") : "",
             historialDia: (historialPorHab[String(base.hab)] || [])
           };"""
     assert old_free_ret in html, "No se encontró old_free_ret"

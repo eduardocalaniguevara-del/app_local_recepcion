@@ -196,6 +196,9 @@ BRIDGE_BODY_LOCAL = """
 
     window.aplicarContextoDesdePanel = function(ctx) {
       if (!ctx) return;
+      if (typeof window.aplicarSeleccionDesdeContextoCheckIn === 'function') {
+        return; // CheckInRapido ya gestiona SET_CONTEXT sin condiciones de carrera
+      }
       if (ctx.fechaPanelISO) {
         var fInIso = String(ctx.fechaPanelISO).trim();
         var dNext = new Date(fInIso + 'T12:00:00');

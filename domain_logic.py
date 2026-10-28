@@ -842,6 +842,9 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
                     "estado": "libre",
                     "ocupadaAyer": bool(st_ayer),
                     "huespedAyer": st_ayer["huesped"] if st_ayer else "",
+                    "filaAyer": int(st_ayer["fila"] or 0) if st_ayer else 0,
+                    "idAyer": str(st_ayer["id"] or "") if st_ayer else "",
+                    "estanciaUuidAyer": str(st_ayer["estanciaUuid"] or "") if st_ayer else "",
                     "deudaAnt": 0,
                     "continuoEstancia": False,
                     "esVueltoContinua": False,
@@ -2541,18 +2544,34 @@ def obtener_datos_iniciales_checkin_local() -> Dict[str, Any]:
             }
 
         estancias_activas = []
-        for st in panel["estanciasCache"][:80]:
+        habs_ya_incluidas = set()
+        for st in panel["estanciasCache"]:
             if not st.get("esInactiva") and not st.get("esContinuacionCerrada"):
+                hab_key = str(st.get("hab") or "").strip()
+                if not hab_key or hab_key in habs_ya_incluidas:
+                    continue
+                habs_ya_incluidas.add(hab_key)
+                sub_aloj = float(st.get("subtotalAloj") or st.get("tarifa") or 0)
+                t_cuenta = round(
+                    sub_aloj
+                    + float(st.get("snacks") or 0)
+                    + float(st.get("servicios") or 0)
+                    + float(st.get("adicComp") or 0)
+                    + float(st.get("deudaAnt") or 0),
+                    2,
+                )
                 estancias_activas.append({
                     "fila": st["fila"],
                     "id": st["id"],
                     "estanciaUuid": st["estanciaUuid"],
-                    "hab": st["hab"],
+                    "hab": hab_key,
                     "nombre": st["huesped"],
                     "dni": st["dni"],
                     "fechaIn": st["checkIn"],
                     "fechaOut": st["checkOut"],
                     "tarifa": st["tarifa"],
+                    "totalCuenta": t_cuenta,
+                    "totalPagado": float(st.get("pagado") or 0),
                     "saldo": st["saldo"],
                     "estado": st["estadoEstancia"],
                 })
