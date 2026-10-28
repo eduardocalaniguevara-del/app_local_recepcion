@@ -265,7 +265,7 @@
       <table class="w-full text-left text-[11px]">
         <thead class="sticky top-0 bg-slate-800 text-white font-bold uppercase tracking-tight" style="background-color: #2D2623;">
           <tr class="h-8">
-            <th class="px-2 w-[110px]">Fecha / Hora</th>
+            <th class="px-2 w-[140px]">Fecha / Hora</th>
             <th class="px-2 w-[60px] text-center">Hab.</th>
             <th class="px-2 w-[95px] text-center">Check-In</th>
             <th class="px-2">Huésped / Cliente</th>
@@ -4213,7 +4213,7 @@
     document.getElementById('pagosBody').innerHTML = filas.length ? filas.map(function (f) {
       var neg = Number(f.monto) < 0;
       return '<tr class="hover:bg-amber-50/60">' +
-        '<td class="px-2 py-1 font-semibold text-slate-700">' + (todas ? esc(f.fecha) + ' ' : '') + '<b>' + esc(f.hora) + '</b></td>' +
+        '<td class="px-2 py-1 font-semibold text-slate-700 whitespace-nowrap">' + esc(f.fecha) + ' <b>' + esc(f.hora) + '</b></td>' +
         '<td class="px-2 py-1 text-center font-black">' + esc(f.hab) + '</td>' +
         '<td class="px-2 py-1 text-center font-bold text-indigo-900">' + esc(f.fechaCheckIn || '—') + '</td>' +
         '<td class="px-2 py-1 font-bold text-slate-900">' + esc(f.huesped) + '</td>' +
