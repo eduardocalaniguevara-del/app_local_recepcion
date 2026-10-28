@@ -887,54 +887,7 @@
     var fechaHoyServidorISO = new Date().toISOString().split("T")[0];
 
     // DATOS DE RESPALDO LOCAL / INICIALES (con naranja suavizado #fdba74 y ejemplo de Deuda Continua)
-    let habitacionesData = [
-      // 1. Matrimonial
-      { hab: "103", colorPersonalizado: "", precioRef: "75-65", tipo: "Matrimonial", estado: "ocupado_aldia", checkIn: "21/10/2026", hora: "20:51", huesped: "JOHN RONY MUSAJA CHAMBILLA", tarifaPactada: 100, pagado: 100, pagoDetalle: { efectivo: 100, yape: 0, codigoMontoHora: "" }, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "104", colorPersonalizado: "", precioRef: "75", tipo: "Matrimonial", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "105", colorPersonalizado: "", precioRef: "75", tipo: "Matrimonial", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "201", colorPersonalizado: "", precioRef: "75", tipo: "Matrimonial", estado: "ocupado_debe", checkIn: "21/10/2026", hora: "08:26", huesped: "JAZMIN SANDRA BELLIDO PAUCAR", tarifaPactada: 70, pagado: 70, pagoDetalle: { efectivo: 70, yape: 0, codigoMontoHora: "30 11:18am" }, adicional: 1.5, adicDetalle: "Snacks Tienda (S/ 1.50)", saldo: 1.5 },
-      { hab: "301", colorPersonalizado: "", precioRef: "75", tipo: "Matrimonial", estado: "ocupado_deuda_continua", deudaAnt: 70, checkIn: "21/10/2026", hora: "14:12", huesped: "LUCERO PALOMINO CHAVES", tarifaPactada: 70, pagado: 73, pagoDetalle: { efectivo: 73, yape: 0, codigoMontoHora: "" }, adicional: 0, adicDetalle: "", saldo: 70 },
-      { hab: "302", colorPersonalizado: "", precioRef: "75", tipo: "Matrimonial", estado: "ocupado_aldia", checkIn: "21/10/2026", hora: "22:00", huesped: "JHON WACZON SALAS SALAS", tarifaPactada: 70, pagado: 70, pagoDetalle: { efectivo: 0, yape: 70, codigoMontoHora: "70 9:58PM" }, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "305", colorPersonalizado: "", precioRef: "75", tipo: "Matrimonial", estado: "ocupado_aldia", checkIn: "21/10/2026", hora: "20:20", huesped: "MARIA JOSE AROCUTIPA TICONA", tarifaPactada: 70, pagado: 70, pagoDetalle: { efectivo: 50, yape: 20, codigoMontoHora: "20 20:20pm" }, adicional: 0, adicDetalle: "", saldo: 0 },
-
-      // 2. Matrimonial con Tina
-      { hab: "303", colorPersonalizado: "", precioRef: "80", tipo: "Matrimonial con Tina", estado: "ocupado_aldia", checkIn: "21/10/2026", hora: "09:26", huesped: "JHON FRANKLIN SUAÑA APAZA", tarifaPactada: 80, pagado: 90, pagoDetalle: { efectivo: 0, yape: 90, codigoMontoHora: "90 9:25am" }, adicional: 10, adicDetalle: "Snacks Tienda (S/ 10.00)", saldo: 0 },
-      { hab: "304", colorPersonalizado: "", precioRef: "80", tipo: "Matrimonial con Tina", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-
-      // 3. Doble con baño privado
-      { hab: "102", colorPersonalizado: "", precioRef: "85", tipo: "Doble con baño privado", estado: "ocupado_aldia", checkIn: "21/10/2026", hora: "20:29", huesped: "DANY ROCIO MOGROVEJO LLERENA", tarifaPactada: 50, pagado: 50, pagoDetalle: { efectivo: 0, yape: 50, codigoMontoHora: "50 7:21am" }, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "204", colorPersonalizado: "", precioRef: "85", tipo: "Doble con baño privado", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "309", colorPersonalizado: "", precioRef: "85", tipo: "Doble con baño privado", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "205", colorPersonalizado: "", precioRef: "85", tipo: "Doble con baño privado", estado: "ocupado_aldia", checkIn: "21/10/2026", hora: "14:14", huesped: "NESTOR ZAPANA INCAHUANACO", tarifaPactada: 75, pagado: 69, pagoDetalle: { efectivo: 0, yape: 69, codigoMontoHora: "69 20:26pm" }, adicional: 0, adicDetalle: "", saldo: 0 },
-
-      // 4. Doble familiar con baño privado
-      { hab: "308", colorPersonalizado: "", precioRef: "95", tipo: "Doble familiar con baño privado", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-
-      // 5. Simple con baño privado
-      { hab: "206", colorPersonalizado: "", precioRef: "55", tipo: "Simple con baño privado", estado: "ocupado_debe", checkIn: "21/10/2026", hora: "14:14", huesped: "FIORELA MILUSKA ASCARSA OCHOA", tarifaPactada: 50, pagado: 0, pagoDetalle: { efectivo: 0, yape: 0, codigoMontoHora: "" }, adicional: 0, adicDetalle: "", saldo: 50 },
-      { hab: "207", colorPersonalizado: "", precioRef: "55-45", tipo: "Simple con baño privado", estado: "ocupado_deuda_continua", deudaAnt: 45, checkIn: "21/10/2026", hora: "19:49", huesped: "LUCERO PALOMINO CHAVES", tarifaPactada: 45, pagado: 88, pagoDetalle: { efectivo: 48, yape: 40, codigoMontoHora: "11 8:01pm" }, adicional: 9, adicDetalle: "Snacks S/ 4 + Cochera S/ 5", saldo: 54 },
-      { hab: "306", colorPersonalizado: "", precioRef: "55", tipo: "Simple con baño privado", estado: "ocupado_aldia", checkIn: "21/10/2026", hora: "14:12", huesped: "JHON TOMI MASCO JUAREZ", tarifaPactada: 50, pagado: 255, pagoDetalle: { efectivo: 5, yape: 250, codigoMontoHora: "250 6:06pm" }, adicional: 5, adicDetalle: "Agua 1L (S/ 3) + Galletas (S/ 2)", saldo: 0 },
-      { hab: "307", colorPersonalizado: "", precioRef: "55", tipo: "Simple con baño privado", estado: "ocupado_aldia", checkIn: "21/10/2026", hora: "18:57", huesped: "CRISTINA PAULA FELICIANO FLORES", tarifaPactada: 50, pagado: 50, pagoDetalle: { efectivo: 50, yape: 0, codigoMontoHora: "" }, adicional: 0, adicDetalle: "", saldo: 0 },
-
-      // 6. Matrimonial baño compartido
-      { hab: "208", colorPersonalizado: "", precioRef: "55-45", tipo: "Matrimonial baño compartido", estado: "ocupado_aldia", continuoEstancia: true, esVueltoContinua: true, checkIn: "21/10/2026", hora: "08:36", huesped: "HENRY FREDY MAMANI RAMOS", tarifaPactada: 40, pagado: 60, pagoDetalle: { efectivo: 60, yape: 0, codigoMontoHora: "" }, adicional: 0, adicDetalle: "", saldo: -20 },
-      { hab: "209", colorPersonalizado: "", precioRef: "55", tipo: "Matrimonial baño compartido", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-
-      // 7. Simple con baño compartido
-      { hab: "405", colorPersonalizado: "", precioRef: "40", tipo: "Simple con baño compartido", estado: "ocupado_aldia", checkIn: "21/10/2026", hora: "21:54", huesped: "ALDAHIR ALBERTO MEDINA ARANDA", tarifaPactada: 35, pagado: 35, pagoDetalle: { efectivo: 0, yape: 35, codigoMontoHora: "35 21:21PM" }, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "403", colorPersonalizado: "", precioRef: "40", tipo: "Simple con baño compartido", estado: "ocupado_aldia", checkIn: "19/10/2026", hora: "11:20", huesped: "JORDAN MOLINERO", tarifaPactada: 40, pagado: 40, pagoDetalle: { efectivo: 40, yape: 0, codigoMontoHora: "" }, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "404", colorPersonalizado: "", precioRef: "40", tipo: "Simple con baño compartido", estado: "ocupado_aldia", checkIn: "21/10/2026", hora: "01:17", huesped: "FREDDY ALBERTO PIMENTEL ROCA", tarifaPactada: 30, pagado: 50, pagoDetalle: { efectivo: 50, yape: 0, codigoMontoHora: "" }, adicional: 0, adicDetalle: "", saldo: -20 },
-      { hab: "406", colorPersonalizado: "", precioRef: "40", tipo: "Simple con baño compartido", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "407", colorPersonalizado: "", precioRef: "40", tipo: "Simple con baño compartido", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-
-      // 8. Doble Familiar con baño compartido
-      { hab: "202", colorPersonalizado: "", precioRef: "70-60", tipo: "Doble Familiar con baño compartido", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-
-      // 9. Doble con baño compartido
-      { hab: "402", colorPersonalizado: "", precioRef: "60", tipo: "Doble con baño compartido", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "203", colorPersonalizado: "", precioRef: "60", tipo: "Doble con baño compartido", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 },
-      { hab: "401", colorPersonalizado: "", precioRef: "60", tipo: "Doble con baño compartido", estado: "libre", checkIn: "-", hora: "-", huesped: "-", tarifaPactada: 0, pagado: 0, pagoDetalle: null, adicional: 0, adicDetalle: "", saldo: 0 }
-    ];
+    let habitacionesData = [];
     window.habitacionesData = habitacionesData;
     window.habitaciones = habitacionesData;
 
@@ -1333,6 +1286,11 @@
               document.title = "Panel de Disponibilidad — " + res.nombreHotel;
               var st = document.getElementById("splashHotelTitulo");
               if (st) st.textContent = res.nombreHotel;
+            }
+            if (!res || !res.habitaciones || res.habitaciones.length === 0) {
+              mostrarSplashScreen("⏳ Descargando habitaciones de Google Sheets...");
+              setTimeout(function() { recargarDatos(); }, 1500);
+              return;
             }
             if (res && res.habitaciones && res.habitaciones.length > 0) {
               habitacionesData = res.habitaciones;

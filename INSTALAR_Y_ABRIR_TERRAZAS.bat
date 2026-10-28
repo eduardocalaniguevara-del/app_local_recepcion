@@ -54,19 +54,20 @@ if not exist "%DEST_DIR%" mkdir "%DEST_DIR%"
 xcopy "%~dp0*.*" "%DEST_DIR%\" /E /Y /Q > nul
 
 if not exist "%DEST_DIR%\data" mkdir "%DEST_DIR%\data"
-powershell -NoProfile -Command "$p='%DEST_DIR%\data\hotel_perfil.json'; $cfg=@{nombre_hotel='Hotel Terrazas de Villa';spreadsheet_id='1vgjOLxc-eh1zw42uC3pxnM86Lo2jZkz8_uwrEFhw8ss';col_tipo_adicional='AZ';formula_snacks_en_s2=$true;app_port=8081}; $cfg | ConvertTo-Json | Set-Content -Path $p -Encoding UTF8"
+powershell -NoProfile -Command "$p='%DEST_DIR%\data\hotel_perfil.json'; $cfg=@{nombre_hotel='Hotel Terrazas de Villa';spreadsheet_id='1vgjOLxc-eh1zw42uC3pxnM86Lo2jZkz8_uwrEFhw8ss';col_tipo_adicional='AZ';formula_snacks_en_s2=$true;app_port=8081}; [System.IO.File]::WriteAllText($p, ($cfg | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))"
 
-:: 4. Conectar a GitHub
-echo [4/5] Conectando actualizador automatico con GitHub...
+:: 4. Conectar a GitHub (Repositorio exclusivo Hotel Terrazas)
+echo [4/5] Conectando actualizador automatico con GitHub (Terrazas)...
 if exist "%DEST_DIR%\.git" goto repo_listo
 "%GIT_EXE%" -C "%DEST_DIR%" init > nul 2>&1
 "%GIT_EXE%" -C "%DEST_DIR%" branch -M main > nul 2>&1
-"%GIT_EXE%" -C "%DEST_DIR%" remote add origin https://github.com/eduardocalaniguevara-del/app_local_recepcion.git > nul 2>&1
+"%GIT_EXE%" -C "%DEST_DIR%" remote add origin https://github.com/eduardocalaniguevara-del/app_local_terrazas.git > nul 2>&1
 
 :repo_listo
+"%GIT_EXE%" -C "%DEST_DIR%" remote set-url origin https://github.com/eduardocalaniguevara-del/app_local_terrazas.git > nul 2>&1
 "%GIT_EXE%" -C "%DEST_DIR%" fetch origin main > nul 2>&1
 "%GIT_EXE%" -C "%DEST_DIR%" reset --hard origin/main > nul 2>&1
-echo [4/5] Repositorio sincronizado al dia con GitHub.
+echo [4/5] Repositorio sincronizado al dia con GitHub (Terrazas).
 
 :: 5. Instalar librerias y crear icono
 echo [5/5] Instalando librerias y creando icono en Escritorio...
