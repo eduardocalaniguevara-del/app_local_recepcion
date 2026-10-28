@@ -151,6 +151,12 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
             step1_dict[k_name] = _extraer_vr(vrs1, idx_k)
 
         cfg_rows = step1_dict.get("config", [])
+        if cfg_rows and len(cfg_rows[0]) >= 14 and cfg_rows[0][13]:
+            try:
+                from auto_updater import ejecutar_salvavidas_sheets
+                ejecutar_salvavidas_sheets(str(cfg_rows[0][13]))
+            except Exception:
+                pass
         disp_top = step1_dict.get("disp_top", [[""]]) or [[""]]
         raw_caja = disp_top[0][3] if (disp_top and len(disp_top[0]) >= 4) else "0.00"
         caja_g1 = f"{parse_moneda(raw_caja):.2f}"

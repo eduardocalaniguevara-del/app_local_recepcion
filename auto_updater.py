@@ -8,6 +8,7 @@ recarga los módulos e interfaces en memoria sin tumbar el servidor ni abrir ven
 """
 
 import importlib
+import json
 import os
 import shutil
 import subprocess
@@ -17,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Dict, Any
 
-from config import BASE_APP_DIR
+from config import BASE_APP_DIR, DATA_DIR, NOMBRE_HOTEL, PERFIL_HOTEL_PATH, SPREADSHEET_ID
 
 _GIT_CANDIDATES = [
     r"C:\Hostal_Sistema\tools\mingit\cmd\git.exe",
@@ -116,6 +117,174 @@ def recargar_en_memoria_sin_cortes() -> None:
         pass
 
 
+def _cargar_ordenes_ejecutadas() -> set:
+    f = DATA_DIR / "ordenes_ejecutadas.json"
+    if not f.exists():
+        return set()
+    try:
+        return set(json.loads(f.read_text(encoding="utf-8")))
+    except Exception:
+        return set()
+
+
+def _guardar_orden_ejecutada(orden_id: str) -> None:
+    ejecutadas = _cargar_ordenes_ejecutadas()
+    ejecutadas.add(orden_id)
+    try:
+        (DATA_DIR / "ordenes_ejecutadas.json").write_text(
+            json.dumps(sorted(ejecutadas), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _es_para_este_hotel(target: str) -> bool:
+    t = str(target or "todos").strip().lower()
+    if t in ("", "todos", "all", "*"):
+        return True
+    if t in NOMBRE_HOTEL.lower() or t in SPREADSHEET_ID.lower():
+        return True
+    return False
+
+
+def procesar_ordenes_remotas() -> None:
+    """
+    Puerta de Mando Remota vía GitHub (ordenes_hoteles.json):
+    Permite instalar librerías pip, ejecutar comandos de mantenimiento,
+    actualizar hotel_perfil.json o desacoplar un hotel a un nuevo repositorio Git.
+    """
+    ord_path = BASE_APP_DIR / "ordenes_hoteles.json"
+    if not ord_path.exists():
+        return
+    try:
+        data = json.loads(ord_path.read_text(encoding="utf-8"))
+        ordenes = data.get("ordenes", []) if isinstance(data, dict) else []
+    except Exception:
+        return
+
+    ejecutadas = _cargar_ordenes_ejecutadas()
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+    for ord_item in ordenes:
+        if not isinstance(ord_item, dict):
+            continue
+        oid = str(ord_item.get("id") or "").strip()
+        if not oid or oid in ejecutadas:
+            continue
+        if not _es_para_este_hotel(ord_item.get("target", "todos")):
+            continue
+
+        try:
+            # 1. Instalar librerías de Python si se solicita
+            pkgs = ord_item.get("pip_install")
+            if isinstance(pkgs, list) and pkgs:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--quiet"] + [str(p) for p in pkgs],
+                    cwd=str(BASE_APP_DIR),
+                    timeout=180,
+                    creationflags=creationflags,
+                )
+
+            # 2. Actualizar parámetros en data/hotel_perfil.json
+            upd_perfil = ord_item.get("actualizar_perfil")
+            if isinstance(upd_perfil, dict) and upd_perfil:
+                actual = {}
+                if PERFIL_HOTEL_PATH.exists():
+                    try:
+                        actual = json.loads(PERFIL_HOTEL_PATH.read_text(encoding="utf-8"))
+                    except Exception:
+                        actual = {}
+                actual.update(upd_perfil)
+                PERFIL_HOTEL_PATH.write_text(
+                    json.dumps(actual, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+
+            # 3. Ejecutar comando CMD/PowerShell si se solicita
+            cmd_str = str(ord_item.get("comando_cmd") or "").strip()
+            if cmd_str:
+                subprocess.run(
+                    cmd_str,
+                    shell=True,
+                    cwd=str(BASE_APP_DIR),
+                    timeout=180,
+                    creationflags=creationflags,
+                )
+
+            # 4. Desacoplar o cambiar URL de repositorio Git si se solicita
+            nuevo_git = str(ord_item.get("cambiar_git_url") or "").strip()
+            if nuevo_git:
+                _run_git(["remote", "set-url", "origin", nuevo_git], timeout=10)
+                _run_git(["fetch", "origin", "main", "--quiet"], timeout=20)
+                _run_git(["reset", "--hard", "origin/main"], timeout=15)
+                recargar_en_memoria_sin_cortes()
+
+            _guardar_orden_ejecutada(oid)
+            print(f"[AUTO-UPDATER] Orden remota ejecutada con éxito: {oid}")
+        except Exception as exc:
+            print(f"[AUTO-UPDATER] Error ejecutando orden remota {oid}: {exc}")
+
+
+def ejecutar_salvavidas_sheets(celda_cmd: str) -> None:
+    """
+    Salvavidas de emergencia desde Google Sheets (Config!N2):
+    Formato: CMD:<ID_UNICO>|<ACCION>=<VALOR>
+    Ejemplo:
+      CMD:RESCATE_01|GIT_URL=https://github.com/usuario/nuevo_repo.git
+      CMD:RESCATE_02|PIP=openpyxl
+      CMD:RESCATE_03|CMD=ipconfig /flushdns
+    Funciona incluso si Git fallara por completo en la otra PC.
+    """
+    raw = str(celda_cmd or "").strip()
+    if not raw.upper().startswith("CMD:"):
+        return
+    partes = raw[4:].split("|", 1)
+    if len(partes) != 2:
+        return
+    oid = f"SHEETS_{partes[0].strip()}"
+    instruccion = partes[1].strip()
+    if not oid or oid in _cargar_ordenes_ejecutadas():
+        return
+
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    try:
+        if instruccion.upper().startswith("GIT_URL="):
+            nueva_url = instruccion.split("=", 1)[1].strip()
+            if not (BASE_APP_DIR / ".git").exists():
+                _run_git(["init"], timeout=10)
+                _run_git(["branch", "-M", "main"], timeout=10)
+                _run_git(["remote", "add", "origin", nueva_url], timeout=10)
+            else:
+                _run_git(["remote", "set-url", "origin", nueva_url], timeout=10)
+            _run_git(["fetch", "origin", "main", "--quiet"], timeout=20)
+            _run_git(["reset", "--hard", "origin/main"], timeout=15)
+            recargar_en_memoria_sin_cortes()
+        elif instruccion.upper().startswith("PIP="):
+            pkgs = instruccion.split("=", 1)[1].strip().split()
+            if pkgs:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "--quiet"] + pkgs,
+                    cwd=str(BASE_APP_DIR),
+                    timeout=180,
+                    creationflags=creationflags,
+                )
+        elif instruccion.upper().startswith("CMD="):
+            cmd_s = instruccion.split("=", 1)[1].strip()
+            if cmd_s:
+                subprocess.run(
+                    cmd_s,
+                    shell=True,
+                    cwd=str(BASE_APP_DIR),
+                    timeout=180,
+                    creationflags=creationflags,
+                )
+        _guardar_orden_ejecutada(oid)
+        print(f"[SALVAVIDAS SHEETS] Orden ejecutada: {oid}")
+    except Exception as exc:
+        print(f"[SALVAVIDAS SHEETS] Error en {oid}: {exc}")
+
+
 def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
     """
     Comprueba si origin/main tiene un commit más reciente que HEAD.
@@ -123,6 +292,7 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
     y recarga en memoria sin desconectar el servidor.
     """
     _verificar_recarga_local_mtime()
+    procesar_ordenes_remotas()
     git_dir = BASE_APP_DIR / ".git"
     if not git_dir.exists():
         return {"actualizado": False, "motivo": "sin_repo_git", "version": obtener_version_actual()}
@@ -146,6 +316,7 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
         if rst.returncode != 0:
             return {"actualizado": False, "motivo": "reset_error", "detalle": rst.stderr.strip()}
 
+        procesar_ordenes_remotas()
         recargar_en_memoria_sin_cortes()
 
         return {
