@@ -2979,17 +2979,30 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
 
         # 1. Cobros de estancias (pagos)
         raw_pagos = conn.execute("SELECT * FROM pagos ORDER BY rowid DESC LIMIT 1500").fetchall()
-        anulaciones_por_est_medio = set()
+        estancias_con_ajuste: Dict[str, List[Dict[str, Any]]] = {}
         for rp in raw_pagos:
             t_rp = str(rp["tipo_pago"] or "").strip().lower()
-            m_rp = float(rp["monto"] or 0)
-            if t_rp.startswith("ajuste") and m_rp < 0:
-                clave_an = (
-                    str(rp["id_estancia"] or rp["estancia_uuid"] or "").strip(),
-                    str(rp["hab"] or "").strip(),
-                    str(rp["medio_pago"] or "").strip().upper(),
-                )
-                anulaciones_por_est_medio.add(clave_an)
+            if t_rp.startswith("ajuste"):
+                k_est = str(rp["id_estancia"] or rp["estancia_uuid"] or "").strip()
+                if k_est:
+                    estancias_con_ajuste.setdefault(k_est, []).append({
+                        "medio": str(rp["medio_pago"] or "").strip().upper(),
+                        "monto": float(rp["monto"] or 0),
+                    })
+
+        medios_en_cero_estancia: Dict[str, Dict[str, float]] = {}
+        for est_m in conn.execute(
+            "SELECT estancia_uuid, id_timestamp_str, pago_ini_efec, pago_post_efec, pago_ini_yape, pago_post_yape, pago_visa FROM estancias"
+        ).fetchall():
+            tot_m = {
+                "EFECTIVO": float(est_m["pago_ini_efec"] or 0) + float(est_m["pago_post_efec"] or 0),
+                "YAPE": float(est_m["pago_ini_yape"] or 0) + float(est_m["pago_post_yape"] or 0),
+                "VISA": float(est_m["pago_visa"] or 0),
+            }
+            if est_m["estancia_uuid"]:
+                medios_en_cero_estancia[str(est_m["estancia_uuid"]).strip()] = tot_m
+            if est_m["id_timestamp_str"]:
+                medios_en_cero_estancia[str(est_m["id_timestamp_str"]).strip()] = tot_m
 
         for r in raw_pagos:
             ts = _ts_de_pago(r["pago_id"], r["fecha_iso"])
@@ -2999,6 +3012,7 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
             low = tipo.lower()
             monto_val = float(r["monto"] or 0)
             medio_val = str(r["medio_pago"] or "").strip()
+            medio_up = medio_val.upper()
             origen = (
                 "Check-In" if low.startswith("inicial") else
                 "Pago Posterior" if low.startswith("posterior") else
@@ -3009,20 +3023,36 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
             huesp_str = str(r["huesped"] or "").strip()
             uid_p = str(r["estancia_uuid"] or "").strip()
             id_p = str(r["id_estancia"] or "").strip()
+            k_est = id_p or uid_p
             f_ci = _resolver_checkin(uid_p, id_p, hab_str, huesp_str, ts, origen)
             id_est_show = mapa_est_id.get(uid_p) or mapa_est_id.get(id_p) or (f"#{r['sheet_row']}" if r["sheet_row"] > 0 else (id_p or "—"))
 
             concepto_txt = str(r["concepto"] or "").strip()
-            if origen == "Ajuste Corregido":
+            fue_anulado_por_correccion = False
+
+            if "[duplicado" in concepto_txt.lower():
+                fue_anulado_por_correccion = True
+            elif origen in ("Check-In", "Pago Posterior") and k_est:
+                ajustes_est = estancias_con_ajuste.get(k_est) or []
+                for aj in ajustes_est:
+                    if aj["medio"] == medio_up and aj["monto"] < 0:
+                        fue_anulado_por_correccion = True
+                        break
+                    if aj["medio"] != medio_up and abs(aj["monto"] - monto_val) < 0.01:
+                        fue_anulado_por_correccion = True
+                        break
+                if not fue_anulado_por_correccion and k_est in medios_en_cero_estancia:
+                    if medios_en_cero_estancia[k_est].get(medio_up, 1.0) <= 0.001:
+                        fue_anulado_por_correccion = True
+
+            if fue_anulado_por_correccion:
+                origen = "Ajuste Corregido"
+                concepto_txt = f"Registro de pago anulado por corrección o duplicación ({medio_val})"
+            elif origen == "Ajuste Corregido":
                 if monto_val < 0:
                     concepto_txt = f"Registro de pago anulado por corrección o duplicación ({medio_val})"
                 elif not concepto_txt or concepto_txt.lower().startswith("ajuste modificaci"):
-                    concepto_txt = f"Pago registrado por corrección de estancia ({medio_val})"
-            elif monto_val > 0 and (
-                (id_p or uid_p, hab_str, medio_val.upper()) in anulaciones_por_est_medio
-            ):
-                if "corregido" not in concepto_txt.lower() and "anulado" not in concepto_txt.lower():
-                    concepto_txt = f"{concepto_txt} — [Registro anulado por corrección]".strip()
+                    concepto_txt = f"Pago corregido en modificación de estancia ({medio_val})"
 
             filas.append({
                 "ts": ts,
