@@ -40,6 +40,10 @@ def _get_spreadsheet():
     creds_path = obtener_ruta_credenciales()
     creds = Credentials.from_service_account_file(creds_path, scopes=SCOPES)
     _gspread_client = gspread.authorize(creds)
+    try:
+        _gspread_client.set_timeout(20)
+    except Exception:
+        pass
     _spreadsheet = _gspread_client.open_by_key(SPREADSHEET_ID)
     return _spreadsheet
 

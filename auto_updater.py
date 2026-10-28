@@ -71,18 +71,15 @@ def obtener_version_actual() -> str:
 
 def recargar_en_memoria_sin_cortes() -> None:
     """
-    Recarga config y domain_logic directamente en memoria y actualiza el timestamp
+    Recarga domain_logic directamente en memoria y actualiza el timestamp
     de PanelDisponibilidad.html para que el navegador refresque la vista sin
-    matar el servidor ni mostrar nunca 'Modo Offline' ni ventanas CMD.
+    matar el servidor ni interrumpir el hilo de sincronización de sync_engine.
     """
     try:
-        for mod_name in ("config", "database", "domain_logic", "sunat_wsp_service", "sync_engine"):
-            if mod_name in sys.modules:
-                importlib.reload(sys.modules[mod_name])
-        if "database" in sys.modules:
-            sys.modules["database"].init_db()
+        if "domain_logic" in sys.modules:
+            importlib.reload(sys.modules["domain_logic"])
     except Exception as exc:
-        print(f"[AUTO-UPDATER] Aviso recargando módulos en memoria: {exc}")
+        print(f"[AUTO-UPDATER] Aviso recargando domain_logic en memoria: {exc}")
 
     try:
         panel_html = BASE_APP_DIR / "static" / "PanelDisponibilidad.html"
