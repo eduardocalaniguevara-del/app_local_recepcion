@@ -300,76 +300,78 @@ def api_sunat_orden(payload: Dict[str, Any]):
 
 @app.post("/api/rpc/{method_name}")
 def api_rpc_handler(method_name: str, body: RpcPayload):
+    import domain_logic as dl
+
     args = body.args or []
     try:
         if method_name in ("obtenerDatosPanelDisponibilidad", "cambiarFechaPanelDisponibilidad"):
             fecha_iso = args[0] if len(args) > 0 and args[0] else None
-            res = obtener_datos_panel_local(fecha_iso)
+            res = dl.obtener_datos_panel_local(fecha_iso)
         elif method_name == "obtenerVistaFormulario":
             res = _obtener_vista_formulario_local(args[0] if args else "")
         elif method_name == "obtenerDatosInicialesCheckIn":
-            res = obtener_datos_iniciales_checkin_local()
+            res = dl.obtener_datos_iniciales_checkin_local()
         elif method_name in ("consultarDniReniec", "consultarDocumentoPadron"):
             res = consultar_dni_local_o_reniec(args[0] if args else "")
         elif method_name in ("consultarRucSunat", "consultarRucPadron"):
             res = consultar_ruc_local_o_sunat(args[0] if args else "")
         elif method_name in ("guardarCheckInDesdeApp", "procesarCheckInApp"):
-            res = guardar_checkin_local(args[0] if args else {})
+            res = dl.guardar_checkin_local(args[0] if args else {})
         elif method_name in ("obtenerDatosPagosPosteriores", "obtenerEstanciasConDeuda"):
-            res = obtener_datos_pagos_posteriores_local()
+            res = dl.obtener_datos_pagos_posteriores_local()
         elif method_name in ("guardarPagoPosteriorDesdeApp", "procesarPagoPosteriorApp"):
-            res = guardar_pago_posterior_local(args[0] if args else {})
+            res = dl.guardar_pago_posterior_local(args[0] if args else {})
         elif method_name == "obtenerDatosTienda":
-            res = obtener_datos_tienda_local()
+            res = dl.obtener_datos_tienda_local()
         elif method_name in ("guardarVentaTiendaDesdeApp", "procesarVentaTiendaApp"):
-            res = guardar_venta_tienda_local(args[0] if args else {})
+            res = dl.guardar_venta_tienda_local(args[0] if args else {})
         elif method_name == "obtenerDatosGastos":
-            res = obtener_datos_gastos_local()
+            res = dl.obtener_datos_gastos_local()
         elif method_name in ("guardarGastoDesdeApp", "procesarGastoApp"):
-            res = guardar_gasto_local(args[0] if args else {})
+            res = dl.guardar_gasto_local(args[0] if args else {})
         elif method_name in ("continuarEstanciaDesdeApp", "continuarEstanciaRapida"):
-            res = continuar_estancia_local(args[0] if args else "")
+            res = dl.continuar_estancia_local(args[0] if args else "")
         elif method_name == "liberarHabitacionDesdeApp":
-            res = liberar_habitacion_local(args[0] if args else {})
+            res = dl.liberar_habitacion_local(args[0] if args else {})
         elif method_name == "cancelarEstanciaDesdeApp":
-            res = cancelar_estancia_local(args[0] if args else {})
+            res = dl.cancelar_estancia_local(args[0] if args else {})
         elif method_name == "restaurarEstanciaDesdeApp":
-            res = restaurar_estancia_local(args[0] if args else {})
+            res = dl.restaurar_estancia_local(args[0] if args else {})
         elif method_name == "obtenerEstanciaParaModificar":
             hab = args[0] if len(args) > 0 else ""
             fila = args[1] if len(args) > 1 else None
-            res = obtener_estancia_para_modificar_local(hab, fila)
+            res = dl.obtener_estancia_para_modificar_local(hab, fila)
         elif method_name in ("modificarEstanciaDesdeApp", "guardarModificacionEstancia"):
-            res = modificar_estancia_local(args[0] if args else {})
+            res = dl.modificar_estancia_local(args[0] if args else {})
         elif method_name == "actualizarEstadoComprobanteDesdePanel":
-            res = actualizar_comprobante_desde_panel_local(args[0] if args else {})
+            res = dl.actualizar_comprobante_desde_panel_local(args[0] if args else {})
         elif method_name == "obtenerRegistroPagos":
-            res = obtener_registro_pagos_local(args[0] if args else {})
+            res = dl.obtener_registro_pagos_local(args[0] if args else {})
         elif method_name == "obtenerMovimientos":
-            res = obtener_movimientos_local(args[0] if args else {})
+            res = dl.obtener_movimientos_local(args[0] if args else {})
         elif method_name == "guardarColorFondoHabitacion":
             hab = args[0] if len(args) > 0 else ""
             color = args[1] if len(args) > 1 else ""
             fecha_ref = args[2] if len(args) > 2 else None
             nota = args[3] if len(args) > 3 else ""
-            res = guardar_color_habitacion_local(hab, color, fecha_ref, nota)
+            res = dl.guardar_color_habitacion_local(hab, color, fecha_ref, nota)
         elif method_name == "obtenerDatosVitrina":
-            res = obtener_datos_vitrina_local()
+            res = dl.obtener_datos_vitrina_local()
         elif method_name == "guardarConteoVitrina":
-            res = guardar_conteo_vitrina_local(args[0] if args else {})
+            res = dl.guardar_conteo_vitrina_local(args[0] if args else {})
         elif method_name == "guardarCheckInGrupalEmpresa":
-            res = guardar_checkin_grupal_empresa_local(args[0] if args else {})
+            res = dl.guardar_checkin_grupal_empresa_local(args[0] if args else {})
         elif method_name == "obtenerEstanciasPagoMasivo":
-            res = obtener_estancias_pago_masivo_local(args[0] if args else {})
+            res = dl.obtener_estancias_pago_masivo_local(args[0] if args else {})
         elif method_name == "guardarPagoMasivo":
-            res = guardar_pago_masivo_local(args[0] if args else {})
+            res = dl.guardar_pago_masivo_local(args[0] if args else {})
         else:
             raise HTTPException(status_code=404, detail=f"Método RPC no soportado: {method_name}")
 
         if method_name in WRITE_METHODS:
             _sync_wakeup_event.set()
 
-        sync_st = obtener_estado_red_cola()
+        sync_st = dl.obtener_estado_red_cola()
         if isinstance(res, dict) and "syncStatus" not in res:
             res["syncStatus"] = sync_st
 
@@ -383,4 +385,8 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host=APP_HOST, port=APP_PORT, log_level="info")
+    if sys.stdout is None or sys.stderr is None:
+        _log_f = open(Path(_APP_DIR) / "server_local.log", "a", encoding="utf-8", buffering=1)
+        sys.stdout = _log_f
+        sys.stderr = _log_f
+    uvicorn.run(app, host=APP_HOST, port=APP_PORT, log_config=None)

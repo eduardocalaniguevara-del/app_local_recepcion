@@ -4,9 +4,10 @@
 Motor de Auto-Actualización silenciosa vía Git para los 3 Hoteles.
 Revisa periódicamente si hay cambios en GitHub (origin/main), descarga el código
 nuevo sin tocar la carpeta data/ (ni hotel_perfil.json ni ovalo_local.db) y
-reinicia el servidor local automáticamente.
+recarga los módulos e interfaces en memoria sin tumbar el servidor ni abrir ventanas CMD.
 """
 
+import importlib
 import os
 import shutil
 import subprocess
@@ -53,7 +54,6 @@ def _run_git(args: list, timeout: int = 15) -> subprocess.CompletedProcess:
 def obtener_version_actual() -> str:
     git_dir = BASE_APP_DIR / ".git"
     if not git_dir.exists():
-        # Fallback: mtime de PanelDisponibilidad.html + domain_logic.py
         try:
             p1 = (BASE_APP_DIR / "domain_logic.py").stat().st_mtime
             p2 = (BASE_APP_DIR / "static" / "PanelDisponibilidad.html").stat().st_mtime
@@ -69,22 +69,45 @@ def obtener_version_actual() -> str:
     return "git-unknown"
 
 
+def recargar_en_memoria_sin_cortes() -> None:
+    """
+    Recarga config y domain_logic directamente en memoria y actualiza el timestamp
+    de PanelDisponibilidad.html para que el navegador refresque la vista sin
+    matar el servidor ni mostrar nunca 'Modo Offline' ni ventanas CMD.
+    """
+    try:
+        for mod_name in ("config", "database", "domain_logic", "sunat_wsp_service", "sync_engine"):
+            if mod_name in sys.modules:
+                importlib.reload(sys.modules[mod_name])
+        if "database" in sys.modules:
+            sys.modules["database"].init_db()
+    except Exception as exc:
+        print(f"[AUTO-UPDATER] Aviso recargando módulos en memoria: {exc}")
+
+    try:
+        panel_html = BASE_APP_DIR / "static" / "PanelDisponibilidad.html"
+        if panel_html.exists():
+            now_ts = time.time()
+            os.utime(panel_html, (now_ts, now_ts))
+    except Exception:
+        pass
+
+
 def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
     """
     Comprueba si origin/main tiene un commit más reciente que HEAD.
-    Si hay cambios, ejecuta git reset --hard origin/main (preservando data/).
+    Si hay cambios, ejecuta git reset --hard origin/main (preservando data/)
+    y recarga en memoria sin desconectar el servidor.
     """
     git_dir = BASE_APP_DIR / ".git"
     if not git_dir.exists():
         return {"actualizado": False, "motivo": "sin_repo_git", "version": obtener_version_actual()}
 
     try:
-        # 1. Fetch silencioso desde origin
         f = _run_git(["fetch", "origin", "main", "--quiet"], timeout=15)
         if f.returncode != 0:
             return {"actualizado": False, "motivo": "fetch_error", "detalle": f.stderr.strip()}
 
-        # 2. Comparar HEAD vs origin/main
         loc = _run_git(["rev-parse", "HEAD"], timeout=5)
         rem = _run_git(["rev-parse", "origin/main"], timeout=5)
         if loc.returncode != 0 or rem.returncode != 0:
@@ -95,10 +118,11 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
         if not sha_remoto or sha_local == sha_remoto:
             return {"actualizado": False, "motivo": "al_dia", "version": sha_local[:7]}
 
-        # 3. Aplicar actualización limpia (data/ y credentials.json están en .gitignore)
         rst = _run_git(["reset", "--hard", "origin/main"], timeout=15)
         if rst.returncode != 0:
             return {"actualizado": False, "motivo": "reset_error", "detalle": rst.stderr.strip()}
+
+        recargar_en_memoria_sin_cortes()
 
         return {
             "actualizado": True,
@@ -110,37 +134,20 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
 
 
 def reiniciar_servidor_en_caliente() -> None:
-    """
-    Lanza un subproceso independiente que espera 1s, reemplaza el proceso actual
-    y levanta main.py con el código nuevo.
-    """
-    py_exe = sys.executable
-    main_py = str(BASE_APP_DIR / "main.py")
-    pid_actual = os.getpid()
-    cmd_relaunch = (
-        f"import time, subprocess, os; "
-        f"time.sleep(1.0); "
-        f"subprocess.run(['taskkill', '/F', '/PID', '{pid_actual}'], capture_output=True); "
-        f"time.sleep(0.8); "
-        f"subprocess.Popen([r'{py_exe}', r'{main_py}'], cwd=r'{BASE_APP_DIR}', "
-        f"creationflags=0x08000000)"
-    )
-    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    subprocess.Popen([py_exe, "-c", cmd_relaunch], cwd=str(BASE_APP_DIR), creationflags=creationflags)
+    """Alias compatible: aplica recarga en memoria sin tumbar el puerto 8080."""
+    recargar_en_memoria_sin_cortes()
 
 
-def iniciar_hilo_auto_actualizacion(intervalo_segundos: int = 45) -> None:
+def iniciar_hilo_auto_actualizacion(intervalo_segundos: int = 30) -> None:
     def _worker():
         while True:
             time.sleep(intervalo_segundos)
             res = verificar_y_aplicar_actualizacion()
             if res.get("actualizado"):
                 print(
-                    f"[AUTO-UPDATER] Nueva versión detectada ({res.get('version_anterior')} -> "
-                    f"{res.get('version_nueva')}). Reiniciando servidor..."
+                    f"[AUTO-UPDATER] Actualizado en caliente ({res.get('version_anterior')} -> "
+                    f"{res.get('version_nueva')}) sin desconexión."
                 )
-                reiniciar_servidor_en_caliente()
-                break
 
     t = threading.Thread(target=_worker, name="GitAutoUpdater", daemon=True)
     t.start()

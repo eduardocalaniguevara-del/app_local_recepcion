@@ -2878,6 +2878,50 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
     filas: List[Dict[str, Any]] = []
     conn = get_connection()
     try:
+        por_uuid: Dict[str, str] = {}
+        por_id: Dict[str, str] = {}
+        por_hab_huesp: Dict[Tuple[str, str], str] = {}
+        por_hab_rangos: Dict[str, List[Tuple[str, str, str]]] = {}
+
+        for est in conn.execute(
+            "SELECT estancia_uuid, id_estancia, hab, huesped, fecha_in, ymd_in, ymd_out FROM estancias WHERE deleted = 0 ORDER BY rowid ASC"
+        ).fetchall():
+            f_in = str(est["fecha_in"] or "").strip()
+            if not f_in and est["ymd_in"]:
+                f_in = iso_to_dmy(str(est["ymd_in"]))
+            if not f_in:
+                continue
+            uid_e = str(est["estancia_uuid"] or "").strip()
+            id_e = str(est["id_estancia"] or "").strip()
+            hab_e = str(est["hab"] or "").strip()
+            nom_e = str(est["huesped"] or "").strip().upper()
+            if uid_e:
+                por_uuid[uid_e] = f_in
+            if id_e:
+                por_id[id_e] = f_in
+            if hab_e and nom_e:
+                por_hab_huesp[(hab_e, nom_e)] = f_in
+            if hab_e:
+                por_hab_rangos.setdefault(hab_e, []).append(
+                    (str(est["ymd_in"] or ""), str(est["ymd_out"] or ""), f_in)
+                )
+
+        def _resolver_checkin(uid_p: str, id_p: str, hab_p: str, nom_p: str, ts_p: Any, orig_p: str) -> str:
+            if uid_p and uid_p in por_uuid:
+                return por_uuid[uid_p]
+            if id_p and id_p in por_id:
+                return por_id[id_p]
+            if hab_p and nom_p and (hab_p, nom_p.upper()) in por_hab_huesp:
+                return por_hab_huesp[(hab_p, nom_p.upper())]
+            ymd_pago = ts_p.strftime("%Y-%m-%d") if ts_p else ""
+            if hab_p and hab_p in por_hab_rangos and ymd_pago:
+                for yin, yout, fin_val in reversed(por_hab_rangos[hab_p]):
+                    if yin and yin <= ymd_pago and (not yout or ymd_pago <= yout):
+                        return fin_val
+            if orig_p == "Check-In" and ts_p:
+                return ts_p.strftime("%d/%m/%Y")
+            return "—"
+
         for r in conn.execute("SELECT * FROM pagos ORDER BY rowid DESC LIMIT 1500").fetchall():
             ts = _ts_de_pago(r["pago_id"], r["fecha_iso"])
             if not ts:
@@ -2890,8 +2934,15 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
                 "Extorno" if low.startswith("extorno") else
                 "Ajuste" if low.startswith("ajuste") else (tipo or "Otro")
             )
+            hab_str = str(r["hab"] or "").strip()
+            huesp_str = str(r["huesped"] or "").strip()
+            f_ci = _resolver_checkin(
+                str(r["estancia_uuid"] or "").strip(),
+                str(r["id_estancia"] or "").strip(),
+                hab_str, huesp_str, ts, origen
+            )
             filas.append({
-                "ts": ts, "hab": str(r["hab"] or ""), "huesped": str(r["huesped"] or ""),
+                "ts": ts, "hab": hab_str, "huesped": huesp_str, "fechaCheckIn": f_ci,
                 "origen": origen, "concepto": str(r["concepto"] or ""),
                 "medio": str(r["medio_pago"] or ""), "nroOp": str(r["nro_operacion"] or ""),
                 "monto": float(r["monto"] or 0),
@@ -2906,9 +2957,13 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
             if not ts:
                 continue
             lote = str(r["lote_uuid"] or "")
-            clave = (str(r["fecha_iso"] or ""), met, str(r["hab"] or ""), lote if lote != "SHEET" else "")
+            hab_t = str(r["hab"] or "").strip()
+            clave = (str(r["fecha_iso"] or ""), met, hab_t, lote if lote != "SHEET" else "")
+            f_ci_t = _resolver_checkin(
+                str(r["estancia_uuid"] or "").strip(), "", hab_t, "", ts, "Tienda"
+            ) if hab_t else "—"
             g = grupos.setdefault(clave, {
-                "ts": ts, "hab": str(r["hab"] or "") or "Venta libre", "huesped": "Tienda",
+                "ts": ts, "hab": hab_t or "Venta libre", "huesped": "Tienda", "fechaCheckIn": f_ci_t,
                 "origen": "Tienda", "medio": met, "nroOp": str(r["nro_op_yape"] or ""),
                 "monto": 0.0, "items": [],
             })
@@ -2950,7 +3005,7 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
     salida = [
         {
             "fecha": x["ts"].strftime("%d/%m/%Y"), "hora": x["ts"].strftime("%H:%M:%S"),
-            "hab": x["hab"], "huesped": x["huesped"], "origen": x["origen"],
+            "hab": x["hab"], "huesped": x["huesped"], "fechaCheckIn": x.get("fechaCheckIn", "—"), "origen": x["origen"],
             "concepto": x["concepto"], "medio": x["medio"], "nroOp": x["nroOp"], "monto": round(x["monto"], 2),
         }
         for x in sel
