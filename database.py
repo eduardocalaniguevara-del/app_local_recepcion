@@ -210,6 +210,42 @@ def init_db() -> None:
                     updated_at    TEXT NOT NULL DEFAULT ''
                 );
 
+                -- 6c. Gestión de Tienda / Kardex de Almacén (import_Almacen nativo)
+                CREATE TABLE IF NOT EXISTS almacen_movimientos (
+                    mov_uuid        TEXT PRIMARY KEY,
+                    lote_uuid       TEXT NOT NULL DEFAULT '',
+                    id_transaccion  TEXT NOT NULL DEFAULT '',
+                    fecha_dmy       TEXT NOT NULL DEFAULT '',
+                    producto        TEXT NOT NULL DEFAULT '',
+                    cantidad        REAL NOT NULL DEFAULT 0,
+                    costo_total     REAL NOT NULL DEFAULT 0,
+                    costo_unitario  REAL NOT NULL DEFAULT 0,
+                    metodo_pago     TEXT NOT NULL DEFAULT 'N/A',
+                    tipo_movimiento TEXT NOT NULL DEFAULT '',
+                    nota            TEXT NOT NULL DEFAULT '',
+                    sheet_row       INTEGER NOT NULL DEFAULT 0,
+                    synced          INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_alm_prod_tipo ON almacen_movimientos (producto, tipo_movimiento);
+                CREATE INDEX IF NOT EXISTS idx_alm_lote ON almacen_movimientos (lote_uuid);
+
+                -- 6d. Lotes de Compras de Tienda (Monto Total -> Registro_Gastos + Desglose progresivo por partes)
+                CREATE TABLE IF NOT EXISTS compras_tienda_lotes (
+                    compra_uuid      TEXT PRIMARY KEY,
+                    fecha_dmy        TEXT NOT NULL DEFAULT '',
+                    monto_total      REAL NOT NULL DEFAULT 0,
+                    monto_desglosado REAL NOT NULL DEFAULT 0,
+                    metodo_pago      TEXT NOT NULL DEFAULT 'Efectivo',
+                    responsable      TEXT NOT NULL DEFAULT 'ELEIZA',
+                    tipo_comp        TEXT NOT NULL DEFAULT 'Boleta',
+                    nro_comp         TEXT NOT NULL DEFAULT '',
+                    nota             TEXT NOT NULL DEFAULT '',
+                    gasto_uuid       TEXT NOT NULL DEFAULT '',
+                    estado           TEXT NOT NULL DEFAULT 'PENDIENTE',
+                    created_at       TEXT NOT NULL DEFAULT '',
+                    updated_at       TEXT NOT NULL DEFAULT ''
+                );
+
                 -- 7. Registro_Gastos (9 columnas)
                 CREATE TABLE IF NOT EXISTS gastos (
                     gasto_uuid      TEXT PRIMARY KEY,

@@ -159,6 +159,10 @@ WRITE_METHODS = {
     "guardarModificacionEstancia",
     "actualizarEstadoComprobanteDesdePanel",
     "guardarConteoVitrina",
+    "registrarCompraTienda",
+    "cerrarCompraPendienteTienda",
+    "registrarMovimientoTienda",
+    "anularMovimientoAlmacen",
     "guardarCheckInGrupalEmpresa",
     "guardarPagoMasivo",
 }
@@ -411,6 +415,16 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             res = dl.obtener_datos_vitrina_local()
         elif method_name == "guardarConteoVitrina":
             res = dl.guardar_conteo_vitrina_local(args[0] if args else {})
+        elif method_name == "verificarClaveGestionTienda":
+            res = dl.verificar_clave_gestion_tienda_local(args[0] if args else {})
+        elif method_name == "registrarCompraTienda":
+            res = dl.registrar_compra_tienda_local(args[0] if args else {})
+        elif method_name == "cerrarCompraPendienteTienda":
+            res = dl.cerrar_compra_pendiente_tienda_local(args[0] if args else {})
+        elif method_name == "registrarMovimientoTienda":
+            res = dl.registrar_movimiento_tienda_local(args[0] if args else {})
+        elif method_name == "anularMovimientoAlmacen":
+            res = dl.anular_movimiento_almacen_local(args[0] if args else {})
         elif method_name == "guardarCheckInGrupalEmpresa":
             res = dl.guardar_checkin_grupal_empresa_local(args[0] if args else {})
         elif method_name == "obtenerEstanciasPagoMasivo":

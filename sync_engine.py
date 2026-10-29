@@ -142,6 +142,9 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
         if "Vitrina_Tienda" in tabs:
             ranges_step1.append("'Vitrina_Tienda'!A2:M45")
             keys_step1.append("vitrina")
+        if "import_Almacen" in tabs:
+            ranges_step1.append("'import_Almacen'!A2:J3000")
+            keys_step1.append("almacen")
 
         res_step1 = sh.values_batch_get(ranges_step1)
         vrs1 = res_step1.get("valueRanges", []) if isinstance(res_step1, dict) else []
@@ -169,6 +172,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
         col_pg = step1_dict.get("col_pg", [])
         col_g = step1_dict.get("col_g", [])
         vitrina_rows = step1_dict.get("vitrina", [])
+        almacen_rows = step1_dict.get("almacen", [])
 
         total_rows_bd = max(len(col_a_bd), 1)
         last_t = len(col_t)
@@ -238,6 +242,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                 conn.execute("DELETE FROM sunat_lineas_cache")
                 conn.execute("DELETE FROM calzado_cache")
                 conn.execute("DELETE FROM vitrina_local")
+                conn.execute("DELETE FROM almacen_movimientos WHERE synced = 1")
                 _set_estado_sistema(conn, "spreadsheet_id_activo", SPREADSHEET_ID)
 
             _set_estado_sistema(conn, "caja_sheets_g1", caja_g1)
@@ -729,6 +734,56 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                             (stock_vp, idx_vp + 1, prod_vp),
                         )
 
+            # Actualizar Kardex de Almacén (import_Almacen!A2:J3000) respetando movimientos locales synced=0
+            if almacen_rows:
+                pend_del_alm = conn.execute(
+                    "SELECT 1 FROM sync_queue WHERE op_type = 'ELIMINAR_MOVIMIENTO_ALMACEN' AND status != 'SYNCED' LIMIT 1"
+                ).fetchone()
+                if not pend_del_alm:
+                    conn.execute("DELETE FROM almacen_movimientos WHERE synced = 1")
+                    for idx_am, ar in enumerate(almacen_rows):
+                        s_row_am = 2 + idx_am
+                        if not ar or not any(str(c or "").strip() for c in ar):
+                            continue
+                        prod_am = str(ar[2] or "").strip() if len(ar) > 2 else ""
+                        tipo_am = str(ar[7] or "").strip() if len(ar) > 7 else ""
+                        if not prod_am or not tipo_am:
+                            continue
+                        id_tx_am = str(ar[0] or "").strip()
+                        fecha_am = normalizar_fecha_dmy(ar[1]) if len(ar) > 1 else ""
+                        try:
+                            cant_am = round(float(str(ar[3] or "0").replace(",", "").strip() or 0), 4)
+                        except Exception:
+                            cant_am = parse_moneda(ar[3]) if len(ar) > 3 else 0.0
+                        costo_t_am = parse_moneda(ar[4]) if len(ar) > 4 else 0.0
+                        costo_u_am = parse_moneda(ar[5]) if len(ar) > 5 else 0.0
+                        met_am = str(ar[6] or "N/A").strip() if len(ar) > 6 else "N/A"
+                        nota_am = str(ar[8] or "").strip() if len(ar) > 8 else ""
+                        uuid_am = str(ar[9] or "").strip() if len(ar) > 9 else ""
+                        if not uuid_am:
+                            uuid_am = f"SH-ALM-{s_row_am}"
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO almacen_movimientos (
+                                mov_uuid, lote_uuid, id_transaccion, fecha_dmy, producto,
+                                cantidad, costo_total, costo_unitario, metodo_pago, tipo_movimiento, nota, sheet_row, synced
+                            ) VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                            """,
+                            (
+                                uuid_am,
+                                id_tx_am,
+                                fecha_am,
+                                prod_am,
+                                cant_am,
+                                costo_t_am,
+                                costo_u_am,
+                                met_am,
+                                tipo_am,
+                                nota_am,
+                                s_row_am,
+                            ),
+                        )
+
             if gastos_rows:
                 for s_row_g, gr in gastos_rows:
                     if len(gr) < 6:
@@ -1152,6 +1207,110 @@ def process_sync_queue() -> Dict[str, Any]:
                                     ws_vit.delete_columns(max_cols_v + 1, ws_vit.col_count)
                             except Exception:
                                 pass
+
+                elif op_type == "MOVIMIENTO_ALMACEN":
+                    ws_alm = sh.worksheet("import_Almacen")
+                    movs_list = payload.get("movimientos") or []
+                    if movs_list:
+                        col_j = ws_alm.col_values(10)
+                        col_a = ws_alm.col_values(1)
+                        existentes_j = {str(x).strip(): idx_r + 1 for idx_r, x in enumerate(col_j) if str(x).strip()}
+                        next_row_alm = max(len(col_a), len(col_j), 1) + 1
+                        filas_nuevas = []
+                        uuids_nuevos = []
+                        actualizaciones_sync = []
+
+                        for m_it in movs_list:
+                            m_u = str(m_it.get("mov_uuid") or "").strip()
+                            fila_m = m_it.get("fila") or []
+                            if not m_u or not fila_m:
+                                continue
+                            if m_u in existentes_j:
+                                actualizaciones_sync.append((existentes_j[m_u], m_u))
+                            else:
+                                filas_nuevas.append(fila_m)
+                                uuids_nuevos.append(m_u)
+
+                        if filas_nuevas:
+                            end_row_alm = next_row_alm + len(filas_nuevas) - 1
+                            if ws_alm.row_count < end_row_alm + 20 or ws_alm.col_count < 10:
+                                ws_alm.resize(
+                                    rows=max(ws_alm.row_count, end_row_alm + 100),
+                                    cols=max(ws_alm.col_count, 10),
+                                )
+                            ws_alm.update(
+                                values=filas_nuevas,
+                                range_name=f"A{next_row_alm}:J{end_row_alm}",
+                                value_input_option="USER_ENTERED",
+                            )
+                            for offset_m, m_u in enumerate(uuids_nuevos):
+                                actualizaciones_sync.append((next_row_alm + offset_m, m_u))
+
+                        # Leer stock recalculado de Vitrina_Tienda!A6:B45 para transición atómica sin salto
+                        nuevos_stocks_vit = []
+                        try:
+                            ws_vit_ref = sh.worksheet("Vitrina_Tienda")
+                            ab_vals = ws_vit_ref.get("A6:B45") or []
+                            for r_ab in ab_vals:
+                                p_ab = str(r_ab[0] or "").strip() if len(r_ab) > 0 else ""
+                                if p_ab:
+                                    s_ab = parse_moneda(r_ab[1]) if len(r_ab) > 1 else 0.0
+                                    nuevos_stocks_vit.append((s_ab, p_ab))
+                        except Exception:
+                            pass
+
+                        with db_transaction() as c_alm:
+                            for r_num_m, m_u in actualizaciones_sync:
+                                c_alm.execute(
+                                    "UPDATE almacen_movimientos SET sheet_row = ?, synced = 1 WHERE mov_uuid = ?",
+                                    (r_num_m, m_u),
+                                )
+                            for s_ab, p_ab in nuevos_stocks_vit:
+                                c_alm.execute(
+                                    "UPDATE vitrina_local SET stock_sheets = ? WHERE producto = ?",
+                                    (s_ab, p_ab),
+                                )
+
+                elif op_type == "ELIMINAR_MOVIMIENTO_ALMACEN":
+                    ws_alm = sh.worksheet("import_Almacen")
+                    m_u_del = str(payload.get("mov_uuid") or "").strip()
+                    s_row_hint = int(payload.get("sheet_row") or 0)
+                    id_tx_del = str(payload.get("id_transaccion") or "").strip()
+                    prod_del = str(payload.get("producto") or "").strip()
+                    tipo_del = str(payload.get("tipo_movimiento") or "").strip()
+
+                    all_alm = ws_alm.get_all_values()
+                    fila_borrar = 0
+                    for idx_r, r_a in enumerate(all_alm[1:], start=2):
+                        u_cell = str(r_a[9] or "").strip() if len(r_a) > 9 else ""
+                        if m_u_del and u_cell == m_u_del:
+                            fila_borrar = idx_r
+                            break
+                    if not fila_borrar and s_row_hint >= 2 and s_row_hint <= len(all_alm):
+                        r_cand = all_alm[s_row_hint - 1]
+                        if (
+                            len(r_cand) > 7
+                            and str(r_cand[2] or "").strip() == prod_del
+                            and str(r_cand[7] or "").strip() == tipo_del
+                            and str(r_cand[0] or "").strip() == id_tx_del
+                        ):
+                            fila_borrar = s_row_hint
+                    if fila_borrar >= 2:
+                        ws_alm.delete_rows(fila_borrar)
+                        try:
+                            ws_vit_ref = sh.worksheet("Vitrina_Tienda")
+                            ab_vals = ws_vit_ref.get("A6:B45") or []
+                            with db_transaction() as c_vref:
+                                for r_ab in ab_vals:
+                                    p_ab = str(r_ab[0] or "").strip() if len(r_ab) > 0 else ""
+                                    if p_ab:
+                                        s_ab = parse_moneda(r_ab[1]) if len(r_ab) > 1 else 0.0
+                                        c_vref.execute(
+                                            "UPDATE vitrina_local SET stock_sheets = ? WHERE producto = ?",
+                                            (s_ab, p_ab),
+                                        )
+                        except Exception:
+                            pass
 
                 # Marcar operación como SYNCED
                 with db_transaction() as c_done:

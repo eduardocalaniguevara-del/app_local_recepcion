@@ -616,6 +616,7 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
             conn.execute("DELETE FROM sunat_lineas_cache")
             conn.execute("DELETE FROM calzado_cache")
             conn.execute("DELETE FROM vitrina_local")
+            conn.execute("DELETE FROM almacen_movimientos WHERE synced = 1")
             conn.execute(
                 "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('spreadsheet_id_activo', ?, '')",
                 (SPREADSHEET_ID,),
@@ -3362,6 +3363,66 @@ def _limpiar_header_vitrina(raw_hdr: str, fallback: str) -> str:
     return s
 
 
+CLAVE_GESTION_TIENDA = "eleiza"
+
+
+def _validar_clave_gestion_tienda(datos: Dict[str, Any]) -> None:
+    clave = str((datos or {}).get("clave") or "").strip().lower()
+    if clave != CLAVE_GESTION_TIENDA:
+        raise ValueError("Contraseña de Gestión Tienda incorrecta.")
+
+
+def verificar_clave_gestion_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    _validar_clave_gestion_tienda(datos)
+    return {"ok": True}
+
+
+def _calcular_stocks_almacen_y_deltas_conn(conn) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """
+    Calcula en 0 ms desde SQLite:
+    1) stock_almacen por producto (INV_INICIAL_ALMACEN + COMPRA - TRANSFERENCIA - MERMA_ALMACEN - MERMA legado + AJUSTE_ALMACEN)
+    2) delta_vitrina_pendiente por producto para movimientos aún con synced=0 (TRANSFERENCIA - MERMA + INV_INICIAL_VITRINA)
+    """
+    stock_alm: Dict[str, float] = {}
+    delta_vit_pend: Dict[str, float] = {}
+    filas = conn.execute(
+        "SELECT producto, tipo_movimiento, cantidad, nota, synced FROM almacen_movimientos"
+    ).fetchall()
+    for r in filas:
+        prod = str(r["producto"] or "").strip()
+        if not prod:
+            continue
+        tipo = str(r["tipo_movimiento"] or "").strip().upper()
+        cant = float(r["cantidad"] or 0)
+        nota_up = str(r["nota"] or "").upper()
+        synced = int(r["synced"] or 0)
+
+        # Impacto en Almacén
+        if tipo in ("INVENTARIO_INICIAL_ALMACEN", "COMPRA", "AJUSTE_ALMACEN"):
+            stock_alm[prod] = stock_alm.get(prod, 0.0) + cant
+        elif tipo in ("TRANSFERENCIA", "MERMA_ALMACEN"):
+            stock_alm[prod] = stock_alm.get(prod, 0.0) - cant
+        elif tipo == "MERMA":
+            # Compatibilidad 100% con los 13 registros históricos de la hoja antigua (sin etiqueta [VITRINA]),
+            # mientras que las nuevas mermas de vitrina llevan [VITRINA] y no descuentan doble del almacén.
+            if "[VITRINA]" not in nota_up:
+                stock_alm[prod] = stock_alm.get(prod, 0.0) - cant
+
+        # Impacto en vivo (0 ms) sobre Vitrina mientras synced == 0 (antes de que Sheets recalcule B6)
+        if synced == 0:
+            if tipo in ("TRANSFERENCIA", "INVENTARIO_INICIAL_VITRINA"):
+                delta_vit_pend[prod] = delta_vit_pend.get(prod, 0.0) + cant
+            elif tipo == "MERMA":
+                delta_vit_pend[prod] = delta_vit_pend.get(prod, 0.0) - cant
+
+    return stock_alm, delta_vit_pend
+
+
+def _fmt_num_stock(val: float) -> Any:
+    v = round(float(val or 0), 2)
+    return int(v) if v.is_integer() else v
+
+
 def obtener_datos_vitrina_local() -> Dict[str, Any]:
     conn = get_connection()
     try:
@@ -3374,6 +3435,17 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
             if p_nom:
                 ventas_pend[p_nom] = int(rv["cant"] or 0)
 
+        # 1b. Precios de venta de productos y stocks de almacén + deltas pendientes de vitrina
+        precios_map: Dict[str, float] = {}
+        for rp in conn.execute(
+            "SELECT clave, valor FROM catalogos_local WHERE categoria = 'PRODUCTO_TIENDA'"
+        ).fetchall():
+            k_p = str(rp["clave"] or "").strip()
+            if k_p:
+                precios_map[k_p] = round(parse_moneda(rp["valor"]), 2)
+
+        stock_alm_map, delta_vit_pend_map = _calcular_stocks_almacen_y_deltas_conn(conn)
+
         # 2. Leer productos de vitrina_local (o fallback a catalogos_local si aún no hubo pull)
         filas_vit = conn.execute("SELECT * FROM vitrina_local ORDER BY orden ASC").fetchall()
         productos_out: List[Dict[str, Any]] = []
@@ -3385,12 +3457,15 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
                     continue
                 st_sheets = float(r["stock_sheets"] or 0)
                 vend_local = ventas_pend.get(prod_nom, 0)
-                st_actual = st_sheets - vend_local
-                st_num = int(st_actual) if st_actual.is_integer() else round(st_actual, 2)
+                delta_alm_vit = delta_vit_pend_map.get(prod_nom, 0.0)
+                st_actual = st_sheets - vend_local + delta_alm_vit
+                st_alm = stock_alm_map.get(prod_nom, 0.0)
                 productos_out.append({
                     "orden": int(r["orden"] or 0),
                     "producto": prod_nom,
-                    "stockVitrina": st_num,
+                    "precioVenta": precios_map.get(prod_nom, 0.0),
+                    "stockAlmacen": _fmt_num_stock(st_alm),
+                    "stockVitrina": _fmt_num_stock(st_actual),
                     "estadoActual": str(r["estado_actual"] or ""),
                     "h1Cant": str(r["h1_cant"] or ""),
                     "h1Est": str(r["h1_est"] or ""),
@@ -3401,15 +3476,19 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
                 })
         else:
             for idx_p, rc in enumerate(
-                conn.execute("SELECT clave FROM catalogos_local WHERE categoria = 'PRODUCTO_TIENDA' ORDER BY orden").fetchall()
+                conn.execute("SELECT clave, valor FROM catalogos_local WHERE categoria = 'PRODUCTO_TIENDA' ORDER BY orden").fetchall()
             ):
                 prod_nom = str(rc["clave"] or "").strip()
                 if not prod_nom:
                     continue
+                st_alm = stock_alm_map.get(prod_nom, 0.0)
+                delta_alm_vit = delta_vit_pend_map.get(prod_nom, 0.0)
                 productos_out.append({
                     "orden": idx_p + 1,
                     "producto": prod_nom,
-                    "stockVitrina": 0,
+                    "precioVenta": round(parse_moneda(rc["valor"]), 2),
+                    "stockAlmacen": _fmt_num_stock(st_alm),
+                    "stockVitrina": _fmt_num_stock(delta_alm_vit),
                     "estadoActual": "",
                     "h1Cant": "",
                     "h1Est": "",
@@ -3434,6 +3513,59 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
         if resp_e2 and resp_e2 not in personal:
             personal.insert(0, resp_e2)
 
+        metodos_gasto = [
+            str(r["clave"]).strip()
+            for r in conn.execute("SELECT clave FROM catalogos_local WHERE categoria = 'MET_GASTO' ORDER BY orden").fetchall()
+            if str(r["clave"] or "").strip()
+        ] or ["Efectivo", "Yape", "BCP"]
+
+        tipos_comp_gasto = [
+            str(r["clave"]).strip()
+            for r in conn.execute("SELECT clave FROM catalogos_local WHERE categoria = 'TIPO_COMP_GASTO' ORDER BY orden").fetchall()
+            if str(r["clave"] or "").strip()
+        ] or ["Boleta", "Factura", "Recibo / Ticket", "Sin comprobante"]
+
+        # 4. Compras de tienda con saldo pendiente de desglosar
+        compras_pend = []
+        for cp in conn.execute(
+            "SELECT * FROM compras_tienda_lotes WHERE estado = 'PENDIENTE' ORDER BY created_at DESC LIMIT 20"
+        ).fetchall():
+            m_tot = round(float(cp["monto_total"] or 0), 2)
+            m_des = round(float(cp["monto_desglosado"] or 0), 2)
+            falta = round(max(0.0, m_tot - m_des), 2)
+            compras_pend.append({
+                "compraUuid": cp["compra_uuid"],
+                "fechaDmy": cp["fecha_dmy"],
+                "montoTotal": m_tot,
+                "montoDesglosado": m_des,
+                "faltaDesglosar": falta,
+                "metodoPago": cp["metodo_pago"],
+                "responsable": cp["responsable"],
+                "tipoComp": cp["tipo_comp"],
+                "nroComp": cp["nro_comp"],
+                "nota": cp["nota"],
+            })
+
+        # 5. Últimos movimientos del Kardex de Almacén
+        ultimos_movs = []
+        for mv in conn.execute(
+            "SELECT * FROM almacen_movimientos ORDER BY synced ASC, sheet_row DESC, rowid DESC LIMIT 80"
+        ).fetchall():
+            ultimos_movs.append({
+                "movUuid": mv["mov_uuid"],
+                "loteUuid": mv["lote_uuid"],
+                "idTransaccion": mv["id_transaccion"],
+                "fechaDmy": mv["fecha_dmy"],
+                "producto": mv["producto"],
+                "cantidad": _fmt_num_stock(float(mv["cantidad"] or 0)),
+                "costoTotal": round(float(mv["costo_total"] or 0), 2),
+                "costoUnitario": round(float(mv["costo_unitario"] or 0), 2),
+                "metodoPago": mv["metodo_pago"],
+                "tipoMovimiento": mv["tipo_movimiento"],
+                "nota": mv["nota"],
+                "synced": int(mv["synced"] or 0),
+            })
+
         return {
             "responsableE2": resp_e2,
             "fechaUltimoE3": meta.get("vitrina_fecha_e3", ""),
@@ -3442,6 +3574,13 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
             "h3Header": _limpiar_header_vitrina(meta.get("vitrina_h3_header", ""), "Conteo 3 (Previo)"),
             "listaPersonal": personal,
             "productos": productos_out,
+            "gestionTienda": {
+                "fechaHoyISO": hoy_iso(),
+                "metodosGasto": metodos_gasto,
+                "tiposCompGasto": tipos_comp_gasto,
+                "comprasPendientes": compras_pend,
+                "ultimosMovimientos": ultimos_movs,
+            },
         }
     finally:
         conn.close()
@@ -3596,6 +3735,534 @@ def guardar_conteo_vitrina_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     res_nuevo = obtener_datos_vitrina_local()
     res_nuevo["mensaje"] = f"¡El conteo de {responsable} ha sido guardado! (OK: {ok_count}, Falta: {falta_count}, Sobra: {sobra_count})"
     return res_nuevo
+
+
+def registrar_compra_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    _validar_clave_gestion_tienda(datos)
+    compra_uuid_exist = str(datos.get("compraUuidExistente") or "").strip()
+    fecha_raw = str(datos.get("fecha") or "").strip()
+    fecha_dmy = normalizar_fecha_dmy(fecha_raw) or hoy_dmy()
+    fecha_iso = dmy_a_iso(fecha_dmy)
+    metodo_pago = str(datos.get("metodoPago") or "Efectivo").strip() or "Efectivo"
+    responsable = str(datos.get("responsable") or "ELEIZA").strip().upper() or "ELEIZA"
+    tipo_comp = str(datos.get("tipoComp") or "Boleta").strip() or "Boleta"
+    nro_comp = str(datos.get("nroComp") or "").strip()
+    nota = str(datos.get("nota") or "").strip()
+    enviar_a_gastos = bool(datos.get("enviarAGastos", True))
+    directo_vitrina = bool(datos.get("directoAVitrina", False))
+
+    raw_items = datos.get("items") or []
+    items_limpios: List[Dict[str, Any]] = []
+    suma_costos = 0.0
+    for it in raw_items:
+        prod = str((it or {}).get("producto") or "").strip()
+        if not prod:
+            continue
+        cant = round(parse_moneda((it or {}).get("cantidad")), 2)
+        costo_t = round(parse_moneda((it or {}).get("costoTotal")), 2)
+        if cant <= 0 and costo_t <= 0:
+            continue
+        if cant <= 0 and costo_t > 0:
+            raise ValueError(f"Indicaste S/ {costo_t:.2f} en '{prod}', pero falta poner su Cantidad.")
+        costo_u = round(costo_t / cant, 4) if cant > 0 else 0.0
+        suma_costos = round(suma_costos + costo_t, 2)
+        items_limpios.append({
+            "producto": prod,
+            "cantidad": cant,
+            "costoTotal": costo_t,
+            "costoUnitario": costo_u,
+        })
+
+    ahora = datetime.now()
+    ahora_iso = ahora.isoformat()
+    id_tx_str = ahora.strftime("%d/%m/%Y %H:%M:%S")
+    hora_reg = ahora.strftime("%H:%M")
+
+    with db_transaction() as conn:
+        movs_para_sync: List[Dict[str, Any]] = []
+        detalles_hist: List[Dict[str, str]] = []
+
+        if compra_uuid_exist:
+            # --- CONTINUACIÓN DE DESGLOSE DE UNA COMPRA PENDIENTE ---
+            lote_row = conn.execute(
+                "SELECT * FROM compras_tienda_lotes WHERE compra_uuid = ?",
+                (compra_uuid_exist,),
+            ).fetchone()
+            if not lote_row:
+                raise ValueError("No se encontró la compra pendiente seleccionada.")
+            if not items_limpios:
+                raise ValueError("Escribe al menos un producto con su cantidad y costo parcial para avanzar el desglose.")
+
+            m_tot_lote = round(float(lote_row["monto_total"] or 0), 2)
+            m_des_prev = round(float(lote_row["monto_desglosado"] or 0), 2)
+            disponible = round(max(0.0, m_tot_lote - m_des_prev), 2)
+            if m_tot_lote > 0 and suma_costos > disponible + 0.05:
+                raise ValueError(
+                    f"El desglose ingresado (S/ {suma_costos:.2f}) supera el saldo pendiente por desglosar (S/ {disponible:.2f})."
+                )
+
+            compra_uuid = compra_uuid_exist
+            fecha_dmy = str(lote_row["fecha_dmy"] or fecha_dmy)
+            metodo_pago = str(lote_row["metodo_pago"] or metodo_pago)
+            nuevo_desg = round(m_des_prev + suma_costos, 2)
+            nuevo_estado = "COMPLETADO" if (m_tot_lote <= 0 or nuevo_desg >= m_tot_lote - 0.02) else "PENDIENTE"
+
+            conn.execute(
+                """
+                UPDATE compras_tienda_lotes
+                SET monto_desglosado = ?, estado = ?, updated_at = ?
+                WHERE compra_uuid = ?
+                """,
+                (nuevo_desg, nuevo_estado, ahora_iso, compra_uuid),
+            )
+            falta_final = round(max(0.0, m_tot_lote - nuevo_desg), 2)
+            msg_gasto = (
+                f"Desglose completado al 100% (S/ {m_tot_lote:.2f})."
+                if nuevo_estado == "COMPLETADO"
+                else f"Avance guardado. Falta desglosar S/ {falta_final:.2f} de S/ {m_tot_lote:.2f}."
+            )
+        else:
+            # --- COMPRA NUEVA ---
+            monto_total_in = round(parse_moneda(datos.get("montoTotal")), 2)
+            if monto_total_in <= 0 and suma_costos > 0:
+                monto_total_in = suma_costos
+
+            if monto_total_in <= 0 and not items_limpios:
+                raise ValueError("Ingresa el Monto Total de la compra o al menos un producto con cantidad.")
+
+            if monto_total_in > 0 and suma_costos > monto_total_in + 0.05:
+                raise ValueError(
+                    f"La suma de las partes desglosadas (S/ {suma_costos:.2f}) excede el Monto Total (S/ {monto_total_in:.2f})."
+                )
+
+            compra_uuid = str(uuid.uuid4())
+            gasto_uuid = ""
+            if enviar_a_gastos and monto_total_in > 0:
+                gasto_uuid = str(uuid.uuid4())
+                resumen_prods = ", ".join(
+                    f"{_fmt_num_stock(x['cantidad'])} {x['producto']}"
+                    + (f" (S/{x['costoTotal']:g})" if x["costoTotal"] > 0 else "")
+                    for x in items_limpios[:8]
+                )
+                if len(items_limpios) > 8:
+                    resumen_prods += f" (+{len(items_limpios) - 8} más)"
+                if not resumen_prods:
+                    desc_gasto = f"Compra Tienda (Pendiente desglose){' - ' + nota if nota else ''}"
+                elif suma_costos < monto_total_in - 0.02:
+                    desc_gasto = f"Compra Tienda (Parcial S/{suma_costos:g} de S/{monto_total_in:g}): {resumen_prods}"
+                else:
+                    desc_gasto = f"Compra Tienda: {resumen_prods}"
+                if nota and nota not in desc_gasto:
+                    desc_gasto = f"{desc_gasto} | {nota}"
+
+                cat_tienda = "Compras para Tienda"
+                conn.execute(
+                    """
+                    INSERT INTO gastos (
+                        gasto_uuid, id_ts_str, fecha_gasto_iso, fecha_gasto_dmy, hora_registro,
+                        descripcion, monto, categoria, metodo_pago, tipo_comp, nro_comp, responsable, synced
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    """,
+                    (
+                        gasto_uuid,
+                        id_tx_str,
+                        fecha_iso,
+                        fecha_dmy,
+                        hora_reg,
+                        desc_gasto[:240],
+                        monto_total_in,
+                        cat_tienda,
+                        metodo_pago,
+                        tipo_comp,
+                        nro_comp,
+                        responsable,
+                    ),
+                )
+                delta_caja = -monto_total_in if metodo_pago == "Efectivo" else 0.0
+                _encolar_operacion(
+                    conn,
+                    "GASTO",
+                    gasto_uuid,
+                    {
+                        "gasto_uuid": gasto_uuid,
+                        "id_ts_str": id_tx_str,
+                        "fila_gasto": [
+                            id_tx_str,
+                            fecha_dmy,
+                            desc_gasto[:240],
+                            monto_total_in,
+                            cat_tienda,
+                            metodo_pago,
+                            tipo_comp,
+                            nro_comp,
+                            responsable,
+                        ],
+                    },
+                    delta_caja=delta_caja,
+                )
+
+            estado_lote = (
+                "PENDIENTE"
+                if (monto_total_in > 0 and suma_costos < monto_total_in - 0.02)
+                else "COMPLETADO"
+            )
+            conn.execute(
+                """
+                INSERT INTO compras_tienda_lotes (
+                    compra_uuid, fecha_dmy, monto_total, monto_desglosado, metodo_pago,
+                    responsable, tipo_comp, nro_comp, nota, gasto_uuid, estado, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    compra_uuid,
+                    fecha_dmy,
+                    monto_total_in,
+                    suma_costos,
+                    metodo_pago,
+                    responsable,
+                    tipo_comp,
+                    nro_comp,
+                    nota,
+                    gasto_uuid,
+                    estado_lote,
+                    ahora_iso,
+                    ahora_iso,
+                ),
+            )
+            falta_final = round(max(0.0, monto_total_in - suma_costos), 2)
+            txt_g = f" Gasto S/ {monto_total_in:.2f} enviado a Registro_Gastos." if gasto_uuid else ""
+            if estado_lote == "PENDIENTE":
+                msg_gasto = f"Compra registrada.{txt_g} Queda pendiente desglosar S/ {falta_final:.2f}."
+            else:
+                msg_gasto = f"Compra registrada al 100%.{txt_g}"
+
+        # Insertar movimientos de almacén por cada ítem desglosado
+        for it in items_limpios:
+            mov_c_uuid = str(uuid.uuid4())
+            nota_mov = nota or ("Compra + Directo Vitrina" if directo_vitrina else "Compra Tienda")
+            conn.execute(
+                """
+                INSERT INTO almacen_movimientos (
+                    mov_uuid, lote_uuid, id_transaccion, fecha_dmy, producto,
+                    cantidad, costo_total, costo_unitario, metodo_pago, tipo_movimiento, nota, synced
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'COMPRA', ?, 0)
+                """,
+                (
+                    mov_c_uuid,
+                    compra_uuid,
+                    id_tx_str,
+                    fecha_dmy,
+                    it["producto"],
+                    it["cantidad"],
+                    it["costoTotal"],
+                    it["costoUnitario"],
+                    metodo_pago,
+                    nota_mov,
+                ),
+            )
+            movs_para_sync.append({
+                "mov_uuid": mov_c_uuid,
+                "fila": [
+                    id_tx_str,
+                    fecha_dmy,
+                    it["producto"],
+                    _fmt_num_stock(it["cantidad"]),
+                    it["costoTotal"],
+                    it["costoUnitario"],
+                    metodo_pago,
+                    "COMPRA",
+                    nota_mov,
+                    mov_c_uuid,
+                ],
+            })
+            detalles_hist.append({
+                "campo": it["producto"],
+                "antes": "Compra",
+                "despues": f"+{_fmt_num_stock(it['cantidad'])} und." + (f" (S/ {it['costoTotal']:.2f})" if it["costoTotal"] > 0 else ""),
+            })
+
+            if directo_vitrina:
+                mov_t_uuid = str(uuid.uuid4())
+                conn.execute(
+                    """
+                    INSERT INTO almacen_movimientos (
+                        mov_uuid, lote_uuid, id_transaccion, fecha_dmy, producto,
+                        cantidad, costo_total, costo_unitario, metodo_pago, tipo_movimiento, nota, synced
+                    ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 'N/A', 'TRANSFERENCIA', 'Ingreso directo a Vitrina', 0)
+                    """,
+                    (mov_t_uuid, compra_uuid, id_tx_str, fecha_dmy, it["producto"], it["cantidad"]),
+                )
+                movs_para_sync.append({
+                    "mov_uuid": mov_t_uuid,
+                    "fila": [
+                        id_tx_str,
+                        fecha_dmy,
+                        it["producto"],
+                        _fmt_num_stock(it["cantidad"]),
+                        0,
+                        0,
+                        "N/A",
+                        "TRANSFERENCIA",
+                        "Ingreso directo a Vitrina",
+                        mov_t_uuid,
+                    ],
+                })
+
+        if movs_para_sync:
+            conn.execute(
+                """
+                INSERT INTO sync_queue (op_uuid, op_type, entity_uuid, payload_json, delta_caja, status, created_at)
+                VALUES (?, 'MOVIMIENTO_ALMACEN', ?, ?, 0, 'PENDING', ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    compra_uuid,
+                    json.dumps({"movimientos": movs_para_sync}, ensure_ascii=False),
+                    ahora_iso,
+                ),
+            )
+
+        _registrar_movimiento(
+            conn,
+            accion="Compra Tienda",
+            hab="Tienda",
+            huesped=responsable,
+            resumen=msg_gasto,
+            detalle=detalles_hist[:25],
+            monto=suma_costos,
+        )
+
+    res = obtener_datos_vitrina_local()
+    res["mensaje"] = f"✅ {msg_gasto}"
+    return res
+
+
+def cerrar_compra_pendiente_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    _validar_clave_gestion_tienda(datos)
+    compra_uuid = str(datos.get("compraUuid") or "").strip()
+    if not compra_uuid:
+        raise ValueError("Falta identificar la compra pendiente.")
+    with db_transaction() as conn:
+        conn.execute(
+            "UPDATE compras_tienda_lotes SET estado = 'COMPLETADO', updated_at = ? WHERE compra_uuid = ?",
+            (datetime.now().isoformat(), compra_uuid),
+        )
+    res = obtener_datos_vitrina_local()
+    res["mensaje"] = "✅ Compra marcada como completada."
+    return res
+
+
+def registrar_movimiento_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Maneja Traspaso (Almacén -> Vitrina), Merma Vitrina, Merma Almacén y Ajuste de Stock Almacén.
+    """
+    _validar_clave_gestion_tienda(datos)
+    modo = str(datos.get("modo") or "TRANSFERENCIA").strip().upper()
+    if modo not in ("TRANSFERENCIA", "MERMA_VITRINA", "MERMA_ALMACEN", "AJUSTE_ALMACEN"):
+        raise ValueError(f"Modo de movimiento inválido: {modo}")
+
+    fecha_raw = str(datos.get("fecha") or "").strip()
+    fecha_dmy = normalizar_fecha_dmy(fecha_raw) or hoy_dmy()
+    responsable = str(datos.get("responsable") or "ELEIZA").strip().upper() or "ELEIZA"
+    motivo = str(datos.get("nota") or "").strip()
+    raw_items = datos.get("items") or []
+
+    ahora = datetime.now()
+    ahora_iso = ahora.isoformat()
+    id_tx_str = ahora.strftime("%d/%m/%Y %H:%M:%S")
+    lote_uuid = str(uuid.uuid4())
+
+    with db_transaction() as conn:
+        stock_alm_actual, _ = _calcular_stocks_almacen_y_deltas_conn(conn)
+        movs_para_sync: List[Dict[str, Any]] = []
+        detalles_hist: List[Dict[str, str]] = []
+
+        for it in raw_items:
+            prod = str((it or {}).get("producto") or "").strip()
+            if not prod:
+                continue
+            raw_str = str((it or {}).get("cantidad") if (it or {}).get("cantidad") is not None else "").strip()
+            if raw_str == "":
+                continue
+            try:
+                val_num = round(float(raw_str), 2)
+            except ValueError:
+                continue
+
+            if modo == "AJUSTE_ALMACEN":
+                st_actual = round(stock_alm_actual.get(prod, 0.0), 2)
+                diff = round(val_num - st_actual, 2)
+                if abs(diff) < 0.001:
+                    continue
+                tipo_db = "AJUSTE_ALMACEN"
+                cant_mov = diff
+                nota_mov = f"[AJUSTE ALMACEN] De {_fmt_num_stock(st_actual)} a {_fmt_num_stock(val_num)}" + (f" · {motivo}" if motivo else "")
+                detalles_hist.append({
+                    "campo": prod,
+                    "antes": f"Almacén: {_fmt_num_stock(st_actual)}",
+                    "despues": f"Real: {_fmt_num_stock(val_num)} ({'+' if diff > 0 else ''}{_fmt_num_stock(diff)})",
+                })
+            else:
+                if val_num <= 0:
+                    continue
+                cant_mov = val_num
+                if modo == "TRANSFERENCIA":
+                    tipo_db = "TRANSFERENCIA"
+                    nota_mov = motivo or f"Traspaso a Vitrina ({responsable})"
+                    detalles_hist.append({
+                        "campo": prod,
+                        "antes": f"Almacén: {_fmt_num_stock(stock_alm_actual.get(prod, 0.0))}",
+                        "despues": f"Traspaso -> Vitrina: +{_fmt_num_stock(cant_mov)}",
+                    })
+                elif modo == "MERMA_VITRINA":
+                    tipo_db = "MERMA"
+                    nota_mov = f"[VITRINA] {motivo or 'Baja en vitrina'} ({responsable})"
+                    detalles_hist.append({
+                        "campo": prod,
+                        "antes": "Vitrina",
+                        "despues": f"Merma -{ _fmt_num_stock(cant_mov) }",
+                    })
+                else:  # MERMA_ALMACEN
+                    tipo_db = "MERMA_ALMACEN"
+                    nota_mov = f"[ALMACEN] {motivo or 'Baja en almacén'} ({responsable})"
+                    detalles_hist.append({
+                        "campo": prod,
+                        "antes": "Almacén",
+                        "despues": f"Merma -{_fmt_num_stock(cant_mov)}",
+                    })
+
+            mov_uuid = str(uuid.uuid4())
+            conn.execute(
+                """
+                INSERT INTO almacen_movimientos (
+                    mov_uuid, lote_uuid, id_transaccion, fecha_dmy, producto,
+                    cantidad, costo_total, costo_unitario, metodo_pago, tipo_movimiento, nota, synced
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 'N/A', ?, ?, 0)
+                """,
+                (mov_uuid, lote_uuid, id_tx_str, fecha_dmy, prod, cant_mov, tipo_db, nota_mov),
+            )
+            movs_para_sync.append({
+                "mov_uuid": mov_uuid,
+                "fila": [
+                    id_tx_str,
+                    fecha_dmy,
+                    prod,
+                    _fmt_num_stock(cant_mov),
+                    0,
+                    0,
+                    "N/A",
+                    tipo_db,
+                    nota_mov,
+                    mov_uuid,
+                ],
+            })
+
+        if not movs_para_sync:
+            raise ValueError("Ingresa cantidades válidas en al menos un producto antes de guardar.")
+
+        conn.execute(
+            """
+            INSERT INTO sync_queue (op_uuid, op_type, entity_uuid, payload_json, delta_caja, status, created_at)
+            VALUES (?, 'MOVIMIENTO_ALMACEN', ?, ?, 0, 'PENDING', ?)
+            """,
+            (
+                str(uuid.uuid4()),
+                lote_uuid,
+                json.dumps({"movimientos": movs_para_sync}, ensure_ascii=False),
+                ahora_iso,
+            ),
+        )
+
+        etiquetas = {
+            "TRANSFERENCIA": "Traspaso a Vitrina",
+            "MERMA_VITRINA": "Merma Vitrina",
+            "MERMA_ALMACEN": "Merma Almacén",
+            "AJUSTE_ALMACEN": "Ajuste Almacén",
+        }
+        nom_accion = etiquetas.get(modo, "Gestión Tienda")
+        _registrar_movimiento(
+            conn,
+            accion=nom_accion,
+            hab="Tienda",
+            huesped=responsable,
+            resumen=f"{nom_accion}: {len(movs_para_sync)} producto(s)" + (f" · {motivo}" if motivo else ""),
+            detalle=detalles_hist[:25],
+            monto=0.0,
+        )
+
+    res = obtener_datos_vitrina_local()
+    res["mensaje"] = f"✅ {nom_accion} guardado ({len(movs_para_sync)} producto(s)). Stocks actualizados al instante."
+    return res
+
+
+def anular_movimiento_almacen_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    _validar_clave_gestion_tienda(datos)
+    mov_uuid = str(datos.get("movUuid") or "").strip()
+    if not mov_uuid:
+        raise ValueError("Falta identificar el movimiento a anular.")
+
+    ahora_iso = datetime.now().isoformat()
+    with db_transaction() as conn:
+        row = conn.execute("SELECT * FROM almacen_movimientos WHERE mov_uuid = ?", (mov_uuid,)).fetchone()
+        if not row:
+            raise ValueError("El movimiento ya no existe.")
+        prod = str(row["producto"] or "")
+        cant = float(row["cantidad"] or 0)
+        tipo = str(row["tipo_movimiento"] or "")
+        costo_t = float(row["costo_total"] or 0)
+        lote_u = str(row["lote_uuid"] or "")
+
+        conn.execute("DELETE FROM almacen_movimientos WHERE mov_uuid = ?", (mov_uuid,))
+
+        if lote_u and tipo == "COMPRA" and costo_t > 0:
+            lote_r = conn.execute(
+                "SELECT monto_total, monto_desglosado FROM compras_tienda_lotes WHERE compra_uuid = ?",
+                (lote_u,),
+            ).fetchone()
+            if lote_r:
+                nuevo_d = round(max(0.0, float(lote_r["monto_desglosado"] or 0) - costo_t), 2)
+                m_tot = round(float(lote_r["monto_total"] or 0), 2)
+                est_l = "PENDIENTE" if (m_tot > 0 and nuevo_d < m_tot - 0.02) else "COMPLETADO"
+                conn.execute(
+                    "UPDATE compras_tienda_lotes SET monto_desglosado = ?, estado = ?, updated_at = ? WHERE compra_uuid = ?",
+                    (nuevo_d, est_l, ahora_iso, lote_u),
+                )
+
+        conn.execute(
+            """
+            INSERT INTO sync_queue (op_uuid, op_type, entity_uuid, payload_json, delta_caja, status, created_at)
+            VALUES (?, 'ELIMINAR_MOVIMIENTO_ALMACEN', ?, ?, 0, 'PENDING', ?)
+            """,
+            (
+                str(uuid.uuid4()),
+                mov_uuid,
+                json.dumps(
+                    {
+                        "mov_uuid": mov_uuid,
+                        "sheet_row": int(row["sheet_row"] or 0),
+                        "id_transaccion": str(row["id_transaccion"] or ""),
+                        "producto": prod,
+                        "tipo_movimiento": tipo,
+                    },
+                    ensure_ascii=False,
+                ),
+                ahora_iso,
+            ),
+        )
+
+        _registrar_movimiento(
+            conn,
+            accion="Anular Mov. Tienda",
+            hab="Tienda",
+            huesped="ELEIZA",
+            resumen=f"Anulado {tipo}: {_fmt_num_stock(cant)} {prod}",
+            detalle=[],
+            monto=0.0,
+        )
+
+    res = obtener_datos_vitrina_local()
+    res["mensaje"] = f"✅ Movimiento anulado ({tipo}: {_fmt_num_stock(cant)} {prod})."
+    return res
 
 
 
