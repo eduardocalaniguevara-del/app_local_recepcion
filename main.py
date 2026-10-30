@@ -142,6 +142,7 @@ class RpcPayload(BaseModel):
 
 
 WRITE_METHODS = {
+    "editarEstanciaBDAdmin",
     "marcarAsistenciaHorario",
     "editarCeldaHorario",
     "guardarPersonalConfig",
@@ -429,6 +430,10 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             res = dl.registrar_movimiento_tienda_local(args[0] if args else {})
         elif method_name == "anularMovimientoAlmacen":
             res = dl.anular_movimiento_almacen_local(args[0] if args else {})
+        elif method_name == "obtenerRegistroEstanciasBD":
+            res = dl.obtener_registro_estancias_bd_local(args[0] if args else {})
+        elif method_name == "editarEstanciaBDAdmin":
+            res = dl.editar_estancia_bd_admin_local(args[0] if args else {})
         elif method_name == "obtenerHorario":
             import horario_logic as hl
             res = hl.obtener_horario_local(args[0] if args else {})

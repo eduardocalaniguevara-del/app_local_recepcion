@@ -190,6 +190,8 @@
               class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🏪 Vitrina Tienda</button>
       <button type="button" id="tabVistaHorario" onclick="cambiarVista('horario')"
               class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">⏰ Horario</button>
+      <button type="button" id="tabVistaEstanciasBD" onclick="cambiarVista('estancias_bd')"
+              class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors" title="Base de datos histórica y editable de Registro_Estancias">📋 Registro Estancias</button>
       <button type="button" id="btnMovimientos" onclick="abrirMovimientos()" title="Historial de movimientos (quién hizo qué y cuándo)"
               class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🕒 Movimientos</button>
     </div>
@@ -363,6 +365,134 @@
       </table>
     </div>
   </div>
+
+  <!-- ======================= HOJA 5: REGISTRO DE ESTANCIAS (Base de Datos Completa + Filtros + Edición Admin con Clave) ======================= -->
+  <div id="vistaEstanciasBD" class="hidden flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
+    <!-- Barra de filtros y resumen -->
+    <div class="shrink-0 flex flex-col gap-1.5 p-2 rounded-lg border" style="background-color: #FAF6F3; border-color: #DFD2C5;">
+      <div class="flex flex-wrap items-end justify-between gap-2">
+        <div class="flex flex-wrap items-end gap-1.5">
+          <div>
+            <label class="block text-[10px] font-black text-slate-600">Desde (Check-In)</label>
+            <input type="date" id="bdDesde" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+          </div>
+          <div>
+            <label class="block text-[10px] font-black text-slate-600">Hasta (Check-In)</label>
+            <input type="date" id="bdHasta" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+          </div>
+          <div class="flex items-center gap-1 pb-0.5">
+            <button type="button" onclick="bdRangoRapido('HOY')" class="px-1.5 py-0.5 rounded bg-white hover:bg-amber-50 border border-[#D8C7B8] text-[10.5px] font-extrabold text-slate-700 cursor-pointer">Hoy</button>
+            <button type="button" onclick="bdRangoRapido('MES')" class="px-1.5 py-0.5 rounded bg-white hover:bg-amber-50 border border-[#D8C7B8] text-[10.5px] font-extrabold text-slate-700 cursor-pointer">Este mes</button>
+            <button type="button" onclick="bdRangoRapido('TODO')" class="px-1.5 py-0.5 rounded bg-white hover:bg-amber-50 border border-[#D8C7B8] text-[10.5px] font-extrabold text-slate-700 cursor-pointer">Todo el historial</button>
+          </div>
+
+          <div>
+            <label class="block text-[10px] font-black text-slate-600">🔍 Huésped / DNI / RUC / Op. AW / Celular</label>
+            <input type="text" id="bdBuscar" oninput="bdDispararBusqueda()" placeholder="Escribe nombre, DNI, RUC, operación..."
+                   class="px-2 py-0.5 rounded border border-[#D8C7B8] text-xs bg-white w-52 focus:outline-hidden focus:ring-1 focus:ring-amber-700">
+          </div>
+
+          <div>
+            <label class="block text-[10px] font-black text-slate-600">Hab.</label>
+            <select id="bdHab" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+              <option value="">Todas</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-[10px] font-black text-slate-600">Tipo Hab.</label>
+            <select id="bdTipoHab" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+              <option value="">Todos</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-[10px] font-black text-slate-600">Empresa (AQ)</label>
+            <select id="bdEmpresa" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white max-w-[170px] cursor-pointer">
+              <option value="">Todas</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-[10px] font-black text-slate-600">Estado Pago (AN)</label>
+            <select id="bdEstadoPago" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+              <option value="">Todos</option>
+              <option value="PENDIENTE">⚠️ Con Deuda / Pendiente</option>
+              <option value="COMPLETADO">✅ Pagos Completados</option>
+              <option value="CANCELADO">🚫 Cancelados</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-1.5">
+          <button type="button" onclick="bdLimpiarFiltros()" class="px-2 py-1 rounded font-bold bg-white hover:bg-slate-100 text-slate-700 border border-[#D8C7B8] text-[11px] cursor-pointer">🧹 Limpiar</button>
+          <button type="button" onclick="cargarVistaEstanciasBD()" class="px-2 py-1 rounded font-bold bg-slate-700 hover:bg-slate-800 text-white text-[11px] cursor-pointer">🔄 Actualizar</button>
+          <label id="btnToggleAdminBD" onclick="toggleModoEdicionBDUI(event)"
+                 class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded font-extrabold bg-amber-900 hover:bg-amber-950 text-amber-50 border border-amber-950 text-xs shadow-xs cursor-pointer transition-colors select-none"
+                 title="Recepcionista: solo lectura. Marcar con contraseña de Administrador para habilitar edición.">
+            <input type="checkbox" id="chkAdminBD" class="accent-emerald-400 pointer-events-none w-3.5 h-3.5">
+            <span id="lblBtnAdminBD">🔒 Modo Edición (Admin)</span>
+          </label>
+        </div>
+      </div>
+
+      <div id="bdResumenBar" class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[#DFD2C5]/70 text-[11px]"></div>
+    </div>
+
+    <div id="bdBanner" class="hidden shrink-0 px-3 py-1.5 rounded-lg text-xs font-extrabold border"></div>
+
+    <!-- Tabla principal de Registro_Estancias -->
+    <div id="panelTablaEstanciasBD" tabindex="0" role="region" aria-label="Base de datos de Registro de Estancias"
+         class="flex-1 min-h-0 overflow-x-auto overflow-y-auto rounded-lg shadow-xs border"
+         style="background-color: #FAF6F3; border-color: #DFD2C5;">
+      <table class="w-full text-left text-[11px] select-none border-collapse">
+        <thead id="bdHead" class="sticky top-0 text-white font-bold uppercase tracking-tight z-10" style="background-color: #2D2623;"></thead>
+        <tbody id="bdBody" class="divide-y divide-[#E6DCD2]"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- DIÁLOGO MODAL: CONTRASEÑA DE MODO EDICIÓN ADMIN (REGISTRO ESTANCIAS) -->
+  <dialog id="dialogClaveAdminBD" closedby="any" aria-labelledby="tituloDialogClaveBD"
+          class="rounded-xl shadow-2xl border border-slate-300 p-0 w-80 max-w-[92vw] bg-white text-slate-800 m-auto">
+    <form onsubmit="confirmarClaveAdminBDUI(event)" class="p-4 space-y-3" autocomplete="off">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-2">
+        <h3 id="tituloDialogClaveBD" class="font-black text-sm text-slate-900 flex items-center gap-1.5">🔒 Modo Edición Administrador</h3>
+        <button type="button" onclick="cerrarDialogClaveBD()" class="text-slate-400 hover:text-slate-700 font-bold text-sm w-6 h-6 rounded cursor-pointer">✕</button>
+      </div>
+      <div>
+        <label for="inpClaveAdminBD" class="block text-xs font-bold text-slate-600 mb-1">Contraseña de Administrador:</label>
+        <input type="password" id="inpClaveAdminBD" autocomplete="new-password" placeholder="Contraseña..."
+               class="w-full px-3 py-1.5 rounded-lg border border-slate-300 font-black text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-600">
+        <p id="errClaveAdminBD" class="hidden text-[11px] font-extrabold text-red-600 mt-1"></p>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="cerrarDialogClaveBD()" class="px-3 py-1 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer">Cancelar</button>
+        <button type="submit" class="px-3.5 py-1 rounded-lg bg-amber-800 hover:bg-amber-900 text-white text-xs font-extrabold cursor-pointer">Habilitar edición</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- DIÁLOGO MODAL: EDITOR COMPLETO DE FILA DE REGISTRO_ESTANCIAS (SOLO ADMIN) -->
+  <dialog id="dialogEditarFilaBD" closedby="any" aria-labelledby="tituloEditarFilaBD"
+          class="rounded-xl shadow-2xl border border-slate-300 p-0 w-[760px] max-w-[96vw] bg-white text-slate-800 m-auto">
+    <form onsubmit="guardarEdicionFilaBDUI(event)" class="p-4 space-y-3 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-2">
+        <h3 id="tituloEditarFilaBD" class="font-black text-sm text-slate-900">✏️ Editar Estancia</h3>
+        <button type="button" onclick="cerrarModalEditarFilaBD()" class="text-slate-400 hover:text-slate-700 font-bold text-sm w-6 h-6 rounded cursor-pointer">✕</button>
+      </div>
+      <div id="formEditarFilaBDBody" class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs"></div>
+      <p class="text-[10.5px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1">
+        ℹ️ Al guardar se actualiza la Base Interna en 0 ms (recalculando Subtotal, Total Cuenta, Total Pagado, Saldo y Estado AN) y se sincroniza con Google Sheets sin tocar ninguna columna de fórmula.
+      </p>
+      <div class="flex justify-end gap-2 pt-1 border-t border-slate-200">
+        <button type="button" onclick="cerrarModalEditarFilaBD()" class="px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer">Cancelar</button>
+        <button type="submit" id="btnGuardarFilaBD" class="px-4 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black cursor-pointer">💾 Guardar cambios en Base de Datos y Sheets</button>
+      </div>
+    </form>
+  </dialog>
+
+
 
   <!-- ======================= HOJA 4: HORARIO Y PAGOS DE PERSONAL ======================= -->
   <div id="vistaHorario" class="hidden flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
@@ -4104,6 +4234,7 @@
     var esVitrina = (v === 'vitrina');
     var esEmp = (v === 'empresas');
     var esHor = (v === 'horario');
+    var esBD = (v === 'estancias_bd');
     var show = function (id, on) { var el = document.getElementById(id); if (el) el.classList.toggle('hidden', !on); };
     show('vistaPanelTabla', esPanel);
     show('barraFiltrosPanel', esPanel);
@@ -4112,6 +4243,7 @@
     show('vistaVitrina', esVitrina);
     show('vistaEmpresas', esEmp);
     show('vistaHorario', esHor);
+    show('vistaEstanciasBD', esBD);
     var act = 'px-2.5 py-1 text-xs font-black bg-slate-800 text-white cursor-pointer transition-colors';
     var ina = 'px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 cursor-pointer transition-colors';
     var bP = document.getElementById('tabVistaPanel');
@@ -4124,6 +4256,8 @@
     if (bE) bE.className = (esEmp ? act : ina) + ' border-l border-[#D8C7B8]';
     var bH = document.getElementById('tabVistaHorario');
     if (bH) bH.className = (esHor ? act : ina) + ' border-l border-[#D8C7B8]';
+    var bBD = document.getElementById('tabVistaEstanciasBD');
+    if (bBD) bBD.className = (esBD ? act : ina) + ' border-l border-[#D8C7B8]';
     if (esPagos) {
       var inp = document.getElementById('pagosFecha');
       if (inp && !inp.value) inp.value = hoyISO();
@@ -4135,6 +4269,8 @@
       cargarVistaVitrina();
     } else if (esHor) {
       cargarVistaHorario();
+    } else if (esBD) {
+      cargarVistaEstanciasBD();
     }
   };
 
@@ -4701,6 +4837,405 @@
       mostrarAvisoVitrina('error', '❌ ' + ((err && err.message) || err));
     });
   };
+
+  // =========================================================================
+  // 📋 REGISTRO DE ESTANCIAS (Base de Datos Completa + Filtros + Edición Admin)
+  // =========================================================================
+  var BDE = { filas: [], clave: '', adminActivo: false, mostrar3roForzado: false, timerQ: null, editando: null, catalogosCargados: false };
+  window.BDE = BDE;
+
+  function bdBanner(tipo, msg) {
+    var b = document.getElementById('bdBanner'); if (!b) return;
+    if (!msg) { b.classList.add('hidden'); return; }
+    b.className = 'shrink-0 px-3 py-1.5 rounded-lg text-xs font-extrabold border ' + (tipo === 'ok' ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-red-50 text-red-900 border-red-300');
+    b.textContent = msg;
+    clearTimeout(BDE.bannerT);
+    BDE.bannerT = setTimeout(function () { b.classList.add('hidden'); }, tipo === 'ok' ? 4500 : 8000);
+  }
+
+  window.bdRangoRapido = function (modo) {
+    var dEl = document.getElementById('bdDesde'), hEl = document.getElementById('bdHasta');
+    var hIso = hoyISO();
+    if (modo === 'HOY') {
+      if (dEl) dEl.value = hIso;
+      if (hEl) hEl.value = hIso;
+    } else if (modo === 'MES') {
+      var p = hIso.split('-').map(Number);
+      var ult = new Date(p[0], p[1], 0).getDate();
+      if (dEl) dEl.value = p[0] + '-' + String(p[1]).padStart(2, '0') + '-01';
+      if (hEl) hEl.value = p[0] + '-' + String(p[1]).padStart(2, '0') + '-' + String(ult).padStart(2, '0');
+    } else {
+      if (dEl) dEl.value = '';
+      if (hEl) hEl.value = '';
+    }
+    if (dEl) dispararFoco(dEl);
+    if (hEl) dispararFoco(hEl);
+    cargarVistaEstanciasBD();
+  };
+
+  window.bdLimpiarFiltros = function () {
+    ['bdBuscar', 'bdHab', 'bdTipoHab', 'bdEmpresa', 'bdEstadoPago'].forEach(function (id) {
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    bdRangoRapido('MES');
+  };
+
+  window.bdDispararBusqueda = function () {
+    clearTimeout(BDE.timerQ);
+    BDE.timerQ = setTimeout(cargarVistaEstanciasBD, 160);
+  };
+
+  window.cargarVistaEstanciasBD = function () {
+    var dEl = document.getElementById('bdDesde'), hEl = document.getElementById('bdHasta');
+    if (dEl && !BDE.inicializado) {
+      BDE.inicializado = true;
+      var p = hoyISO().split('-').map(Number);
+      var ult = new Date(p[0], p[1], 0).getDate();
+      dEl.value = p[0] + '-' + String(p[1]).padStart(2, '0') + '-01';
+      hEl.value = p[0] + '-' + String(p[1]).padStart(2, '0') + '-' + String(ult).padStart(2, '0');
+      dispararFoco(dEl); dispararFoco(hEl);
+    }
+    var payload = {
+      desde: dEl && dEl.value ? aDMY(dEl.value) : '',
+      hasta: hEl && hEl.value ? aDMY(hEl.value) : '',
+      q: (document.getElementById('bdBuscar') || {}).value || '',
+      hab: (document.getElementById('bdHab') || {}).value || '',
+      tipoHab: (document.getElementById('bdTipoHab') || {}).value || '',
+      empresa: (document.getElementById('bdEmpresa') || {}).value || '',
+      estadoPago: (document.getElementById('bdEstadoPago') || {}).value || '',
+      limite: 800
+    };
+    runGas('obtenerRegistroEstanciasBD', [payload], function (res) {
+      BDE.data = res || {};
+      BDE.filas = (res && res.filas) || [];
+      bdPoblarSelectores(res || {});
+      bdRenderTabla();
+    }, function (err) {
+      bdBanner('error', '❌ Error al cargar Registro de Estancias: ' + ((err && err.message) || err));
+    });
+  };
+
+  function bdPoblarSelectores(res) {
+    var sh = document.getElementById('bdHab');
+    if (sh && res.habitaciones) {
+      var prevH = sh.value;
+      sh.innerHTML = '<option value="">Todas</option>' + res.habitaciones.map(function (h) { return '<option value="' + esc(h) + '">' + esc(h) + '</option>'; }).join('');
+      sh.value = prevH;
+    }
+    var st = document.getElementById('bdTipoHab');
+    if (st && res.tiposHab) {
+      var prevT = st.value;
+      st.innerHTML = '<option value="">Todos</option>' + res.tiposHab.map(function (t) { return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('');
+      st.value = prevT;
+    }
+    var se = document.getElementById('bdEmpresa');
+    if (se && res.empresas) {
+      var prevE = se.value;
+      se.innerHTML = '<option value="">Todas</option><option value="__CON_EMPRESA__">🏢 Solo con empresa</option>' +
+        res.empresas.map(function (e) { return '<option value="' + esc(e) + '">' + esc(e) + '</option>'; }).join('');
+      se.value = prevE;
+    }
+  }
+
+  window.bdToggleCol3ro = function () {
+    BDE.mostrar3roForzado = !BDE.mostrar3roForzado;
+    bdRenderTabla();
+  };
+
+  function bdRenderTabla() {
+    var res = BDE.data || {};
+    var R = res.resumen || {};
+    var expandir3ro = !!(res.hayTercerHuesped || BDE.mostrar3roForzado);
+    var admin = !!BDE.adminActivo;
+
+    var bar = document.getElementById('bdResumenBar');
+    if (bar) {
+      bar.innerHTML =
+        '<div class="flex flex-wrap items-center gap-1.5 font-extrabold">' +
+          '<span class="px-2 py-0.5 rounded bg-slate-800 text-white">📋 ' + (R.cantidad || 0) + ' estancias mostradas <span class="font-normal opacity-80">(de ' + (res.totalEnBD || 0) + ' en BD local)</span></span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">🛏️ Subtotal: ' + soles(R.subtotalAloj) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">➕ Adic.: ' + soles(R.totalAdic) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-900">💰 Total Cuenta: ' + soles(R.totalCuenta) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-950">✅ Pagado: ' + soles(R.totalPagado) + '</span>' +
+          '<span class="px-2 py-0.5 rounded ' + ((R.saldoPendiente || 0) > 0 ? 'bg-red-100 border border-red-300 text-red-900' : 'bg-slate-100 border border-slate-300 text-slate-600') + '">⚠️ Saldo Pendiente: ' + soles(R.saldoPendiente) + '</span>' +
+        '</div>' +
+        '<span class="text-[10.5px] font-bold ' + (admin ? 'text-emerald-800' : 'text-slate-500') + '">' +
+          (admin ? '🔓 Modo Administrador activo: haz clic en «✏️» en cualquier fila para editar.' : '👁️ Vista Recepcionista (solo lectura).') +
+        '</span>';
+    }
+
+    var head = document.getElementById('bdHead');
+    if (head) {
+      head.innerHTML =
+        '<tr class="h-8 text-[10px]">' +
+          (admin ? '<th class="px-1.5 w-[44px] text-center border-r border-[#433A36] bg-emerald-900">Editar</th>' : '') +
+          '<th class="px-1.5 w-[118px] border-r border-[#433A36]">ID / Hora Anot.</th>' +
+          '<th class="px-1.5 w-[74px] text-center border-r border-[#433A36]">Check-In</th>' +
+          '<th class="px-1.5 w-[74px] text-center border-r border-[#433A36]">Check-Out</th>' +
+          '<th class="px-2 min-w-[175px] border-r border-[#433A36]">Huésped 1 + DNI</th>' +
+          '<th class="px-2 min-w-[140px] border-r border-[#433A36]">2° Huésped + DNI</th>' +
+          (expandir3ro
+            ? '<th class="px-2 min-w-[130px] border-r border-[#433A36] cursor-pointer" onclick="bdToggleCol3ro()" title="Clic para encoger columna 3° Huésped">3° Huésped + DNI ▾</th>'
+            : '<th class="px-0.5 w-[24px] max-w-[24px] text-center border-r border-[#433A36] cursor-pointer opacity-75 hover:opacity-100" onclick="bdToggleCol3ro()" title="Sin 3° huésped (clic para expandir)">3°</th>') +
+          '<th class="px-1.5 w-[48px] text-center border-r border-[#433A36]">Hab.</th>' +
+          '<th class="px-1.5 w-[90px] border-r border-[#433A36]">Tipo Hab.</th>' +
+          '<th class="px-1 w-[42px] text-center border-r border-[#433A36]">Noc.</th>' +
+          '<th class="px-1.5 w-[60px] text-right border-r border-[#433A36]">Tarifa</th>' +
+          '<th class="px-1.5 w-[66px] text-right border-r border-[#433A36] bg-slate-900/50">Subtotal</th>' +
+          '<th class="px-1.5 w-[56px] text-right border-r border-[#433A36]" title="Adicional Tienda / Snacks (Col S)">Snacks</th>' +
+          '<th class="px-1.5 w-[56px] text-right border-r border-[#433A36]" title="Adicional Servicios (Col T)">Serv.</th>' +
+          '<th class="px-1.5 w-[56px] text-right border-r border-[#433A36]" title="Adicional Comprobante (Col U)">A.Comp</th>' +
+          '<th class="px-1.5 w-[92px] border-r border-[#433A36]" title="Tipo de Adicional (Col BA)">Tipo Adic.</th>' +
+          '<th class="px-1.5 w-[72px] text-right border-r border-[#433A36] bg-amber-950/60">Total Cta.</th>' +
+          '<th class="px-1.5 w-[82px] text-right border-r border-[#433A36]" title="Pagos Iniciales: Efectivo (W) / Yape (X)">Pago Inicial</th>' +
+          '<th class="px-1.5 w-[82px] text-right border-r border-[#433A36]" title="Pagos Posteriores: Efectivo (Y) / Yape (Z)">Pago Post.</th>' +
+          '<th class="px-1.5 w-[62px] text-right border-r border-[#433A36]" title="Cargo Deuda Anterior (Col AL)">Deuda Ant.</th>' +
+          '<th class="px-1.5 w-[58px] text-right border-r border-[#433A36]" title="Pagos VISA (Col AM)">VISA</th>' +
+          '<th class="px-1.5 w-[72px] text-right border-r border-[#433A36] bg-emerald-950/50">Tot. Pagado</th>' +
+          '<th class="px-1.5 w-[68px] text-right border-r border-[#433A36]">Saldo Final</th>' +
+          '<th class="px-1.5 w-[118px] text-center border-r border-[#433A36]" title="Columna AN: Estado de Pagos">Pagos (AN)</th>' +
+          '<th class="px-2 min-w-[125px] border-r border-[#433A36]" title="Columna AQ: Empresa">Empresa (AQ)</th>' +
+          '<th class="px-1.5 w-[86px] border-r border-[#433A36]" title="Columna AW: N° de Operación Yape/Banco">N° Op. (AW)</th>' +
+          '<th class="px-1.5 w-[78px] border-r border-[#433A36]" title="Columna AX: Celular">Celular</th>' +
+          '<th class="px-1.5 w-[86px] border-r border-[#433A36]" title="Columna AY: RUC">RUC</th>' +
+          '<th class="px-1.5 w-[68px] text-right" title="Columna AZ: Excedente Efectivo">Exc. Efec.</th>' +
+        '</tr>';
+    }
+
+    var body = document.getElementById('bdBody');
+    if (!body) return;
+    if (!BDE.filas.length) {
+      body.innerHTML = '<tr><td colspan="29" class="px-4 py-8 text-center text-slate-400 font-bold">No se encontraron estancias con estos filtros.</td></tr>';
+      return;
+    }
+
+    var m = function (v) { var n = Number(v) || 0; return n ? n.toFixed(2) : '<span class="text-slate-300">—</span>'; };
+    var parPago = function (ef, yp) {
+      var p = [];
+      if (Number(ef)) p.push('<span class="text-emerald-800" title="Efectivo">E:' + Number(ef).toFixed(0) + '</span>');
+      if (Number(yp)) p.push('<span class="text-purple-800" title="Yape/Transferencia">Y:' + Number(yp).toFixed(0) + '</span>');
+      return p.length ? p.join(' ') : '<span class="text-slate-300">—</span>';
+    };
+
+    body.innerHTML = BDE.filas.map(function (f, idx) {
+      var canc = f.codPagoAN === 'CANCELADO';
+      var rowCls = canc ? 'bg-slate-100 text-slate-400 line-through' : 'bg-white hover:bg-amber-50/60';
+      var badgeAN = '';
+      if (f.codPagoAN === 'COMPLETADO') badgeAN = '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">✅ Completado</span>';
+      else if (f.codPagoAN === 'PENDIENTE') badgeAN = '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-800 border border-red-300">⚠️ ' + esc(f.estadoPagoAN) + '</span>';
+      else if (f.codPagoAN === 'EXCESO') badgeAN = '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300">' + esc(f.estadoPagoAN) + '</span>';
+      else badgeAN = '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">' + esc(f.estadoPagoAN) + '</span>';
+
+      var h1 = '<div class="font-black text-slate-900 truncate max-w-[210px]" title="' + esc(f.huesped) + '">' + esc(f.huesped || '—') + '</div>' +
+               (f.dni ? '<div class="text-[10px] font-bold text-slate-500">DNI: ' + esc(f.dni) + '</div>' : '');
+      var h2 = (f.nAcomp || f.dniAcomp)
+        ? ('<div class="font-bold text-slate-800 truncate max-w-[165px]" title="' + esc(f.nAcomp) + '">' + esc(f.nAcomp || '—') + '</div>' +
+           (f.dniAcomp ? '<div class="text-[10px] text-slate-500">DNI: ' + esc(f.dniAcomp) + '</div>' : ''))
+        : '<span class="text-slate-300">—</span>';
+      var h3 = expandir3ro
+        ? '<td class="px-2 py-1 border-r border-[#E6DCD2]">' +
+            ((f.triple1 || f.triple2)
+              ? ('<div class="font-bold text-slate-800 truncate max-w-[140px]">' + esc(f.triple1) + '</div>' + (f.triple2 ? '<div class="text-[10px] text-slate-500">' + esc(f.triple2) + '</div>' : ''))
+              : '<span class="text-slate-300">—</span>') +
+          '</td>'
+        : '<td class="px-0.5 w-[24px] max-w-[24px] text-center border-r border-[#E6DCD2] text-slate-300 text-[9px]">' + ((f.triple1 || f.triple2) ? '●' : '') + '</td>';
+
+      return '<tr class="h-8 ' + rowCls + '">' +
+        (admin ? '<td class="px-1 text-center border-r border-[#E6DCD2]"><button type="button" onclick="bdAbrirModalEditar(' + idx + ')" class="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-[10.5px] border border-amber-300 cursor-pointer" title="Editar fila #' + f.fila + '">✏️</button></td>' : '') +
+        '<td class="px-1.5 py-1 border-r border-[#E6DCD2] whitespace-nowrap"><div class="font-bold text-slate-800 text-[10.5px]">' + esc(f.id) + '</div><div class="text-[9.5px] text-slate-400">Fila #' + f.fila + (f.dirty ? ' • ⏳' : '') + '</div></td>' +
+        '<td class="px-1.5 text-center font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + esc(f.fechaIn) + '</td>' +
+        '<td class="px-1.5 text-center font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + esc(f.fechaOut) + '</td>' +
+        '<td class="px-2 py-1 border-r border-[#E6DCD2]">' + h1 + '</td>' +
+        '<td class="px-2 py-1 border-r border-[#E6DCD2]">' + h2 + '</td>' +
+        h3 +
+        '<td class="px-1.5 text-center font-black text-slate-900 border-r border-[#E6DCD2]">' + esc(f.hab) + '</td>' +
+        '<td class="px-1.5 text-slate-700 border-r border-[#E6DCD2] truncate max-w-[95px]">' + esc(f.tipoHab) + '</td>' +
+        '<td class="px-1 text-center font-bold border-r border-[#E6DCD2]">' + f.noches + '</td>' +
+        '<td class="px-1.5 text-right font-bold border-r border-[#E6DCD2]">' + m(f.tarifa) + '</td>' +
+        '<td class="px-1.5 text-right font-black text-slate-900 border-r border-[#E6DCD2] bg-amber-50/40">' + m(f.subtotal) + '</td>' +
+        '<td class="px-1.5 text-right border-r border-[#E6DCD2]">' + m(f.snacks) + '</td>' +
+        '<td class="px-1.5 text-right border-r border-[#E6DCD2]">' + m(f.servicios) + '</td>' +
+        '<td class="px-1.5 text-right border-r border-[#E6DCD2]">' + m(f.adicComp) + '</td>' +
+        '<td class="px-1.5 text-[10px] font-bold text-slate-600 border-r border-[#E6DCD2] truncate max-w-[95px]" title="' + esc(f.tipoAdicional) + '">' + (esc(f.tipoAdicional) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-1.5 text-right font-black text-slate-900 border-r border-[#E6DCD2] bg-amber-100/40">' + m(f.totalCuenta) + '</td>' +
+        '<td class="px-1.5 text-right font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + parPago(f.pEfecIni, f.pElecIni) + '</td>' +
+        '<td class="px-1.5 text-right font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + parPago(f.pEfecPost, f.pYapePost) + '</td>' +
+        '<td class="px-1.5 text-right font-bold text-red-800 border-r border-[#E6DCD2]">' + m(f.deudaAnt) + '</td>' +
+        '<td class="px-1.5 text-right font-bold text-blue-800 border-r border-[#E6DCD2]">' + m(f.pVisa) + '</td>' +
+        '<td class="px-1.5 text-right font-black text-emerald-900 border-r border-[#E6DCD2] bg-emerald-50/40">' + m(f.totalPagado) + '</td>' +
+        '<td class="px-1.5 text-right font-black ' + (f.saldoFinal > 0.05 ? 'text-red-700' : 'text-slate-600') + ' border-r border-[#E6DCD2]">' + m(f.saldoFinal) + '</td>' +
+        '<td class="px-1.5 text-center border-r border-[#E6DCD2] whitespace-nowrap">' + badgeAN + '</td>' +
+        '<td class="px-2 font-bold text-slate-800 border-r border-[#E6DCD2] truncate max-w-[140px]" title="' + esc(f.empresa) + '">' + (esc(f.empresa) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-1.5 font-mono text-[10.5px] text-slate-700 border-r border-[#E6DCD2] truncate max-w-[90px]" title="' + esc(f.nroOpYape) + '">' + (esc(f.nroOpYape) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-1.5 text-[10.5px] text-slate-700 border-r border-[#E6DCD2] whitespace-nowrap">' + (esc(f.celular) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-1.5 text-[10.5px] text-slate-700 border-r border-[#E6DCD2] whitespace-nowrap">' + (esc(f.ruc) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-1.5 text-right font-bold text-slate-700">' + m(f.excedenteEfec) + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  // ---------------------------- Modo Edición Admin con Clave ----------------------------
+  function bdActualizarBotonAdmin() {
+    var chk = document.getElementById('chkAdminBD');
+    var lbl = document.getElementById('lblBtnAdminBD');
+    var btn = document.getElementById('btnToggleAdminBD');
+    if (chk) chk.checked = BDE.adminActivo;
+    if (lbl) lbl.textContent = BDE.adminActivo ? '🔓 Edición Admin Activa' : '🔒 Modo Edición (Admin)';
+    if (btn) btn.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded font-extrabold ' +
+      (BDE.adminActivo ? 'bg-emerald-800 hover:bg-emerald-900 border-emerald-950 text-white' : 'bg-amber-900 hover:bg-amber-950 border-amber-950 text-amber-50') +
+      ' border text-xs shadow-xs cursor-pointer transition-colors select-none';
+  }
+
+  window.toggleModoEdicionBDUI = function (e) {
+    if (e) e.preventDefault();
+    if (BDE.adminActivo) {
+      BDE.adminActivo = false;
+      BDE.clave = '';
+      bdActualizarBotonAdmin();
+      bdRenderTabla();
+      return;
+    }
+    // Si ya desbloqueó Cuentas en Horario en esta sesión, reutilizar la misma clave Admin
+    if (window.HOR && HOR.clave) {
+      BDE.clave = HOR.clave;
+      BDE.adminActivo = true;
+      bdActualizarBotonAdmin();
+      bdRenderTabla();
+      return;
+    }
+    var dlg = document.getElementById('dialogClaveAdminBD');
+    var inp = document.getElementById('inpClaveAdminBD');
+    var err = document.getElementById('errClaveAdminBD');
+    if (err) { err.textContent = ''; err.classList.add('hidden'); }
+    if (inp) inp.value = '';
+    if (dlg && typeof dlg.showModal === 'function') {
+      dlg.showModal();
+      setTimeout(function () { if (inp) inp.focus(); }, 40);
+    }
+  };
+
+  window.cerrarDialogClaveBD = function () {
+    var dlg = document.getElementById('dialogClaveAdminBD'); if (dlg && dlg.open) dlg.close();
+  };
+
+  window.confirmarClaveAdminBDUI = function (e) {
+    if (e) e.preventDefault();
+    var inp = document.getElementById('inpClaveAdminBD');
+    var err = document.getElementById('errClaveAdminBD');
+    var clave = String((inp && inp.value) || '').trim();
+    if (!clave) { if (err) { err.textContent = 'Escribe la contraseña.'; err.classList.remove('hidden'); } return; }
+    runGas('verificarClaveCuentasHorario', [{ clave: clave }], function () {
+      BDE.clave = clave;
+      BDE.adminActivo = true;
+      if (inp) inp.value = '';
+      cerrarDialogClaveBD();
+      bdActualizarBotonAdmin();
+      bdRenderTabla();
+    }, function (error) {
+      if (err) { err.textContent = '❌ ' + ((error && error.message) || 'Contraseña incorrecta'); err.classList.remove('hidden'); }
+      if (inp) { inp.select(); inp.focus(); }
+    });
+  };
+
+  window.bdAbrirModalEditar = function (idx) {
+    var f = BDE.filas[idx];
+    if (!f) return;
+    BDE.editando = f;
+    var t = document.getElementById('tituloEditarFilaBD');
+    if (t) t.textContent = '✏️ Editar Estancia — Hab. ' + f.hab + ' (' + f.id + ' • Fila #' + f.fila + ')';
+    var box = document.getElementById('formEditarFilaBDBody');
+    var ci = 'w-full px-2 py-1 rounded border border-slate-300 font-bold text-xs text-slate-900 bg-white';
+    var campo = function (lbl, id, val, colSpan) {
+      return '<div class="' + (colSpan || '') + '"><label class="block text-[10px] font-black text-slate-500 mb-0.5">' + lbl + '</label><input type="text" id="' + id + '" value="' + esc(val == null ? '' : val) + '" class="' + ci + '"></div>';
+    };
+    box.innerHTML =
+      campo('Check-In (DD/MM/AAAA)', 'bdeFechaIn', f.fechaIn) +
+      campo('Check-Out (DD/MM/AAAA)', 'bdeFechaOut', f.fechaOut) +
+      campo('Habitación', 'bdeHab', f.hab) +
+      '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">Estado Estancia</label><select id="bdeEstadoEst" class="' + ci + '">' +
+        ['En Curso', 'Finalizado', 'Finalizado - Continúa', 'Cancelado'].map(function (s) { return '<option' + (f.estadoEstancia === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') +
+      '</select></div>' +
+      campo('Huésped 1 (Nombre completo)', 'bdeHuesped', f.huesped, 'col-span-2') +
+      campo('DNI / Doc. Huésped 1', 'bdeDni', f.dni) +
+      campo('Celular (AX)', 'bdeCelular', f.celular) +
+      campo('2° Huésped', 'bdeNAcomp', f.nAcomp, 'col-span-2') +
+      campo('DNI 2° Huésped', 'bdeDniAcomp', f.dniAcomp) +
+      campo('3° Huésped (Triple)', 'bdeTriple1', f.triple1) +
+      campo('DNI 3° Huésped', 'bdeTriple2', f.triple2) +
+      campo('Tarifa por noche (S/)', 'bdeTarifa', f.tarifa) +
+      campo('Adic. Snacks / Tienda (S/)', 'bdeSnacks', f.snacks) +
+      campo('Adic. Servicios (S/)', 'bdeServicios', f.servicios) +
+      campo('Adic. Comprobante (S/)', 'bdeAdicComp', f.adicComp) +
+      campo('Tipo de Adicional (BA)', 'bdeTipoAdic', f.tipoAdicional, 'col-span-2') +
+      campo('Cargo Deuda Anterior (AL)', 'bdeDeudaAnt', f.deudaAnt) +
+      campo('Pago Inicial Efectivo (W)', 'bdePEfecIni', f.pEfecIni) +
+      campo('Pago Inicial Yape (X)', 'bdePElecIni', f.pElecIni) +
+      campo('Pago Posterior Efectivo (Y)', 'bdePEfecPost', f.pEfecPost) +
+      campo('Pago Posterior Yape (Z)', 'bdePYapePost', f.pYapePost) +
+      campo('Pagos VISA (AM)', 'bdePVisa', f.pVisa) +
+      campo('Empresa (AQ)', 'bdeEmpresa', f.empresa, 'col-span-2') +
+      campo('RUC (AY)', 'bdeRuc', f.ruc) +
+      campo('N° Operación Yape/Banco (AW)', 'bdeNroOp', f.nroOpYape) +
+      campo('Observaciones', 'bdeObs', f.observaciones, 'col-span-2 sm:col-span-4');
+
+    var dlg = document.getElementById('dialogEditarFilaBD');
+    if (dlg && typeof dlg.showModal === 'function') dlg.showModal();
+  };
+
+  window.cerrarModalEditarFilaBD = function () {
+    var dlg = document.getElementById('dialogEditarFilaBD'); if (dlg && dlg.open) dlg.close();
+  };
+
+  window.guardarEdicionFilaBDUI = function (e) {
+    if (e) e.preventDefault();
+    var f = BDE.editando; if (!f) return;
+    var gv = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+    var payload = {
+      clave: BDE.clave,
+      estanciaUuid: f.estanciaUuid,
+      fila: f.fila,
+      id: f.id,
+      fechaIn: gv('bdeFechaIn'),
+      fechaOut: gv('bdeFechaOut'),
+      hab: gv('bdeHab'),
+      estadoEstancia: gv('bdeEstadoEst'),
+      nombre: gv('bdeHuesped'),
+      dni: gv('bdeDni'),
+      celular: gv('bdeCelular'),
+      nAcomp: gv('bdeNAcomp'),
+      dniAcomp: gv('bdeDniAcomp'),
+      triple1: gv('bdeTriple1'),
+      triple2: gv('bdeTriple2'),
+      tarifa: gv('bdeTarifa'),
+      snacks: gv('bdeSnacks'),
+      servicios: gv('bdeServicios'),
+      adicComp: gv('bdeAdicComp'),
+      tipoAdicional: gv('bdeTipoAdic'),
+      deudaAnt: gv('bdeDeudaAnt'),
+      pEfecIni: gv('bdePEfecIni'),
+      pElecIni: gv('bdePElecIni'),
+      pEfecPost: gv('bdePEfecPost'),
+      pYapePost: gv('bdePYapePost'),
+      pVisa: gv('bdePVisa'),
+      empresa: gv('bdeEmpresa'),
+      ruc: gv('bdeRuc'),
+      nroOpYape: gv('bdeNroOp'),
+      observaciones: gv('bdeObs')
+    };
+    var btn = document.getElementById('btnGuardarFilaBD');
+    if (btn) btn.disabled = true;
+    runGas('editarEstanciaBDAdmin', [payload], function () {
+      if (btn) btn.disabled = false;
+      cerrarModalEditarFilaBD();
+      bdBanner('ok', '✅ Estancia actualizada en la Base Interna y encolada hacia Google Sheets (respetando fórmulas).');
+      cargarVistaEstanciasBD();
+    }, function (err) {
+      if (btn) btn.disabled = false;
+      bdBanner('error', '❌ ' + ((err && err.message) || err));
+    });
+  };
+
+
 
   // =========================================================================
   // ⏰ HORARIO Y PAGOS DE PERSONAL (marcación abierta + Cuentas/Pagos con contraseña)

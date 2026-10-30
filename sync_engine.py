@@ -199,8 +199,8 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
             ws_bd = sh.worksheet("Registro_Estancias")
             all_bd_values = ws_bd.get_all_values()
             total_rows_bd = len(all_bd_values)
-            start_row_recent = max(2, total_rows_bd - 650 + 1)
-            recent_bd_rows = all_bd_values[start_row_recent - 1:]
+            start_row_recent = 2
+            recent_bd_rows = all_bd_values[1:]
         else:
             start_row_recent = max(2, total_rows_bd - 550 + 1)
 
@@ -1161,6 +1161,11 @@ def process_sync_queue() -> Dict[str, Any]:
                                 {"range": f"W{t_row}:Z{t_row}", "values": [payload["bloque_wz"]]},
                                 {"range": f"AF{t_row}:AM{t_row}", "values": [payload["bloque_afam"]]},
                                 {"range": f"AQ{t_row}:AY{t_row}", "values": [payload["bloque_aqay"]]},
+                                *(
+                                    [{"range": f"{COL_TIPO_ADICIONAL}{t_row}", "values": [[payload.get("tipo_adicional") or ""]]}]
+                                    if "tipo_adicional" in payload
+                                    else []
+                                ),
                             ],
                             value_input_option="USER_ENTERED",
                         )

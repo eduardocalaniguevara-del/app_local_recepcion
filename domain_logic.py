@@ -2048,8 +2048,11 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         reg = txt_val("reg", actual["reg"])
         mot = txt_val("mot", actual["mot"])
         tarifa = num_val("tarifa", float(actual["tarifa"] or 0))
+        snacks = num_val("snacks", float(actual["adic_snacks"] or 0))
         servicios = num_val("servicios", float(actual["adic_servicios"] or 0))
         adic_comp = num_val("adicComp", float(actual["adic_comp"] or 0))
+        tipo_adic_prev = actual["tipo_adicional"] if "tipo_adicional" in actual.keys() else ""
+        tipo_adic = txt_val("tipoAdicional", tipo_adic_prev)
 
         p_efec_ini_prev = float(actual["pago_ini_efec"] or 0)
         p_elec_ini_prev = float(actual["pago_ini_yape"] or 0)
@@ -2140,7 +2143,7 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 fecha_in_dmy = ?, fecha_out_dmy = ?, ymd_in = ?, ymd_out = ?, noches = ?,
                 huesped = ?, dni = ?, sexo = ?, n_acomp = ?, dni_acomp = ?,
                 nac = ?, reg = ?, mot = ?, hab = ?, tipo_hab = ?, tarifa = ?,
-                adic_servicios = ?, adic_comp = ?,
+                adic_snacks = ?, adic_servicios = ?, adic_comp = ?, tipo_adicional = ?,
                 pago_ini_efec = ?, pago_ini_yape = ?, pago_post_efec = ?, pago_post_yape = ?, pago_visa = ?,
                 solicita_comp = ?, tipo_comp = ?, estado_comp = ?, nro_comp = ?, monto_factura = ?,
                 estado_estancia = ?, deuda_anterior = ?,
@@ -2153,7 +2156,7 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 f_in_dmy, f_out_dmy, ymd_in, ymd_out, noches,
                 nombre, dni, sexo, n_acomp, dni_acomp,
                 nac, reg, mot, hab_nueva, tipo_hab, tarifa,
-                servicios, adic_comp,
+                snacks, servicios, adic_comp, tipo_adic,
                 p_efec_ini, p_elec_ini, p_efec_post, p_yape_post, p_visa,
                 solicita, tipo_c, estado_c, nro_comp, monto_fact,
                 estado_est, deuda_ant,
@@ -2187,7 +2190,8 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 "sheet_row": int(actual["sheet_row"] or 0),
                 "bloque_bm": [f_in_dmy, f_out_dmy, nombre, dni, sexo, n_acomp, dni_acomp, nac, reg, mot, hab_nueva, tipo_hab],
                 "tarifa": tarifa,
-                "bloque_su": [float(actual["adic_snacks"] or 0), servicios, adic_comp],
+                "bloque_su": [snacks, servicios, adic_comp],
+                "tipo_adicional": tipo_adic,
                 "bloque_wz": [p_efec_ini, p_elec_ini, p_efec_post, p_yape_post],
                 "bloque_afam": [solicita, tipo_c, estado_c, nro_comp, monto_fact if monto_fact > 0 else "", estado_est, deuda_ant, p_visa],
                 "bloque_aqay": [empresa, proyecto, triple1, triple2, hotel_apoyo, observaciones, nro_op_yape, celular, ruc],
@@ -4506,3 +4510,205 @@ def guardar_pago_masivo_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         total = round(total + monto, 2)
     return {"ok": True, "cantidad": len(validos), "total": total,
             "detalle": f"{tramo}: S/ {total:.2f} distribuido en {len(validos)} habitaciones"}
+
+
+# ==============================================================================
+# VISTA BASE DE DATOS: 📋 REGISTRO DE ESTANCIAS (Consulta 0 ms + Edición con clave Admin)
+# ==============================================================================
+
+def obtener_registro_estancias_bd_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    datos = datos or {}
+    desde_raw = str(datos.get("desde") or "").strip()
+    hasta_raw = str(datos.get("hasta") or "").strip()
+    hab_f = str(datos.get("hab") or "").strip()
+    tipo_f = str(datos.get("tipoHab") or "").strip()
+    emp_f = str(datos.get("empresa") or "").strip()
+    est_pago_f = str(datos.get("estadoPago") or "").strip()
+    busq = str(datos.get("q") or "").strip().lower()
+    limite = min(2000, max(50, int(datos.get("limite") or 600)))
+
+    ymd_desde = fecha_dmy_a_ymd(normalizar_fecha_dmy(desde_raw)) if desde_raw else 0
+    ymd_hasta = fecha_dmy_a_ymd(normalizar_fecha_dmy(hasta_raw)) if hasta_raw else 0
+
+    conn = get_connection()
+    try:
+        # Catálogos únicos para los desplegables de filtro
+        habs_cfg = [r["hab"] for r in conn.execute("SELECT hab FROM habitaciones_config ORDER BY orden").fetchall()]
+        tipos_cfg = [
+            r["tipo_hab"] for r in conn.execute(
+                "SELECT DISTINCT tipo_hab FROM estancias WHERE tipo_hab != '' ORDER BY tipo_hab"
+            ).fetchall()
+        ]
+        empresas_cfg = [
+            r["empresa"] for r in conn.execute(
+                "SELECT DISTINCT empresa FROM estancias WHERE trim(empresa) != '' ORDER BY empresa"
+            ).fetchall()
+        ]
+        total_bd = conn.execute("SELECT COUNT(*) FROM estancias").fetchone()[0]
+
+        where_clauses = ["1=1"]
+        params: List[Any] = []
+        if ymd_desde > 0:
+            where_clauses.append("(ymd_in >= ? OR ymd_out > ?)")
+            params.extend([ymd_desde, ymd_desde])
+        if ymd_hasta > 0:
+            where_clauses.append("ymd_in <= ?")
+            params.append(ymd_hasta)
+        if hab_f:
+            where_clauses.append("hab = ?")
+            params.append(hab_f)
+        if tipo_f:
+            where_clauses.append("tipo_hab = ? COLLATE NOCASE")
+            params.append(tipo_f)
+        if emp_f == "__CON_EMPRESA__":
+            where_clauses.append("trim(empresa) != ''")
+        elif emp_f:
+            where_clauses.append("empresa = ? COLLATE NOCASE")
+            params.append(emp_f)
+        if busq:
+            like_q = f"%{busq}%"
+            where_clauses.append(
+                "(lower(huesped) LIKE ? OR lower(dni) LIKE ? OR lower(n_acomp) LIKE ? OR lower(dni_acomp) LIKE ? "
+                "OR lower(triple1) LIKE ? OR lower(triple2) LIKE ? OR lower(empresa) LIKE ? "
+                "OR lower(nro_op_yape) LIKE ? OR lower(celular) LIKE ? OR lower(ruc) LIKE ? "
+                "OR lower(id_timestamp_str) LIKE ? OR lower(tipo_adicional) LIKE ?)"
+            )
+            params.extend([like_q] * 12)
+
+        sql = (
+            "SELECT * FROM estancias WHERE "
+            + " AND ".join(where_clauses)
+            + " ORDER BY ymd_in DESC, sheet_row DESC, rowid DESC LIMIT ?"
+        )
+        params.append(limite)
+
+        filas_out = []
+        hay_tercer_huesped = False
+        tot_aloj = tot_adic = tot_cuenta = tot_pagado = tot_saldo = 0.0
+
+        for r in conn.execute(sql, params).fetchall():
+            noches = max(1, int(r["noches"] or 1))
+            tarifa = round(float(r["tarifa"] or 0), 2)
+            es_canc = "cancel" in str(r["estado_estancia"] or "").lower()
+            subtotal = 0.0 if es_canc else round(noches * tarifa, 2)
+            snacks = round(float(r["adic_snacks"] or 0), 2)
+            servicios = round(float(r["adic_servicios"] or 0), 2)
+            adic_comp = round(float(r["adic_comp"] or 0), 2)
+            deuda_ant = round(float(r["deuda_anterior"] or 0), 2)
+            total_cuenta = round(subtotal + snacks + servicios + adic_comp + deuda_ant, 2)
+
+            p_ini_e = round(float(r["pago_ini_efec"] or 0), 2)
+            p_ini_y = round(float(r["pago_ini_yape"] or 0), 2)
+            p_post_e = round(float(r["pago_post_efec"] or 0), 2)
+            p_post_y = round(float(r["pago_post_yape"] or 0), 2)
+            p_visa = round(float(r["pago_visa"] or 0), 2)
+            total_pagado = round(p_ini_e + p_ini_y + p_post_e + p_post_y + p_visa, 2)
+            saldo_final = round(total_cuenta - total_pagado, 2)
+
+            if es_canc:
+                estado_an = "Cancelado"
+                cod_an = "CANCELADO"
+            elif total_cuenta <= 0.01 and total_pagado <= 0.01:
+                estado_an = "Sin cargos"
+                cod_an = "SIN_CARGOS"
+            elif abs(saldo_final) <= 0.05:
+                estado_an = "Pagos Completados"
+                cod_an = "COMPLETADO"
+            elif saldo_final > 0.05:
+                estado_an = f"Falta S/ {saldo_final:.2f}"
+                cod_an = "PENDIENTE"
+            else:
+                estado_an = f"Exceso S/ {abs(saldo_final):.2f}"
+                cod_an = "EXCESO"
+
+            if est_pago_f:
+                if est_pago_f == "PENDIENTE" and cod_an != "PENDIENTE":
+                    continue
+                if est_pago_f == "COMPLETADO" and cod_an != "COMPLETADO":
+                    continue
+                if est_pago_f == "CANCELADO" and cod_an != "CANCELADO":
+                    continue
+
+            t1 = str(r["triple1"] or "").strip()
+            t2 = str(r["triple2"] or "").strip()
+            if t1 or t2:
+                hay_tercer_huesped = True
+
+            # Excedente efectivo (Col AZ)
+            exc_efec = round(float(r["excedente_efec_sunat"] or 0), 2)
+            tipo_adic = str(r["tipo_adicional"] if "tipo_adicional" in r.keys() else "").strip()
+
+            tot_aloj = round(tot_aloj + subtotal, 2)
+            tot_adic = round(tot_adic + snacks + servicios + adic_comp, 2)
+            tot_cuenta = round(tot_cuenta + total_cuenta, 2)
+            tot_pagado = round(tot_pagado + total_pagado, 2)
+            if saldo_final > 0.05 and not es_canc:
+                tot_saldo = round(tot_saldo + saldo_final, 2)
+
+            filas_out.append({
+                "estanciaUuid": r["estancia_uuid"],
+                "fila": int(r["sheet_row"] or 0),
+                "id": r["id_timestamp_str"],
+                "fechaIn": r["fecha_in_dmy"],
+                "fechaOut": r["fecha_out_dmy"],
+                "huesped": r["huesped"],
+                "dni": r["dni"],
+                "nAcomp": r["n_acomp"],
+                "dniAcomp": r["dni_acomp"],
+                "triple1": t1,
+                "triple2": t2,
+                "hab": r["hab"],
+                "tipoHab": r["tipo_hab"],
+                "noches": noches,
+                "tarifa": tarifa,
+                "subtotal": subtotal,
+                "snacks": snacks,
+                "servicios": servicios,
+                "adicComp": adic_comp,
+                "tipoAdicional": tipo_adic,
+                "totalCuenta": total_cuenta,
+                "pEfecIni": p_ini_e,
+                "pElecIni": p_ini_y,
+                "pEfecPost": p_post_e,
+                "pYapePost": p_post_y,
+                "totalPagado": total_pagado,
+                "saldoFinal": saldo_final,
+                "deudaAnt": deuda_ant,
+                "pVisa": p_visa,
+                "estadoPagoAN": estado_an,
+                "codPagoAN": cod_an,
+                "estadoEstancia": r["estado_estancia"],
+                "empresa": r["empresa"],
+                "nroOpYape": r["nro_op_yape"],
+                "celular": r["celular"],
+                "ruc": r["ruc"],
+                "excedenteEfec": exc_efec,
+                "observaciones": r["observaciones"],
+                "dirty": int(r["dirty"] or 0),
+            })
+
+        return {
+            "filas": filas_out,
+            "totalEnBD": total_bd,
+            "hayTercerHuesped": hay_tercer_huesped,
+            "habitaciones": habs_cfg,
+            "tiposHab": tipos_cfg,
+            "empresas": empresas_cfg,
+            "resumen": {
+                "cantidad": len(filas_out),
+                "subtotalAloj": tot_aloj,
+                "totalAdic": tot_adic,
+                "totalCuenta": tot_cuenta,
+                "totalPagado": tot_pagado,
+                "saldoPendiente": tot_saldo,
+            },
+        }
+    finally:
+        conn.close()
+
+
+def editar_estancia_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    import horario_logic as hl
+    hl.validar_clave_cuentas(datos)
+    return modificar_estancia_local(datos)
+
