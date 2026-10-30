@@ -75,6 +75,9 @@ _sync_lock = threading.Lock()
 def _is_bootstrap_completed() -> bool:
     conn = get_connection()
     try:
+        r_flag = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'bootstrap_full_v2'").fetchone()
+        if not r_flag or str(r_flag["valor"] or "") != "1":
+            return False
         row = conn.execute("SELECT COUNT(*) AS c FROM estancias").fetchone()
         return bool(row and int(row["c"]) > 0)
     except Exception:

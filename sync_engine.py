@@ -261,6 +261,8 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
             _set_estado_sistema(conn, "offline_since_iso", "")
             _set_estado_sistema(conn, "last_sync_error", "")
             _set_estado_sistema(conn, "last_row_estancias", str(total_rows_bd))
+            if full_bootstrap:
+                _set_estado_sistema(conn, "bootstrap_full_v2", "1")
 
             # Catálogos de Config
             conn.execute("DELETE FROM catalogos_local")
