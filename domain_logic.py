@@ -5284,3 +5284,311 @@ def eliminar_venta_tienda_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any
     return {"ok": True, "ventaUuid": v_uuid}
 
 
+
+
+
+def _clasificar_columna_pago_estancia(medio: str, tipo_p: str) -> str:
+    """Devuelve qué columna de estancias ('pago_ini_efec', 'pago_ini_yape', 'pago_post_efec', 'pago_post_yape', 'pago_visa') afecta un registro de pago."""
+    m = str(medio or "").strip().lower()
+    t = str(tipo_p or "").strip().lower()
+    es_ini = "ini" in t
+    if "efectivo" in m:
+        return "pago_ini_efec" if es_ini else "pago_post_efec"
+    if "visa" in m or "tarjeta" in m or "pos" in m or "transfer" in m or "bcp" in m or "bbva" in m or "interbank" in m:
+        return "pago_visa"
+    return "pago_ini_yape" if es_ini else "pago_post_yape"
+
+
+def obtener_registro_pagos_bd_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Base de datos completa de Registro_Pagos con filtros en 0 ms y última anotación en Fila 1."""
+    datos = datos or {}
+    desde_raw = str(datos.get("desde") or "").strip()
+    hasta_raw = str(datos.get("hasta") or "").strip()
+    hab_f = str(datos.get("hab") or "").strip()
+    med_f = str(datos.get("medioPago") or "").strip()
+    tip_f = str(datos.get("tipoPago") or "").strip()
+    busq = str(datos.get("q") or "").strip().lower()
+    limite = min(2500, max(50, int(datos.get("limite") or 1000)))
+
+    ymd_desde = fecha_dmy_a_ymd(normalizar_fecha_dmy(desde_raw)) if desde_raw else 0
+    ymd_hasta = fecha_dmy_a_ymd(normalizar_fecha_dmy(hasta_raw)) if hasta_raw else 0
+
+    conn = get_connection()
+    try:
+        total_bd = conn.execute("SELECT COUNT(*) FROM pagos").fetchone()[0]
+        habs_cfg = [r["hab"] for r in conn.execute("SELECT hab FROM habitaciones_config ORDER BY orden").fetchall()]
+        medios_cfg = ["Efectivo", "Yape", "Plin", "VISA", "Transferencia"]
+        for r in conn.execute("SELECT DISTINCT medio_pago FROM pagos WHERE trim(medio_pago) != '' ORDER BY medio_pago").fetchall():
+            if r["medio_pago"] not in medios_cfg:
+                medios_cfg.append(r["medio_pago"])
+        tipos_cfg = ["Inicial", "Posterior", "Grupal/Masivo", "Extorno/Vuelto"]
+        for r in conn.execute("SELECT DISTINCT tipo_pago FROM pagos WHERE trim(tipo_pago) != '' ORDER BY tipo_pago").fetchall():
+            if r["tipo_pago"] not in tipos_cfg:
+                tipos_cfg.append(r["tipo_pago"])
+
+        where_clauses = ["1=1"]
+        params: List[Any] = []
+        if hab_f:
+            where_clauses.append("hab = ?")
+            params.append(hab_f)
+        if med_f:
+            where_clauses.append("medio_pago = ? COLLATE NOCASE")
+            params.append(med_f)
+        if tip_f:
+            where_clauses.append("tipo_pago = ? COLLATE NOCASE")
+            params.append(tip_f)
+        if busq:
+            like_q = f"%{busq}%"
+            where_clauses.append(
+                "(lower(huesped) LIKE ? OR lower(hab) LIKE ? OR lower(medio_pago) LIKE ? "
+                "OR lower(tipo_pago) LIKE ? OR lower(concepto) LIKE ? OR lower(nro_operacion) LIKE ? "
+                "OR lower(id_estancia) LIKE ? OR lower(fecha_iso) LIKE ? OR lower(pago_id) LIKE ?)"
+            )
+            params.extend([like_q] * 9)
+
+        sql = (
+            "SELECT * FROM pagos WHERE "
+            + " AND ".join(where_clauses)
+            + " ORDER BY CASE WHEN sheet_row = 0 THEN 999999999 ELSE sheet_row END DESC, rowid DESC"
+        )
+        rows_raw = conn.execute(sql, params).fetchall()
+
+        candidatos = []
+        for r in rows_raw:
+            f_iso = str(r["fecha_iso"] or "").strip()
+            p_fecha = f_iso.split(" ")[0] if " " in f_iso else f_iso
+            f_dmy = normalizar_fecha_dmy(p_fecha)
+            ymd_p = fecha_dmy_a_ymd(f_dmy)
+            if ymd_desde > 0 and ymd_p > 0 and ymd_p < ymd_desde:
+                continue
+            if ymd_hasta > 0 and ymd_p > 0 and ymd_p > ymd_hasta:
+                continue
+            candidatos.append((r, f_dmy, _parse_ts_hms_key(f_iso, f_dmy, r["sheet_row"])))
+
+        # Ordenar: última fecha o anotación en la primera fila (arriba)
+        candidatos.sort(key=lambda x: x[2], reverse=True)
+
+        filas_out = []
+        tot_monto = tot_ini_efec = tot_ini_elec = tot_post_efec = tot_post_elec = 0.0
+
+        for r, f_dmy, _ in candidatos[:limite]:
+            monto = round(float(r["monto"] or 0), 2)
+            med = str(r["medio_pago"] or "").strip()
+            tip = str(r["tipo_pago"] or "").strip()
+            col_dest = _clasificar_columna_pago_estancia(med, tip)
+
+            tot_monto = round(tot_monto + monto, 2)
+            if col_dest == "pago_ini_efec":
+                tot_ini_efec = round(tot_ini_efec + monto, 2)
+            elif col_dest == "pago_ini_yape":
+                tot_ini_elec = round(tot_ini_elec + monto, 2)
+            elif col_dest == "pago_post_efec":
+                tot_post_efec = round(tot_post_efec + monto, 2)
+            else:
+                tot_post_elec = round(tot_post_elec + monto, 2)
+
+            filas_out.append({
+                "pagoId": r["pago_id"],
+                "fila": int(r["sheet_row"] or 0),
+                "fechaHora": r["fecha_iso"] or f_dmy,
+                "fecha": f_dmy,
+                "idEstancia": r["id_estancia"] or "",
+                "hab": r["hab"] or "",
+                "huesped": r["huesped"] or "",
+                "monto": monto,
+                "medioPago": med,
+                "tipoPago": tip,
+                "concepto": r["concepto"] or "",
+                "nroOperacion": r["nro_operacion"] or "",
+                "synced": int(r["synced"] or 0),
+            })
+
+        return {
+            "filas": filas_out,
+            "totalEnBD": total_bd,
+            "habitaciones": habs_cfg,
+            "mediosPago": medios_cfg,
+            "tiposPago": tipos_cfg,
+            "resumen": {
+                "cantidad": len(filas_out),
+                "totalMonto": tot_monto,
+                "iniEfectivoW": tot_ini_efec,
+                "iniElectronicoX": tot_ini_elec,
+                "postEfectivoY": tot_post_efec,
+                "postElectronicoZ": tot_post_elec,
+            },
+        }
+    finally:
+        conn.close()
+
+
+def editar_pago_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    import horario_logic as hl
+    hl.validar_clave_cuentas(datos)
+
+    pid = str(datos.get("pagoId") or "").strip()
+    if not pid:
+        raise ValueError("Falta el identificador del pago a editar.")
+
+    fecha_hora = str(datos.get("fechaHora") or "").strip() or datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    id_est = str(datos.get("idEstancia") or "").strip()
+    hab = str(datos.get("hab") or "").strip()
+    huesped = str(datos.get("huesped") or "").strip()
+    monto = round(parse_moneda(datos.get("monto")), 2)
+    med = str(datos.get("medioPago") or "").strip()
+    tip = str(datos.get("tipoPago") or "").strip()
+    conc = str(datos.get("concepto") or "").strip()
+    nro_op = str(datos.get("nroOperacion") or "").strip()
+
+    with db_transaction() as conn:
+        actual = conn.execute("SELECT * FROM pagos WHERE pago_id = ?", (pid,)).fetchone()
+        if not actual:
+            raise ValueError("No se encontró el pago en la base de datos interna.")
+
+        monto_prev = round(float(actual["monto"] or 0), 2)
+        med_prev = str(actual["medio_pago"] or "").strip()
+        tip_prev = str(actual["tipo_pago"] or "").strip()
+        efec_prev = monto_prev if "efectivo" in med_prev.lower() else 0.0
+        efec_nuevo = monto if "efectivo" in med.lower() else 0.0
+        delta_caja = round(efec_nuevo - efec_prev, 2)
+
+        est_updates = None
+        id_est_vinc = id_est or str(actual["id_estancia"] or "").strip()
+        est_u_vinc = str(actual["estancia_uuid"] or "").strip()
+        if id_est_vinc or est_u_vinc:
+            st = None
+            if est_u_vinc:
+                st = conn.execute("SELECT * FROM estancias WHERE estancia_uuid = ?", (est_u_vinc,)).fetchone()
+            if not st and id_est_vinc:
+                st = conn.execute("SELECT * FROM estancias WHERE id_timestamp_str = ?", (id_est_vinc,)).fetchone()
+            if st:
+                cols_p = {
+                    "pago_ini_efec": round(float(st["pago_ini_efec"] or 0), 2),
+                    "pago_ini_yape": round(float(st["pago_ini_yape"] or 0), 2),
+                    "pago_post_efec": round(float(st["pago_post_efec"] or 0), 2),
+                    "pago_post_yape": round(float(st["pago_post_yape"] or 0), 2),
+                    "pago_visa": round(float(st["pago_visa"] or 0), 2),
+                }
+                c_old = _clasificar_columna_pago_estancia(med_prev, tip_prev)
+                c_new = _clasificar_columna_pago_estancia(med, tip)
+                cols_p[c_old] = max(0.0, round(cols_p[c_old] - monto_prev, 2))
+                cols_p[c_new] = max(0.0, round(cols_p[c_new] + monto, 2))
+                conn.execute(
+                    """
+                    UPDATE estancias SET
+                        pago_ini_efec = ?, pago_ini_yape = ?, pago_post_efec = ?, pago_post_yape = ?, pago_visa = ?,
+                        dirty = 1, updated_at = ?
+                    WHERE estancia_uuid = ?
+                    """,
+                    (
+                        cols_p["pago_ini_efec"], cols_p["pago_ini_yape"],
+                        cols_p["pago_post_efec"], cols_p["pago_post_yape"],
+                        cols_p["pago_visa"], datetime.now().isoformat(), st["estancia_uuid"],
+                    ),
+                )
+                est_updates = {
+                    "estancia_uuid": st["estancia_uuid"],
+                    "id_timestamp_str": st["id_timestamp_str"],
+                    "sheet_row": int(st["sheet_row"] or 0),
+                    "bloque_wz": [cols_p["pago_ini_efec"], cols_p["pago_ini_yape"], cols_p["pago_post_efec"], cols_p["pago_post_yape"]],
+                    "pago_visa": cols_p["pago_visa"],
+                }
+
+        conn.execute(
+            """
+            UPDATE pagos SET
+                fecha_iso = ?, id_estancia = ?, hab = ?, huesped = ?, monto = ?,
+                medio_pago = ?, tipo_pago = ?, concepto = ?, nro_operacion = ?, synced = 0
+            WHERE pago_id = ?
+            """,
+            (fecha_hora, id_est, hab, huesped, monto, med, tip, conc, nro_op, pid),
+        )
+
+        _encolar_operacion(
+            conn,
+            "EDITAR_PAGO_ADMIN",
+            pid,
+            {
+                "pago_id": pid,
+                "sheet_row": int(actual["sheet_row"] or 0),
+                "fila_bj": [fecha_hora, id_est, hab, huesped, monto, med, tip, conc, nro_op],
+                "estancia_updates": est_updates,
+            },
+            delta_caja=delta_caja,
+        )
+
+    return {"ok": True, "pagoId": pid}
+
+
+def eliminar_pago_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    import horario_logic as hl
+    hl.validar_clave_cuentas(datos)
+
+    pid = str(datos.get("pagoId") or "").strip()
+    if not pid:
+        raise ValueError("Falta el identificador del pago a eliminar.")
+
+    with db_transaction() as conn:
+        actual = conn.execute("SELECT * FROM pagos WHERE pago_id = ?", (pid,)).fetchone()
+        if not actual:
+            raise ValueError("No se encontró el pago en la base de datos interna.")
+
+        monto_prev = round(float(actual["monto"] or 0), 2)
+        med_prev = str(actual["medio_pago"] or "").strip()
+        tip_prev = str(actual["tipo_pago"] or "").strip()
+        delta_caja = -monto_prev if "efectivo" in med_prev.lower() else 0.0
+
+        est_updates = None
+        id_est_vinc = str(actual["id_estancia"] or "").strip()
+        est_u_vinc = str(actual["estancia_uuid"] or "").strip()
+        if id_est_vinc or est_u_vinc:
+            st = None
+            if est_u_vinc:
+                st = conn.execute("SELECT * FROM estancias WHERE estancia_uuid = ?", (est_u_vinc,)).fetchone()
+            if not st and id_est_vinc:
+                st = conn.execute("SELECT * FROM estancias WHERE id_timestamp_str = ?", (id_est_vinc,)).fetchone()
+            if st:
+                cols_p = {
+                    "pago_ini_efec": round(float(st["pago_ini_efec"] or 0), 2),
+                    "pago_ini_yape": round(float(st["pago_ini_yape"] or 0), 2),
+                    "pago_post_efec": round(float(st["pago_post_efec"] or 0), 2),
+                    "pago_post_yape": round(float(st["pago_post_yape"] or 0), 2),
+                    "pago_visa": round(float(st["pago_visa"] or 0), 2),
+                }
+                c_old = _clasificar_columna_pago_estancia(med_prev, tip_prev)
+                cols_p[c_old] = max(0.0, round(cols_p[c_old] - monto_prev, 2))
+                conn.execute(
+                    """
+                    UPDATE estancias SET
+                        pago_ini_efec = ?, pago_ini_yape = ?, pago_post_efec = ?, pago_post_yape = ?, pago_visa = ?,
+                        dirty = 1, updated_at = ?
+                    WHERE estancia_uuid = ?
+                    """,
+                    (
+                        cols_p["pago_ini_efec"], cols_p["pago_ini_yape"],
+                        cols_p["pago_post_efec"], cols_p["pago_post_yape"],
+                        cols_p["pago_visa"], datetime.now().isoformat(), st["estancia_uuid"],
+                    ),
+                )
+                est_updates = {
+                    "estancia_uuid": st["estancia_uuid"],
+                    "id_timestamp_str": st["id_timestamp_str"],
+                    "sheet_row": int(st["sheet_row"] or 0),
+                    "bloque_wz": [cols_p["pago_ini_efec"], cols_p["pago_ini_yape"], cols_p["pago_post_efec"], cols_p["pago_post_yape"]],
+                    "pago_visa": cols_p["pago_visa"],
+                }
+
+        conn.execute("DELETE FROM pagos WHERE pago_id = ?", (pid,))
+        _encolar_operacion(
+            conn,
+            "ELIMINAR_PAGO_ADMIN",
+            pid,
+            {
+                "pago_id": pid,
+                "sheet_row": int(actual["sheet_row"] or 0),
+                "estancia_updates": est_updates,
+            },
+            delta_caja=delta_caja,
+        )
+
+    return {"ok": True, "pagoId": pid}

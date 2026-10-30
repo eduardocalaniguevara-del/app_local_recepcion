@@ -147,6 +147,8 @@ WRITE_METHODS = {
     "eliminarGastoBDAdmin",
     "editarVentaTiendaBDAdmin",
     "eliminarVentaTiendaBDAdmin",
+    "editarPagoBDAdmin",
+    "eliminarPagoBDAdmin",
     "marcarAsistenciaHorario",
     "editarCeldaHorario",
     "guardarPersonalConfig",
@@ -450,6 +452,12 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             res = dl.editar_venta_tienda_bd_admin_local(args[0] if args else {})
         elif method_name == "eliminarVentaTiendaBDAdmin":
             res = dl.eliminar_venta_tienda_bd_admin_local(args[0] if args else {})
+        elif method_name == "obtenerRegistroPagosBD":
+            res = dl.obtener_registro_pagos_bd_local(args[0] if args else {})
+        elif method_name == "editarPagoBDAdmin":
+            res = dl.editar_pago_bd_admin_local(args[0] if args else {})
+        elif method_name == "eliminarPagoBDAdmin":
+            res = dl.eliminar_pago_bd_admin_local(args[0] if args else {})
         elif method_name == "obtenerHorario":
             import horario_logic as hl
             res = hl.obtener_horario_local(args[0] if args else {})

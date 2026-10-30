@@ -671,19 +671,26 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                     )
 
             if pagos_hist_rows:
-                conn.execute("DELETE FROM pagos WHERE synced = 1")
+                dirty_p_ids = {
+                    str(r["pago_id"])
+                    for r in conn.execute("SELECT pago_id FROM pagos WHERE synced = 0").fetchall()
+                }
+                conn.execute("DELETE FROM pagos WHERE synced = 1 AND sheet_row >= ?", (st_pg,))
                 for s_row_p, pr_h in pagos_hist_rows:
-                    if len(pr_h) < 6 or not str(pr_h[0] or "").strip():
+                    pid_s = str(pr_h[0] or "").strip() if len(pr_h) > 0 else ""
+                    if not pid_s or len(pr_h) < 6:
+                        continue
+                    if pid_s in dirty_p_ids:
                         continue
                     conn.execute(
                         """
-                        INSERT OR IGNORE INTO pagos (
+                        INSERT OR REPLACE INTO pagos (
                             pago_id, estancia_uuid, id_estancia, fecha_iso, hab, huesped, monto,
                             medio_pago, tipo_pago, concepto, nro_operacion, sheet_row, synced
                         ) VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                         """,
                         (
-                            str(pr_h[0]).strip(),
+                            pid_s,
                             str(pr_h[2] or "").strip() if len(pr_h) > 2 else "",
                             str(pr_h[1] or "").strip() if len(pr_h) > 1 else "",
                             str(pr_h[3] or "").strip() if len(pr_h) > 3 else "",
@@ -1218,6 +1225,75 @@ def process_sync_queue() -> Dict[str, Any]:
                         )
                         if est_r >= 2 and not FORMULA_SNACKS_EN_S2:
                             ws_bd.update(f"S{est_r}", [[est_up_t["adic_snacks"]]], value_input_option="USER_ENTERED")
+
+                elif op_type == "EDITAR_PAGO_ADMIN":
+                    if ws_pagos is None:
+                        ws_pagos = sh.worksheet("Registro_Pagos")
+                    t_row_p = int(payload.get("sheet_row") or 0)
+                    pid_p = str(payload.get("pago_id") or "").strip()
+                    col_a_p = ws_pagos.col_values(1)
+                    if t_row_p >= 2 and t_row_p <= len(col_a_p) and str(col_a_p[t_row_p - 1]).strip() == pid_p:
+                        pass
+                    elif pid_p:
+                        t_row_p = 0
+                        for idx_p, val_ap in enumerate(col_a_p):
+                            if idx_p >= 1 and str(val_ap).strip() == pid_p:
+                                t_row_p = idx_p + 1
+                                break
+                    if t_row_p >= 2:
+                        ws_pagos.update(
+                            range_name=f"B{t_row_p}:J{t_row_p}",
+                            values=[payload["fila_bj"]],
+                            value_input_option="USER_ENTERED",
+                        )
+                    est_up_p = payload.get("estancia_updates")
+                    if est_up_p:
+                        est_r = _resolver_fila_estancia_en_sheets(
+                            ws_bd, int(est_up_p.get("sheet_row") or 0), est_up_p.get("id_timestamp_str") or ""
+                        )
+                        if est_r >= 2:
+                            ws_bd.batch_update(
+                                [
+                                    {"range": f"W{est_r}:Z{est_r}", "values": [est_up_p["bloque_wz"]]},
+                                    {"range": f"AM{est_r}", "values": [[est_up_p["pago_visa"]]]},
+                                ],
+                                value_input_option="USER_ENTERED",
+                            )
+                    with db_transaction() as c_up:
+                        c_up.execute(
+                            "UPDATE pagos SET sheet_row = CASE WHEN ? >= 2 THEN ? ELSE sheet_row END, synced = 1 WHERE pago_id = ?",
+                            (t_row_p, t_row_p, item["entity_uuid"]),
+                        )
+
+                elif op_type == "ELIMINAR_PAGO_ADMIN":
+                    if ws_pagos is None:
+                        ws_pagos = sh.worksheet("Registro_Pagos")
+                    t_row_p = int(payload.get("sheet_row") or 0)
+                    pid_p = str(payload.get("pago_id") or "").strip()
+                    col_a_p = ws_pagos.col_values(1)
+                    if t_row_p >= 2 and t_row_p <= len(col_a_p) and str(col_a_p[t_row_p - 1]).strip() == pid_p:
+                        pass
+                    elif pid_p:
+                        t_row_p = 0
+                        for idx_p, val_ap in enumerate(col_a_p):
+                            if idx_p >= 1 and str(val_ap).strip() == pid_p:
+                                t_row_p = idx_p + 1
+                                break
+                    if t_row_p >= 2:
+                        ws_pagos.batch_clear([f"A{t_row_p}:J{t_row_p}"])
+                    est_up_p = payload.get("estancia_updates")
+                    if est_up_p:
+                        est_r = _resolver_fila_estancia_en_sheets(
+                            ws_bd, int(est_up_p.get("sheet_row") or 0), est_up_p.get("id_timestamp_str") or ""
+                        )
+                        if est_r >= 2:
+                            ws_bd.batch_update(
+                                [
+                                    {"range": f"W{est_r}:Z{est_r}", "values": [est_up_p["bloque_wz"]]},
+                                    {"range": f"AM{est_r}", "values": [[est_up_p["pago_visa"]]]},
+                                ],
+                                value_input_option="USER_ENTERED",
+                            )
 
                 elif op_type == "HORARIO_UPSERT":
                     if hor_cache.get("ws") is None:

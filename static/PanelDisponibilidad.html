@@ -366,16 +366,18 @@
     </div>
   </div>
 
-  <!-- ======================= HOJA 5: 🗂️ REGISTROS (BD) — ESTANCIAS, GASTOS Y VENTAS TIENDA ======================= -->
+  <!-- ======================= HOJA 5: 🗂️ REGISTROS (BD) — ESTANCIAS, PAGOS, GASTOS Y VENTAS TIENDA ======================= -->
   <div id="vistaEstanciasBD" class="hidden flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
     <!-- Barra de sub-pestañas, filtros contextuales y resumen -->
     <div class="shrink-0 flex flex-col gap-1.5 p-2 rounded-lg border" style="background-color: #FAF6F3; border-color: #DFD2C5;">
       <div class="flex flex-wrap items-end justify-between gap-2">
         <div class="flex flex-wrap items-end gap-1.5">
-          <!-- Selector de las 3 Sub-pestañas de Base de Datos -->
+          <!-- Selector de las 4 Sub-pestañas de Base de Datos -->
           <div class="inline-flex rounded-md border border-[#C5B29E] overflow-hidden shadow-2xs mr-1 self-center">
             <button type="button" id="subTabBDEstancias" onclick="bdCambiarSubTab('ESTANCIAS')"
                     class="px-2.5 py-1 text-xs font-black bg-slate-800 text-white cursor-pointer transition-colors">🛏️ Estancias</button>
+            <button type="button" id="subTabBDPagos" onclick="bdCambiarSubTab('PAGOS')"
+                    class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">💳 Pagos (W-Z)</button>
             <button type="button" id="subTabBDGastos" onclick="bdCambiarSubTab('GASTOS')"
                     class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">💸 Gastos</button>
             <button type="button" id="subTabBDTienda" onclick="bdCambiarSubTab('TIENDA')"
@@ -429,6 +431,28 @@
                 <option value="PENDIENTE">⚠️ Con Deuda / Pendiente</option>
                 <option value="COMPLETADO">✅ Pagos Completados</option>
                 <option value="CANCELADO">🚫 Cancelados</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Filtros contextuales: PAGOS (Registro_Pagos) -->
+          <div id="filtrosCtxPagos" class="hidden flex flex-wrap items-end gap-1.5">
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Hab. (D)</label>
+              <select id="bdPagoHab" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todas</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Medio Pago (G)</label>
+              <select id="bdPagoMed" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todos</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Tipo Pago (H)</label>
+              <select id="bdPagoTip" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todos</option>
               </select>
             </div>
           </div>
@@ -495,7 +519,7 @@
           <button type="button" onclick="cargarVistaEstanciasBD()" class="px-2 py-1 rounded font-bold bg-slate-700 hover:bg-slate-800 text-white text-[11px] cursor-pointer">🔄 Actualizar</button>
           <label id="btnToggleAdminBD" onclick="toggleModoEdicionBDUI(event)"
                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded font-extrabold bg-amber-900 hover:bg-amber-950 text-amber-50 border border-amber-950 text-xs shadow-xs cursor-pointer transition-colors select-none"
-                 title="Recepcionista: solo lectura. Marcar con contraseña de Administrador para habilitar edición en las 3 bases de datos.">
+                 title="Recepcionista: solo lectura. Marcar con contraseña de Administrador para habilitar edición en las 4 bases de datos.">
             <input type="checkbox" id="chkAdminBD" class="accent-emerald-400 pointer-events-none w-3.5 h-3.5">
             <span id="lblBtnAdminBD">🔒 Modo Edición (Admin)</span>
           </label>
@@ -507,7 +531,7 @@
 
     <div id="bdBanner" class="hidden shrink-0 px-3 py-1.5 rounded-lg text-xs font-extrabold border"></div>
 
-    <!-- Tabla principal dinámica (Estancias / Gastos / Ventas Tienda) -->
+    <!-- Tabla principal dinámica (Estancias / Pagos / Gastos / Ventas Tienda) -->
     <div id="panelTablaEstanciasBD" tabindex="0" role="region" aria-label="Base de datos histórica"
           class="flex-1 min-h-0 overflow-x-auto overflow-y-auto rounded-lg shadow-xs border"
           style="background-color: #FAF6F3; border-color: #DFD2C5;">
@@ -539,7 +563,7 @@
     </form>
   </dialog>
 
-  <!-- DIÁLOGO MODAL: EDITOR COMPLETO DE FILA (ESTANCIAS / GASTOS / VENTAS TIENDA) -->
+  <!-- DIÁLOGO MODAL: EDITOR COMPLETO DE FILA (ESTANCIAS / PAGOS / GASTOS / VENTAS TIENDA) -->
   <dialog id="dialogEditarFilaBD" closedby="any" aria-labelledby="tituloEditarFilaBD"
           class="rounded-xl shadow-2xl border border-slate-300 p-0 w-[760px] max-w-[96vw] bg-white text-slate-800 m-auto">
     <form onsubmit="guardarEdicionFilaBDUI(event)" class="p-4 space-y-3 max-h-[90vh] overflow-y-auto">
@@ -4904,7 +4928,7 @@
   };
 
   // =========================================================================
-  // 🗂️ REGISTROS (BD): ESTANCIAS, GASTOS Y VENTAS TIENDA (Filtros 0ms + Edición Admin)
+  // 🗂️ REGISTROS (BD): ESTANCIAS, PAGOS (W-Z), GASTOS Y VENTAS TIENDA (Filtros 0ms + Edición Admin)
   // =========================================================================
   var BDE = {
     subtab: 'ESTANCIAS',
@@ -4933,14 +4957,17 @@
     var act = 'px-2.5 py-1 text-xs font-black bg-slate-800 text-white cursor-pointer transition-colors';
     var ina = 'px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 cursor-pointer transition-colors';
     var bE = document.getElementById('subTabBDEstancias');
+    var bP = document.getElementById('subTabBDPagos');
     var bG = document.getElementById('subTabBDGastos');
     var bT = document.getElementById('subTabBDTienda');
     if (bE) bE.className = (BDE.subtab === 'ESTANCIAS' ? act : ina);
+    if (bP) bP.className = (BDE.subtab === 'PAGOS' ? act : ina) + ' border-l border-[#D8C7B8]';
     if (bG) bG.className = (BDE.subtab === 'GASTOS' ? act : ina) + ' border-l border-[#D8C7B8]';
     if (bT) bT.className = (BDE.subtab === 'TIENDA' ? act : ina) + ' border-l border-[#D8C7B8]';
 
     var show = function (id, on) { var el = document.getElementById(id); if (el) el.classList.toggle('hidden', !on); };
     show('filtrosCtxEstancias', BDE.subtab === 'ESTANCIAS');
+    show('filtrosCtxPagos', BDE.subtab === 'PAGOS');
     show('filtrosCtxGastos', BDE.subtab === 'GASTOS');
     show('filtrosCtxTienda', BDE.subtab === 'TIENDA');
 
@@ -4949,6 +4976,9 @@
     if (BDE.subtab === 'ESTANCIAS') {
       if (lblB) lblB.textContent = '🔍 Huésped / DNI / RUC / Op. AW / Celular';
       if (inpB) inpB.placeholder = 'Nombre, DNI, RUC, operación...';
+    } else if (BDE.subtab === 'PAGOS') {
+      if (lblB) lblB.textContent = '🔍 Huésped / N° Operación / Concepto / Hab.';
+      if (inpB) inpB.placeholder = 'Huésped, operación, concepto...';
     } else if (BDE.subtab === 'GASTOS') {
       if (lblB) lblB.textContent = '🔍 Descripción / Comprobante / Personal';
       if (inpB) inpB.placeholder = 'Descripción, N° comp, personal...';
@@ -4982,6 +5012,7 @@
   window.bdLimpiarFiltros = function () {
     [
       'bdBuscar', 'bdHab', 'bdTipoHab', 'bdEmpresa', 'bdEstadoPago',
+      'bdPagoHab', 'bdPagoMed', 'bdPagoTip',
       'bdGastoCat', 'bdGastoMet', 'bdGastoResp', 'bdGastoPers',
       'bdTiendaProd', 'bdTiendaMet', 'bdTiendaHab', 'bdTiendaPers'
     ].forEach(function (id) {
@@ -5008,6 +5039,27 @@
     var desdeVal = dEl && dEl.value ? aDMY(dEl.value) : '';
     var hastaVal = hEl && hEl.value ? aDMY(hEl.value) : '';
     var qVal = (document.getElementById('bdBuscar') || {}).value || '';
+
+    if (BDE.subtab === 'PAGOS') {
+      var payloadP = {
+        desde: desdeVal,
+        hasta: hastaVal,
+        q: qVal,
+        hab: (document.getElementById('bdPagoHab') || {}).value || '',
+        medioPago: (document.getElementById('bdPagoMed') || {}).value || '',
+        tipoPago: (document.getElementById('bdPagoTip') || {}).value || '',
+        limite: 1000
+      };
+      runGas('obtenerRegistroPagosBD', [payloadP], function (res) {
+        BDE.data = res || {};
+        BDE.filas = (res && res.filas) || [];
+        bdPoblarSelectoresPagos(res || {});
+        bdRenderTabla();
+      }, function (err) {
+        bdBanner('error', '❌ Error al cargar Registro de Pagos: ' + ((err && err.message) || err));
+      });
+      return;
+    }
 
     if (BDE.subtab === 'GASTOS') {
       var payloadG = {
@@ -5095,6 +5147,27 @@
     }
   }
 
+  function bdPoblarSelectoresPagos(res) {
+    var sh = document.getElementById('bdPagoHab');
+    if (sh && res.habitaciones) {
+      var prevH = sh.value;
+      sh.innerHTML = '<option value="">Todas</option>' + res.habitaciones.map(function (h) { return '<option value="' + esc(h) + '">' + esc(h) + '</option>'; }).join('');
+      sh.value = prevH;
+    }
+    var sm = document.getElementById('bdPagoMed');
+    if (sm && res.mediosPago) {
+      var prevM = sm.value;
+      sm.innerHTML = '<option value="">Todos</option>' + res.mediosPago.map(function (m) { return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('');
+      sm.value = prevM;
+    }
+    var st = document.getElementById('bdPagoTip');
+    if (st && res.tiposPago) {
+      var prevT = st.value;
+      st.innerHTML = '<option value="">Todos</option>' + res.tiposPago.map(function (t) { return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('');
+      st.value = prevT;
+    }
+  }
+
   function bdPoblarSelectoresGastos(res) {
     var sc = document.getElementById('bdGastoCat');
     if (sc && res.categorias) {
@@ -5163,6 +5236,10 @@
   };
 
   function bdRenderTabla() {
+    if (BDE.subtab === 'PAGOS') {
+      bdRenderTablaPagos();
+      return;
+    }
     if (BDE.subtab === 'GASTOS') {
       bdRenderTablaGastos();
       return;
@@ -5174,7 +5251,7 @@
     bdRenderTablaEstancias();
   }
 
-  // -------------------- 1. RENDER TABLA ESTANCIAS --------------------
+  // -------------------- 1. RENDER TABLA ESTANCIAS (con columnas W, X, Y, Z separadas) --------------------
   function bdRenderTablaEstancias() {
     var res = BDE.data || {};
     var R = res.resumen || {};
@@ -5193,7 +5270,7 @@
           '<span class="px-2 py-0.5 rounded ' + ((R.saldoPendiente || 0) > 0 ? 'bg-red-100 border border-red-300 text-red-900' : 'bg-slate-100 border border-slate-300 text-slate-600') + '">⚠️ Saldo Pendiente: ' + soles(R.saldoPendiente) + '</span>' +
         '</div>' +
         '<span class="text-[10.5px] font-bold ' + (admin ? 'text-emerald-800' : 'text-slate-500') + '">' +
-          (admin ? '🔓 Modo Admin activo: clic en «✏️» para editar.' : '👁️ Vista Recepcionista (solo lectura).') +
+          (admin ? '🔓 Modo Admin activo: clic en «✏️» o directamente en las celdas W, X, Y, Z para modificar.' : '👁️ Vista Recepcionista (solo lectura).') +
         '</span>';
     }
 
@@ -5220,8 +5297,10 @@
           '<th class="px-1.5 w-[56px] text-right border-r border-[#433A36]" title="Adicional Comprobante (Col U)">A.Comp</th>' +
           '<th class="px-1.5 w-[92px] border-r border-[#433A36]" title="Tipo de Adicional (Col BA)">Tipo Adic.</th>' +
           '<th class="px-1.5 w-[72px] text-right border-r border-[#433A36] bg-amber-950/60">Total Cta.</th>' +
-          '<th class="px-1.5 w-[82px] text-right border-r border-[#433A36]" title="Pagos Iniciales: Efectivo (W) / Yape (X)">Pago Inicial</th>' +
-          '<th class="px-1.5 w-[82px] text-right border-r border-[#433A36]" title="Pagos Posteriores: Efectivo (Y) / Yape (Z)">Pago Post.</th>' +
+          '<th class="px-1.5 w-[68px] text-right border-r border-[#433A36] bg-emerald-950/40" title="Columna W: Pago Inicial Efectivo">P.Ini Efec (W)</th>' +
+          '<th class="px-1.5 w-[68px] text-right border-r border-[#433A36] bg-purple-950/40" title="Columna X: Pago Inicial Electrónico (Yape/Plin)">P.Ini Elec (X)</th>' +
+          '<th class="px-1.5 w-[68px] text-right border-r border-[#433A36] bg-emerald-950/40" title="Columna Y: Pago Posterior Efectivo">P.Post Efec (Y)</th>' +
+          '<th class="px-1.5 w-[68px] text-right border-r border-[#433A36] bg-purple-950/40" title="Columna Z: Pago Posterior Electrónico (Yape/Plin)">P.Post Elec (Z)</th>' +
           '<th class="px-1.5 w-[62px] text-right border-r border-[#433A36]" title="Cargo Deuda Anterior (Col AL)">Deuda Ant.</th>' +
           '<th class="px-1.5 w-[58px] text-right border-r border-[#433A36]" title="Pagos VISA (Col AM)">VISA</th>' +
           '<th class="px-1.5 w-[72px] text-right border-r border-[#433A36] bg-emerald-950/50">Tot. Pagado</th>' +
@@ -5238,16 +5317,18 @@
     var body = document.getElementById('bdBody');
     if (!body) return;
     if (!BDE.filas.length) {
-      body.innerHTML = '<tr><td colspan="29" class="px-4 py-8 text-center text-slate-400 font-bold">No se encontraron estancias con estos filtros.</td></tr>';
+      body.innerHTML = '<tr><td colspan="31" class="px-4 py-8 text-center text-slate-400 font-bold">No se encontraron estancias con estos filtros.</td></tr>';
       return;
     }
 
     var m = function (v) { var n = Number(v) || 0; return n ? n.toFixed(2) : '<span class="text-slate-300">—</span>'; };
-    var parPago = function (ef, yp) {
-      var p = [];
-      if (Number(ef)) p.push('<span class="text-emerald-800" title="Efectivo">E:' + Number(ef).toFixed(0) + '</span>');
-      if (Number(yp)) p.push('<span class="text-purple-800" title="Yape/Transferencia">Y:' + Number(yp).toFixed(0) + '</span>');
-      return p.length ? p.join(' ') : '<span class="text-slate-300">—</span>';
+    var celdaWXYZ = function (val, clsColor, idx, idCampo, titulo) {
+      var n = Number(val) || 0;
+      var txt = n ? '<span class="' + clsColor + ' font-extrabold">' + n.toFixed(2) + '</span>' : '<span class="text-slate-300">—</span>';
+      if (admin) {
+        return '<td onclick="bdAbrirModalEditar(' + idx + ', \'' + idCampo + '\')" class="px-1.5 text-right border-r border-[#E6DCD2] whitespace-nowrap cursor-pointer hover:bg-amber-100/80" title="Clic para editar ' + titulo + '">' + txt + '</td>';
+      }
+      return '<td class="px-1.5 text-right border-r border-[#E6DCD2] whitespace-nowrap" title="' + titulo + '">' + txt + '</td>';
     };
 
     body.innerHTML = BDE.filas.map(function (f, idx) {
@@ -5291,8 +5372,10 @@
         '<td class="px-1.5 text-right border-r border-[#E6DCD2]">' + m(f.adicComp) + '</td>' +
         '<td class="px-1.5 text-[10px] font-bold text-slate-600 border-r border-[#E6DCD2] truncate max-w-[95px]" title="' + esc(f.tipoAdicional) + '">' + (esc(f.tipoAdicional) || '<span class="text-slate-300">—</span>') + '</td>' +
         '<td class="px-1.5 text-right font-black text-slate-900 border-r border-[#E6DCD2] bg-amber-100/40">' + m(f.totalCuenta) + '</td>' +
-        '<td class="px-1.5 text-right font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + parPago(f.pEfecIni, f.pElecIni) + '</td>' +
-        '<td class="px-1.5 text-right font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + parPago(f.pEfecPost, f.pYapePost) + '</td>' +
+        celdaWXYZ(f.pEfecIni, 'text-emerald-800', idx, 'bdePEfecIni', 'Pago Inicial Efectivo (Col W)') +
+        celdaWXYZ(f.pElecIni, 'text-purple-800', idx, 'bdePElecIni', 'Pago Inicial Electrónico (Col X)') +
+        celdaWXYZ(f.pEfecPost, 'text-emerald-800', idx, 'bdePEfecPost', 'Pago Posterior Efectivo (Col Y)') +
+        celdaWXYZ(f.pYapePost, 'text-purple-800', idx, 'bdePYapePost', 'Pago Posterior Electrónico (Col Z)') +
         '<td class="px-1.5 text-right font-bold text-red-800 border-r border-[#E6DCD2]">' + m(f.deudaAnt) + '</td>' +
         '<td class="px-1.5 text-right font-bold text-blue-800 border-r border-[#E6DCD2]">' + m(f.pVisa) + '</td>' +
         '<td class="px-1.5 text-right font-black text-emerald-900 border-r border-[#E6DCD2] bg-emerald-50/40">' + m(f.totalPagado) + '</td>' +
@@ -5307,7 +5390,89 @@
     }).join('');
   }
 
-  // -------------------- 2. RENDER TABLA GASTOS --------------------
+  // -------------------- 2. RENDER TABLA PAGOS (Registro_Pagos A:J + Vínculo W, X, Y, Z) --------------------
+  function bdRenderTablaPagos() {
+    var res = BDE.data || {};
+    var R = res.resumen || {};
+    var admin = !!BDE.adminActivo;
+
+    var bar = document.getElementById('bdResumenBar');
+    if (bar) {
+      bar.innerHTML =
+        '<div class="flex flex-wrap items-center gap-1.5 font-extrabold">' +
+          '<span class="px-2 py-0.5 rounded bg-slate-800 text-white">💳 ' + (R.cantidad || 0) + ' pagos <span class="font-normal opacity-80">(de ' + (res.totalEnBD || 0) + ' • ⬇️ última anotación en Fila 1)</span></span>' +
+          '<span class="px-2 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-950">💰 Total Cobrado: ' + soles(R.totalMonto) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-emerald-300 text-emerald-900">💵 P.Ini Efec (W): ' + soles(R.iniEfectivoW) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-purple-300 text-purple-900">📱 P.Ini Elec (X): ' + soles(R.iniElectronicoX) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-emerald-300 text-emerald-900">💵 P.Post Efec (Y): ' + soles(R.postEfectivoY) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-purple-300 text-purple-900">📱 P.Post Elec (Z): ' + soles(R.postElectronicoZ) + '</span>' +
+        '</div>' +
+        '<span class="text-[10.5px] font-bold ' + (admin ? 'text-emerald-800' : 'text-slate-500') + '">' +
+          (admin ? '🔓 Modo Admin activo: al editar (✏️) o eliminar (🗑️) un pago también se sincronizan W, X, Y, Z de su estancia.' : '👁️ Vista Recepcionista (solo lectura).') +
+        '</span>';
+    }
+
+    var head = document.getElementById('bdHead');
+    if (head) {
+      head.innerHTML =
+        '<tr class="h-8 text-[10px]">' +
+          (admin ? '<th class="px-1.5 w-[68px] text-center border-r border-[#433A36] bg-emerald-900">Acción</th>' : '') +
+          '<th class="px-2 w-[140px] border-r border-[#433A36]" title="Columna B: Fecha y Hora de anotación (última arriba)">⬇️ Fecha / Hora Anot. (B)</th>' +
+          '<th class="px-2 w-[62px] text-center border-r border-[#433A36]" title="Columna D: Habitación">Hab. (D)</th>' +
+          '<th class="px-2.5 min-w-[200px] border-r border-[#433A36]" title="Columna E: Huésped">Huésped (E)</th>' +
+          '<th class="px-2 w-[90px] text-right border-r border-[#433A36] bg-emerald-950/50" title="Columna F: Monto">Monto S/ (F)</th>' +
+          '<th class="px-2 w-[105px] text-center border-r border-[#433A36]" title="Columna G: Medio de Pago">Medio Pago (G)</th>' +
+          '<th class="px-2 w-[95px] text-center border-r border-[#433A36]" title="Columna H: Tipo de Pago (Inicial / Posterior)">Tipo Pago (H)</th>' +
+          '<th class="px-2 w-[110px] text-center border-r border-[#433A36]" title="Columna de Registro_Estancias (W, X, Y, Z o AM)">Col. Estancia</th>' +
+          '<th class="px-2 min-w-[160px] border-r border-[#433A36]" title="Columna I: Concepto">Concepto (I)</th>' +
+          '<th class="px-2 w-[115px] border-r border-[#433A36]" title="Columna J: N° Operación Yape/Banco">N° Operación (J)</th>' +
+          '<th class="px-2 w-[130px]" title="Columna C: ID de Estancia vinculada">ID Estancia (C)</th>' +
+        '</tr>';
+    }
+
+    var body = document.getElementById('bdBody');
+    if (!body) return;
+    if (!BDE.filas.length) {
+      body.innerHTML = '<tr><td colspan="11" class="px-4 py-8 text-center text-slate-400 font-bold">No se encontraron pagos con estos filtros.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = BDE.filas.map(function (f, idx) {
+      var medL = String(f.medioPago || '').toLowerCase();
+      var tipL = String(f.tipoPago || '').toLowerCase();
+      var esIni = tipL.indexOf('ini') >= 0;
+      var esEfec = medL.indexOf('efectivo') >= 0;
+      var colEst = '';
+      if (esEfec) colEst = esIni ? 'Col W (Ini Efec)' : 'Col Y (Post Efec)';
+      else if (medL.indexOf('visa') >= 0 || medL.indexOf('transfer') >= 0) colEst = 'Col AM (VISA/Transf)';
+      else colEst = esIni ? 'Col X (Ini Elec)' : 'Col Z (Post Elec)';
+
+      var badgeMed = esEfec
+        ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">💵 ' + esc(f.medioPago) + '</span>'
+        : '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-purple-100 text-purple-900 border border-purple-300">📱 ' + esc(f.medioPago || '—') + '</span>';
+
+      return '<tr class="h-8 bg-white hover:bg-amber-50/60">' +
+        (admin
+          ? '<td class="px-1 text-center border-r border-[#E6DCD2] whitespace-nowrap">' +
+              '<button type="button" onclick="bdAbrirModalEditar(' + idx + ')" class="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-[10px] border border-amber-300 cursor-pointer mr-0.5" title="Editar pago">✏️</button>' +
+              '<button type="button" onclick="bdEliminarRegistroUI(' + idx + ')" class="px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-900 font-black text-[10px] border border-red-300 cursor-pointer" title="Eliminar pago">🗑️</button>' +
+            '</td>'
+          : '') +
+        '<td class="px-2 py-1 border-r border-[#E6DCD2] whitespace-nowrap"><div class="font-bold text-slate-800 text-[10.5px]">' + esc(f.fechaHora) + '</div><div class="text-[9.5px] text-slate-400">Fila #' + f.fila + (!f.synced ? ' • ⏳' : '') + '</div></td>' +
+        '<td class="px-2 text-center font-black text-slate-900 border-r border-[#E6DCD2]">' + (esc(f.hab) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-2.5 font-bold text-slate-900 border-r border-[#E6DCD2]">' + esc(f.huesped) + '</td>' +
+        '<td class="px-2 text-right font-black ' + (Number(f.monto) < 0 ? 'text-red-700' : 'text-emerald-950') + ' border-r border-[#E6DCD2] bg-emerald-50/40">' + Number(f.monto || 0).toFixed(2) + '</td>' +
+        '<td class="px-2 text-center border-r border-[#E6DCD2] whitespace-nowrap">' + badgeMed + '</td>' +
+        '<td class="px-2 text-center font-bold text-slate-700 border-r border-[#E6DCD2]">' + esc(f.tipoPago) + '</td>' +
+        '<td class="px-2 text-center font-black text-[10px] text-amber-950 border-r border-[#E6DCD2] whitespace-nowrap">' + colEst + '</td>' +
+        '<td class="px-2 text-slate-700 border-r border-[#E6DCD2]">' + (esc(f.concepto) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-2 font-mono text-[10.5px] text-slate-700 border-r border-[#E6DCD2]">' + (esc(f.nroOperacion) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-2 text-[10px] text-slate-500 whitespace-nowrap">' + (esc(f.idEstancia) || '<span class="text-slate-300">—</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  // -------------------- 3. RENDER TABLA GASTOS --------------------
   function bdRenderTablaGastos() {
     var res = BDE.data || {};
     var R = res.resumen || {};
@@ -5387,7 +5552,7 @@
     }).join('');
   }
 
-  // -------------------- 3. RENDER TABLA VENTAS TIENDA --------------------
+  // -------------------- 4. RENDER TABLA VENTAS TIENDA --------------------
   function bdRenderTablaTienda() {
     var res = BDE.data || {};
     var R = res.resumen || {};
@@ -5529,7 +5694,7 @@
   };
 
   // ---------------------------- Editar y Eliminar Registros (Admin) ----------------------------
-  window.bdAbrirModalEditar = function (idx) {
+  window.bdAbrirModalEditar = function (idx, campoFoco) {
     var f = BDE.filas[idx];
     if (!f) return;
     BDE.editando = f;
@@ -5540,7 +5705,21 @@
       return '<div class="' + (colSpan || '') + '"><label class="block text-[10px] font-black text-slate-500 mb-0.5">' + lbl + '</label><input type="text" id="' + id + '" value="' + esc(val == null ? '' : val) + '" class="' + ci + '"></div>';
     };
 
-    if (BDE.subtab === 'GASTOS') {
+    if (BDE.subtab === 'PAGOS') {
+      if (t) t.textContent = '✏️ Editar Pago — Hab. ' + f.hab + ' (' + f.fechaHora + ' • Fila #' + f.fila + ')';
+      var medsP = (BDE.data && BDE.data.mediosPago) || ['Efectivo', 'Yape', 'Plin', 'VISA', 'Transferencia'];
+      var tipsP = (BDE.data && BDE.data.tiposPago) || ['Inicial', 'Posterior', 'Grupal/Masivo', 'Extorno/Vuelto'];
+      box.innerHTML =
+        campo('Fecha y Hora (B)', 'bdpFechaHora', f.fechaHora) +
+        campo('Habitación (D)', 'bdpHab', f.hab) +
+        campo('Huésped (E)', 'bdpHuesped', f.huesped, 'col-span-2') +
+        campo('Monto S/ (F)', 'bdpMonto', f.monto) +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">Medio Pago (G)</label><select id="bdpMedio" class="' + ci + '">' + medsP.map(function (m) { return '<option' + (f.medioPago === m ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select></div>' +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">Tipo Pago (H)</label><select id="bdpTipo" class="' + ci + '">' + tipsP.map(function (tp) { return '<option' + (f.tipoPago === tp ? ' selected' : '') + '>' + esc(tp) + '</option>'; }).join('') + '</select></div>' +
+        campo('N° Operación (J)', 'bdpNroOp', f.nroOperacion) +
+        campo('Concepto (I)', 'bdpConcepto', f.concepto, 'col-span-2') +
+        campo('ID Estancia Vinculada (C)', 'bdpIdEst', f.idEstancia, 'col-span-2');
+    } else if (BDE.subtab === 'GASTOS') {
       if (t) t.textContent = '✏️ Editar Gasto — ' + f.id + ' (Fila #' + f.fila + ')';
       var catsG = (BDE.data && BDE.data.categorias) || [];
       var metsG = (BDE.data && BDE.data.metodosPago) || ['Efectivo', 'Yape', 'Transferencia'];
@@ -5592,9 +5771,9 @@
         campo('Tipo de Adicional (BA)', 'bdeTipoAdic', f.tipoAdicional, 'col-span-2') +
         campo('Cargo Deuda Anterior (AL)', 'bdeDeudaAnt', f.deudaAnt) +
         campo('Pago Inicial Efectivo (W)', 'bdePEfecIni', f.pEfecIni) +
-        campo('Pago Inicial Yape (X)', 'bdePElecIni', f.pElecIni) +
+        campo('Pago Inicial Electrónico (X)', 'bdePElecIni', f.pElecIni) +
         campo('Pago Posterior Efectivo (Y)', 'bdePEfecPost', f.pEfecPost) +
-        campo('Pago Posterior Yape (Z)', 'bdePYapePost', f.pYapePost) +
+        campo('Pago Posterior Electrónico (Z)', 'bdePYapePost', f.pYapePost) +
         campo('Pagos VISA (AM)', 'bdePVisa', f.pVisa) +
         campo('Empresa (AQ)', 'bdeEmpresa', f.empresa, 'col-span-2') +
         campo('RUC (AY)', 'bdeRuc', f.ruc) +
@@ -5603,7 +5782,15 @@
     }
 
     var dlg = document.getElementById('dialogEditarFilaBD');
-    if (dlg && typeof dlg.showModal === 'function') dlg.showModal();
+    if (dlg && typeof dlg.showModal === 'function') {
+      dlg.showModal();
+      if (campoFoco) {
+        setTimeout(function () {
+          var elF = document.getElementById(campoFoco);
+          if (elF) { elF.focus(); if (elF.select) elF.select(); }
+        }, 50);
+      }
+    }
   };
 
   window.cerrarModalEditarFilaBD = function () {
@@ -5616,6 +5803,32 @@
     var gv = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
     var btn = document.getElementById('btnGuardarFilaBD');
     if (btn) btn.disabled = true;
+
+    if (BDE.subtab === 'PAGOS') {
+      var payloadP = {
+        clave: BDE.clave,
+        pagoId: f.pagoId,
+        fechaHora: gv('bdpFechaHora'),
+        hab: gv('bdpHab'),
+        huesped: gv('bdpHuesped'),
+        monto: gv('bdpMonto'),
+        medioPago: gv('bdpMedio'),
+        tipoPago: gv('bdpTipo'),
+        nroOperacion: gv('bdpNroOp'),
+        concepto: gv('bdpConcepto'),
+        idEstancia: gv('bdpIdEst')
+      };
+      runGas('editarPagoBDAdmin', [payloadP], function () {
+        if (btn) btn.disabled = false;
+        cerrarModalEditarFilaBD();
+        bdBanner('ok', '✅ Pago actualizado en la Base Interna, sincronizado con W/X/Y/Z de su estancia y encolado a Google Sheets.');
+        cargarVistaEstanciasBD();
+      }, function (err) {
+        if (btn) btn.disabled = false;
+        bdBanner('error', '❌ ' + ((err && errorMsg(err)) || err));
+      });
+      return;
+    }
 
     if (BDE.subtab === 'GASTOS') {
       var payloadG = {
@@ -5719,7 +5932,15 @@
   window.bdEliminarRegistroUI = function (idx) {
     var f = BDE.filas[idx];
     if (!f) return;
-    if (BDE.subtab === 'GASTOS') {
+    if (BDE.subtab === 'PAGOS') {
+      if (!confirm('¿Eliminar este pago (Hab. ' + f.hab + ' — ' + f.medioPago + ' S/ ' + Number(f.monto || 0).toFixed(2) + ') de Registro_Pagos y descontarlo de la estancia vinculada?')) return;
+      runGas('eliminarPagoBDAdmin', [{ clave: BDE.clave, pagoId: f.pagoId }], function () {
+        bdBanner('ok', '🗑️ Pago eliminado de la Base Interna, descontado de la estancia y limpiado en Google Sheets.');
+        cargarVistaEstanciasBD();
+      }, function (err) {
+        bdBanner('error', '❌ ' + errorMsg(err));
+      });
+    } else if (BDE.subtab === 'GASTOS') {
       if (!confirm('¿Eliminar este gasto (' + f.descripcion + ' — S/ ' + Number(f.monto || 0).toFixed(2) + ') de la base interna y de Google Sheets?')) return;
       runGas('eliminarGastoBDAdmin', [{ clave: BDE.clave, gastoUuid: f.gastoUuid }], function () {
         bdBanner('ok', '🗑️ Gasto eliminado de la Base Interna y limpiado en Google Sheets.');
