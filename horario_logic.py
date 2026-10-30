@@ -25,13 +25,13 @@ import domain_logic as dl
 _CLAVE_CUENTAS_SHA256 = "947ebb53c00a42907060aea69f503600eec08ef75da83109f2958865a4d8f934"
 
 CAMPOS_HORA = ("e1", "s1", "e2", "s2")
-CAMPOS_ADMIN = ("estado", "extras", "extra_noche")  # solo editables con la clave de Cuentas
-CAMPOS_EDITABLES = CAMPOS_HORA + CAMPOS_ADMIN + ("nota",)
+CAMPOS_ADMIN: Tuple[str, ...] = ()  # Estado (F) y Horas Extras (G) libres sin clave (auditados siempre)
+CAMPOS_EDITABLES = CAMPOS_HORA + ("estado", "extras", "extra_noche", "nota")
 ETIQUETA_CAMPO = {
     "e1": "Entrada 1", "s1": "Salida 1", "e2": "Entrada 2", "s2": "Salida 2",
     "estado": "Estado (F)", "extras": "Horas extras (G)", "extra_noche": "Extra nocturno", "nota": "Nota",
 }
-ESTADOS_VALIDOS = ("", "FALTÓ", "MEDIA FALTA", "DESCANSO", "MEDIO DESCANSO", "LIBRE", "FERIADO")
+ESTADOS_VALIDOS = ("", "FALTÓ", "MEDIO TIEMPO", "MEDIA FALTA", "DESCANSO", "MEDIO DESCANSO", "LIBRE", "FERIADO")
 DOW_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 DOW_LARGO = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 
@@ -117,7 +117,7 @@ def _norm_extras(v: Any) -> str:
 
 
 def _norm_estado(v: Any) -> str:
-    t = str(v or "").strip().upper().replace("FALTO", "FALTÓ")
+    t = str(v or "").strip().upper().replace("FALTO", "FALTÓ").replace("MEDIO TIMEPO", "MEDIO TIEMPO")
     if t not in ESTADOS_VALIDOS:
         raise ValueError(f"Estado no válido: '{v}'.")
     return t
@@ -400,22 +400,32 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
         f = _dmy(cur)
         r = reg.get(f) or _fila_vacia(cfg["empleado"], f)
         trabajo = any(r[c] for c in CAMPOS_HORA)
-        horas_totales += _horas_pares(r)
+        h_dia = _horas_pares(r)
+        horas_totales += h_dia
         es_desc = cur.weekday() == int(cfg["descanso_dow"])
         est = r["estado"]
         if est == "FALTÓ":
             faltas += 1
             d_falta.append(f)
-        elif est == "MEDIA FALTA":
+        elif est == "MEDIA FALTA" or (est == "MEDIO TIEMPO" and not es_desc):
             faltas += 0.5
-            d_falta.append(f + " (½)")
-        if est == "DESCANSO" or (es_desc and trabajo and est not in ("LIBRE",)):
-            if est != "MEDIO DESCANSO":
+            d_falta.append(f + " (½ medio tiempo)")
+
+        if est in ("MEDIO DESCANSO",) or (est == "MEDIO TIEMPO" and es_desc):
+            descansos += 0.5
+            d_desc.append(f + " (½ medio tiempo)")
+        elif est == "DESCANSO":
+            descansos += 1
+            d_desc.append(f)
+        elif es_desc and trabajo and est not in ("LIBRE", "FALTÓ"):
+            # Si en su día de descanso solo trabajó un turno / medio tiempo (<= 5.5 h), cuenta como ½ descanso
+            if 0 < h_dia <= 5.5:
+                descansos += 0.5
+                d_desc.append(f + " (½ medio tiempo)")
+            else:
                 descansos += 1
                 d_desc.append(f)
-        if est == "MEDIO DESCANSO":
-            descansos += 0.5
-            d_desc.append(f + " (½)")
+
         if f in feriados and (trabajo or est == "FERIADO"):
             feriados_trab += 1
             d_fer.append(f"{f} {feriados[f]}")
@@ -424,11 +434,9 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
             d_fer.append(f)
         hx = parse_extras(r["extras"]) if r["extras"] else 0.0
         if hx:
-            if int(r["extra_noche"] or 0):
-                h_n += hx
-            else:
-                h_m += hx
-            extras_det.append({"fecha": f, "horas": hx, "noche": int(r["extra_noche"] or 0)})
+            # Todas las horas extras se calculan sobre la base de mañana (S/ 50 / 8h)
+            h_m += hx
+            extras_det.append({"fecha": f, "horas": hx, "raw": r["extras"]})
         if cur < hoy and not trabajo and not est and not es_desc and f not in feriados:
             sin_marcar.append(f)
         cur += timedelta(days=1)
@@ -605,12 +613,13 @@ def guardar_liquidacion_horario_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     with db_transaction() as conn:
         cfg = _cfg_empleado(conn, emp)
     gastos_creados = 0
-    if datos.get("registrarGastos"):
+    registrar_en_gastos = datos.get("registrarGastos", True)
+    if registrar_en_gastos:
         periodo = f"{desde} al {hasta}"
         for monto, metodo in ((yape, "Yape"), (efectivo, "Efectivo")):
             if monto > 0:
                 dl.guardar_gasto_local({
-                    "fecha": dl.hoy_iso(), "descripcion": f"Sueldo {cfg['empleado']} ({periodo})", "monto": monto,
+                    "fecha": dl.hoy_iso(), "descripcion": f"Pago sueldo {cfg['empleado']} ({periodo}) - {metodo}", "monto": monto,
                     "categoria": "Sueldos y Salarios", "metodo": metodo, "responsable": "Admin",
                     "personal": cfg["categoria_tienda"],
                 })

@@ -415,8 +415,8 @@
               <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Salida 1</th>
               <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Entrada 2</th>
               <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Salida 2</th>
-              <th class="px-1 w-[128px] text-center border-r border-[#433A36] bg-amber-950/50" id="thHorEstado">Estado <span class="font-normal opacity-75">🔒</span></th>
-              <th class="px-1 w-[92px] text-center border-r border-[#433A36] bg-amber-950/50" id="thHorExtras">H. Extras <span class="font-normal opacity-75">🔒</span></th>
+              <th class="px-1 w-[136px] text-center border-r border-[#433A36] bg-amber-950/50" id="thHorEstado">Estado (F)</th>
+              <th class="px-1 w-[88px] text-center border-r border-[#433A36] bg-amber-950/50" id="thHorExtras" title="Ej. 4/8 o 4 (se calcula sobre S/ 50)">H. Extras (G)</th>
               <th class="px-1 w-[48px] text-center" title="Horas marcadas ese día">Hrs</th>
             </tr>
           </thead>
@@ -4781,16 +4781,20 @@
       '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">⏱ ' + (D.totalHoras || 0) + ' h</span>' +
       '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">📅 ' + (D.diasTrabajados || 0) + ' días</span>';
 
-    var abierto = !!HOR.clave;
-    ['thHorEstado', 'thHorExtras'].forEach(function (id) {
-      var th = document.getElementById(id);
-      if (th) th.innerHTML = (id === 'thHorEstado' ? 'Estado' : 'H. Extras') + (abierto ? '' : ' <span class="font-normal opacity-75">🔒</span>');
-    });
-
     var body = document.getElementById('horBody');
     if (!body) return;
-    var ESTADOS = [['', '—'], ['FALTÓ', 'FALTÓ'], ['MEDIA FALTA', '½ falta'], ['DESCANSO', 'Descanso trabajado'],
-                   ['MEDIO DESCANSO', '½ descanso trab.'], ['LIBRE', 'Libre (compensado)'], ['FERIADO', 'Feriado trabajado']];
+    var contIzq = document.getElementById('panelHorarioIzq');
+    var prevScroll = contIzq ? contIzq.scrollTop : 0;
+    var ESTADOS = [
+      ['', '—'],
+      ['FALTÓ', 'FALTÓ'],
+      ['MEDIO TIEMPO', 'Medio tiempo (½)'],
+      ['DESCANSO', 'Descanso trabajado'],
+      ['MEDIO DESCANSO', '½ descanso trab.'],
+      ['MEDIA FALTA', '½ falta'],
+      ['LIBRE', 'Libre (compensado)'],
+      ['FERIADO', 'Feriado trabajado']
+    ];
     body.innerHTML = (D.dias || []).map(function (d) {
       var fondo = d.feriado ? 'background-color:#BBF7D0;' : (d.esDescanso ? 'background-color:#E9D5FF;' : (d.futuro ? 'background-color:#FFFFFFAA;' : 'background-color:#FFFFFF;'));
       var marcaHoy = d.esHoy ? 'outline:2px solid #F59E0B; outline-offset:-2px;' : '';
@@ -4803,15 +4807,15 @@
           ' class="w-[58px] text-center font-bold rounded border border-transparent hover:border-slate-400 focus:border-blue-600 bg-transparent focus:bg-white text-slate-900 text-[11.5px] py-0.5 outline-hidden"></td>';
       }).join('');
       var optsEst = ESTADOS.map(function (o) { return '<option value="' + o[0] + '"' + (d.estado === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('');
-      var estCss = d.estado === 'FALTÓ' ? 'color:#B91C1C;font-weight:900;' : 'font-weight:700;';
+      var estCss = d.estado === 'FALTÓ' ? 'color:#B91C1C;font-weight:900;' : (d.estado === 'MEDIO TIEMPO' || d.estado === 'MEDIO DESCANSO' ? 'color:#6B21A8;font-weight:900;' : 'font-weight:700;');
       return '<tr class="h-7 border-b border-[#E6DCD2]" style="' + fondo + marcaHoy + '">' +
         '<td class="px-2 border-r border-[#E6DCD2] whitespace-nowrap ' + (d.esHoy ? 'font-black' : 'font-bold') + '">' + esc(d.dowNombre) + ' ' + esc(d.fecha.slice(0, 5)) + badges + '</td>' +
         celdas +
-        '<td class="px-0.5 text-center border-r border-[#E6DCD2]"><select ' + (abierto ? '' : 'disabled title="Solo con contraseña de Cuentas / Pagos" ') + 'data-f="' + esc(d.fecha) + '" data-c="estado" onchange="horEditar(this)" class="w-full text-[11px] rounded border border-transparent bg-transparent ' + (abierto ? 'hover:border-slate-400 cursor-pointer' : 'opacity-70') + '" style="' + estCss + '">' + optsEst + '</select></td>' +
-        '<td class="px-0.5 text-center border-r border-[#E6DCD2] whitespace-nowrap"><input type="text" ' + (abierto ? '' : 'disabled ') + 'maxlength="6" placeholder="0" value="' + esc(d.extras) + '" data-f="' + esc(d.fecha) + '" data-c="extras" data-v="' + esc(d.extras) + '" onchange="horEditar(this)" onfocus="this.select()" class="w-[44px] text-center font-bold rounded border border-transparent ' + (abierto ? 'hover:border-slate-400 focus:border-blue-600 focus:bg-white' : 'opacity-70') + ' bg-transparent text-slate-900 text-[11.5px] py-0.5 outline-hidden">' +
-        '<label class="ml-0.5 cursor-pointer" title="Extra nocturno (se paga con el valor de noche)"><input type="checkbox" ' + (abierto ? '' : 'disabled ') + (d.extraNoche ? 'checked ' : '') + 'data-f="' + esc(d.fecha) + '" data-c="extra_noche" onchange="horEditar(this)" class="align-middle"><span class="text-[10px]">🌙</span></label></td>' +
+        '<td class="px-0.5 text-center border-r border-[#E6DCD2]"><select data-f="' + esc(d.fecha) + '" data-c="estado" onchange="horEditar(this)" class="w-full text-[11px] rounded border border-transparent hover:border-slate-400 bg-transparent focus:bg-white cursor-pointer" style="' + estCss + '">' + optsEst + '</select></td>' +
+        '<td class="px-0.5 text-center border-r border-[#E6DCD2] whitespace-nowrap"><input type="text" maxlength="7" placeholder="Ej. 4/8" value="' + esc(d.extras) + '" data-f="' + esc(d.fecha) + '" data-c="extras" data-v="' + esc(d.extras) + '" onchange="horEditar(this)" onfocus="this.select()" class="w-[68px] text-center font-bold rounded border border-transparent hover:border-slate-400 focus:border-blue-600 bg-transparent focus:bg-white text-slate-900 text-[11.5px] py-0.5 outline-hidden"></td>' +
         '<td class="px-1 text-center text-slate-600 font-bold">' + (d.horas ? d.horas : '') + '</td></tr>';
     }).join('');
+    if (contIzq && HOR.scrollHecho) contIzq.scrollTop = prevScroll;
 
     if (!HOR.scrollHecho) {
       HOR.scrollHecho = true;
@@ -4841,7 +4845,10 @@
     var payload = { empleado: emp, fecha: el.getAttribute('data-f'), campo: campo, valor: valor, clave: HOR.clave || '' };
     runGas('editarCeldaHorario', [payload], function () {
       horCargar();
-      if (HOR.cuentasAbierto && HOR.tab === 'AUD') cuCargarAuditoria();
+      if (HOR.cuentasAbierto) {
+        if (HOR.tab === 'LIQ') cuCargarLiquidacion();
+        else if (HOR.tab === 'AUD') cuCargarAuditoria();
+      }
     }, function (e) { horBanner('error', '❌ ' + horErr(e)); horCargar(); });
   };
 
@@ -4964,8 +4971,7 @@
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Faltas (' + L.faltas + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.faltasDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqFaltas"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-purple-800">+ Descansos trabajados (' + L.descansos + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.descansosDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-purple-800" id="liqDesc"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-green-800">+ Feriados trabajados (' + L.feriados + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.feriadosDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-green-800" id="liqFer"></td></tr>' +
-        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">+ Horas extras mañana (' + L.horasExtraM + ' h × ' + (L.diarioManana / 8).toFixed(3) + ')</td><td></td><td class="py-1 pl-2 text-right font-black" id="liqExM"></td></tr>' +
-        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">+ Horas extras noche 🌙 (' + L.horasExtraN + ' h × ' + (L.diarioNoche / 8).toFixed(3) + ')' + cuLista('detalle extras', L.extrasDetalle, function (x) { return esc(x.fecha) + ': ' + x.horas + ' h ' + (x.noche ? '🌙' : '☀️'); }) + '</td><td></td><td class="py-1 pl-2 text-right font-black" id="liqExN"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">+ Horas extras (' + L.horasExtraM + ' h = ' + L.horasExtraM + '/8 × S/ ' + L.diarioManana.toFixed(2) + ')' + cuLista('días con extras', L.extrasDetalle, function (x) { return esc(x.fecha) + ': ' + esc(x.raw || (x.horas + ' h')) + ' (' + x.horas + ' h)'; }) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-emerald-800" id="liqExM"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− AFP / planilla (monto fijo, editable)</td><td class="py-1 text-right">S/ <input id="liqAfp" type="text" value="' + L.afp + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqAfpTot"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Adelantos de sueldo (de Gastos)' + cuLista('detalle', L.adelantos, function (a) { return esc(a.fecha) + ' · ' + esc(a.descripcion) + ': ' + soles(a.monto) + (a.via === 'descripcion' ? ' <i>(por descripción)</i>' : ''); }) + '</td><td class="py-1 text-right">S/ <input id="liqAdel" type="text" value="' + L.adelantosTotal + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqAdelTot"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Consumo tienda (Cargar a la Cuenta)' + cuLista('detalle', L.tienda, function (t) { return esc(t.fecha) + ' · ' + t.cantidad + ' × ' + esc(t.producto) + ': ' + soles(t.subtotal); }) + '</td><td class="py-1 text-right">S/ <input id="liqTienda" type="text" value="' + L.tiendaTotal + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqTiendaTot"></td></tr>' +
@@ -4977,8 +4983,8 @@
         '<div class="rounded-lg border border-[#D8C7B8] bg-white p-2"><label class="block text-[10px] font-black text-slate-500">💵 Pago en EFECTIVO (S/)</label><input id="liqEfec" type="text" value="0" oninput="cuPago(\'efectivo\')" class="w-full px-2 py-1 text-right font-black rounded border border-slate-300 text-sm"></div>' +
       '</div>' +
       '<p id="liqAvisoPago" class="text-[10.5px] font-extrabold mt-1"></p>' +
-      '<label class="flex items-center gap-1.5 mt-1.5 text-[11px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" id="liqRegGastos"> Registrar este pago en Gastos (el efectivo sale de la Caja)</label>' +
-      '<button type="button" onclick="cuGuardarLiquidacion()" class="mt-2 w-full px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs cursor-pointer">💾 Guardar liquidación</button>' +
+      '<label class="flex items-center gap-1.5 mt-1.5 text-[11px] font-bold text-slate-800 cursor-pointer"><input type="checkbox" id="liqRegGastos" checked> Sincronizar pago con Sheets en <b>Registro_Gastos</b> (categoría «Sueldos y Salarios»)</label>' +
+      '<button type="button" onclick="cuGuardarLiquidacion()" class="mt-2 w-full px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs cursor-pointer">💾 Guardar liquidación y registrar pago en Gastos</button>' +
       ((L.sinMarcar && L.sinMarcar.length) ? '<div class="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-300 text-[10.5px] text-amber-900"><b>⚠️ ' + L.sinMarcar.length + ' días sin marcar y sin "FALTÓ":</b> ' + L.sinMarcar.map(function (x) { return x.slice(0, 5); }).join(', ') + '. Márcales FALTÓ (o LIBRE) para que el cálculo sea exacto.</div>' : '') +
       ((L.adelantosSinAsignar && L.adelantosSinAsignar.length) ? '<div class="mt-2 p-2 rounded-lg bg-red-50 border border-red-300 text-[10.5px] text-red-900"><b>⚠️ Adelantos del periodo sin personal asignado:</b><ul class="pl-3">' + L.adelantosSinAsignar.map(function (a) { return '<li>' + esc(a.fecha) + ' · ' + esc(a.descripcion) + ': ' + soles(a.monto) + '</li>'; }).join('') + '</ul></div>' : '') +
       (hist ? '<details class="mt-2"><summary class="cursor-pointer text-[11px] font-black text-slate-600">📜 Liquidaciones guardadas</summary><ul class="pl-3 text-[10.5px] text-slate-700 mt-1">' + hist + '</ul></details>' : '');
@@ -4996,13 +5002,13 @@
     var set = function (id, v, neg) { var el = document.getElementById(id); if (el) el.textContent = (neg ? '− ' : (v < 0 ? '− ' : '')) + 'S/ ' + Math.abs(v).toFixed(2); };
     var base = r2(cuNum('liqSueldo1') * cuNum('liqDias1') / 30 + (HOR.tramo2 ? cuNum('liqSueldo2') * cuNum('liqDias2') / 30 : 0));
     var faltas = r2(L.faltas * L.valorDia), desc = r2(L.descansos * L.valorDia), fer = r2(L.feriados * L.valorDia);
-    var exM = r2(L.horasExtraM * L.diarioManana / 8), exN = r2(L.horasExtraN * L.diarioNoche / 8);
+    var exM = r2(L.horasExtraM * L.diarioManana / 8);
     var afp = r2(cuNum('liqAfp')), adel = r2(cuNum('liqAdel')), tienda = r2(cuNum('liqTienda')), otros = r2(cuNum('liqOtros'));
-    var neto = r2(base - faltas + desc + fer + exM + exN - afp - adel - tienda + otros);
+    var neto = r2(base - faltas + desc + fer + exM - afp - adel - tienda + otros);
     set('liqBase', base); set('liqFaltas', faltas, true); set('liqDesc', desc); set('liqFer', fer);
-    set('liqExM', exM); set('liqExN', exN); set('liqAfpTot', afp, true); set('liqAdelTot', adel, true); set('liqTiendaTot', tienda, true); set('liqOtrosTot', otros);
+    set('liqExM', exM); set('liqAfpTot', afp, true); set('liqAdelTot', adel, true); set('liqTiendaTot', tienda, true); set('liqOtrosTot', otros);
     var nEl = document.getElementById('liqNeto'); if (nEl) nEl.textContent = (neto < 0 ? '− ' : '') + 'S/ ' + Math.abs(neto).toFixed(2);
-    L._calc = { base: base, faltas: faltas, descansos: desc, feriados: fer, extrasManana: exM, extrasNoche: exN, afp: afp, adelantos: adel, tienda: tienda, otros: otros, neto: neto };
+    L._calc = { base: base, faltas: faltas, descansos: desc, feriados: fer, extrasManana: exM, afp: afp, adelantos: adel, tienda: tienda, otros: otros, neto: neto };
     cuPago(HOR.pagoUlt || 'efectivoAuto');
   };
 
@@ -5087,7 +5093,7 @@
           '<div><label class="text-[10px] font-black text-slate-500">Activo</label><select id="' + k + 'act" class="' + ci + '"><option value="1"' + (!p || p.activo ? ' selected' : '') + '>Sí</option><option value="0"' + (p && !p.activo ? ' selected' : '') + '>No</option></select></div>' +
           '</div></div>';
       };
-      body.innerHTML = '<p class="text-[10.5px] text-slate-500 font-bold mb-2">El valor del día (faltas, descansos y feriados) usa «Día noche» para turno Noche y «Día mañana» para turno Día. Las horas extras usan mañana o noche según el 🌙 marcado en cada día.</p>' +
+      body.innerHTML = '<p class="text-[10.5px] text-slate-500 font-bold mb-2">El valor del día (faltas, descansos y feriados) usa «Día noche» (S/ 55) para turno Noche y «Día mañana» (S/ 50) para turno Día. Todas las horas extras se calculan sobre la base de mañana (horas ÷ 8 × S/ 50).</p>' +
         HOR.cfg.map(function (p, i) { return tarjeta(p, i); }).join('') + tarjeta(null, HOR.cfg.length);
     }, function (e) { body.innerHTML = '<p class="text-red-700 font-extrabold">❌ ' + esc(horErr(e)) + '</p>'; });
   };
