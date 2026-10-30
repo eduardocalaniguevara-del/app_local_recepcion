@@ -1724,6 +1724,7 @@ def guardar_gasto_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     tip = str(datos.get("tipoComp") or "").strip()
     nro = str(datos.get("nroComp") or "").strip()
     resp = str(datos.get("responsable") or "Admin").strip() or "Admin"
+    personal_g = str(datos.get("personal") or "").strip()
     fecha_raw = str(datos.get("fecha") or hoy_iso()).strip()
 
     if not fecha_raw:
@@ -1736,6 +1737,8 @@ def guardar_gasto_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("Selecciona la categoría del gasto.")
     if not met:
         raise ValueError("Selecciona el método de pago del gasto.")
+    if cat.lower().startswith("adelanto") and not personal_g:
+        raise ValueError("Selecciona a qué personal corresponde el adelanto de sueldo.")
 
     fecha_dmy = normalizar_fecha_dmy(fecha_raw) or hoy_dmy()
     fecha_iso = dmy_a_iso(fecha_dmy)
@@ -1745,14 +1748,19 @@ def guardar_gasto_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     gasto_uuid = str(uuid.uuid4())
 
     with db_transaction() as conn:
+        # id_ts_str es único: si dos gastos caen en el mismo segundo, el siguiente avanza 1 s
+        while conn.execute("SELECT 1 FROM gastos WHERE id_ts_str = ?", (id_ts_str,)).fetchone():
+            ahora = ahora + timedelta(seconds=1)
+            id_ts_str = ahora.strftime("%d/%m/%Y %H:%M:%S")
+            hora_reg = ahora.strftime("%H:%M")
         conn.execute(
             """
             INSERT INTO gastos (
                 gasto_uuid, id_ts_str, fecha_gasto_iso, fecha_gasto_dmy, hora_registro,
-                descripcion, monto, categoria, metodo_pago, tipo_comp, nro_comp, responsable, synced
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                descripcion, monto, categoria, metodo_pago, tipo_comp, nro_comp, responsable, personal, synced
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             """,
-            (gasto_uuid, id_ts_str, fecha_iso, fecha_dmy, hora_reg, desc, monto, cat, met, tip, nro, resp),
+            (gasto_uuid, id_ts_str, fecha_iso, fecha_dmy, hora_reg, desc, monto, cat, met, tip, nro, resp, personal_g),
         )
 
         delta_caja = -monto if met == "Efectivo" else 0.0
@@ -1763,7 +1771,7 @@ def guardar_gasto_local(datos: Dict[str, Any]) -> Dict[str, Any]:
             {
                 "gasto_uuid": gasto_uuid,
                 "id_ts_str": id_ts_str,
-                "fila_gasto": [id_ts_str, fecha_dmy, desc, monto, cat, met, tip, nro, resp],
+                "fila_gasto": [id_ts_str, fecha_dmy, desc, monto, cat, met, tip, nro, resp, personal_g],
             },
             delta_caja=delta_caja,
         )
@@ -2796,9 +2804,21 @@ def obtener_datos_gastos_local() -> Dict[str, Any]:
                 "tipoComp": g["tipo_comp"],
                 "nroComp": g["nro_comp"],
                 "responsable": g["responsable"],
+                "personal": g["personal"],
             })
 
+        # Personal con las MISMAS etiquetas que Tienda ("Cargar a la Cuenta"), mostrando el nombre real entre paréntesis
+        etiquetas_pers: Dict[str, str] = {}
+        for pc in conn.execute("SELECT empleado, rol, categoria_tienda FROM personal_config WHERE activo = 1 ORDER BY orden").fetchall():
+            if pc["categoria_tienda"]:
+                etiquetas_pers[pc["categoria_tienda"]] = pc["empleado"]
+        personal_opciones = []
+        for p in (pers or list(etiquetas_pers.keys())):
+            real = etiquetas_pers.get(p, "")
+            personal_opciones.append({"valor": p, "etiqueta": (f"{p} ({real})" if real and real != p else p)})
+
         return {
+            "personalOpciones": personal_opciones,
             "fechaHoy": hoy_iso(),
             "categorias": cats or ["Limpieza y Suministros", "Servicios Básicos", "Mantenimiento", "Personal / Adelantos", "Otros"],
             "metodos": mets or ["Efectivo", "Yape", "Transferencia BCP"],

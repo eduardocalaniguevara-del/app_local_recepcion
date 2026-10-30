@@ -339,6 +339,68 @@ def init_db() -> None:
 
                 CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_queue (status, queue_id);
 
+                -- 9b. Horario y Pagos de Personal
+                CREATE TABLE IF NOT EXISTS personal_config (
+                    empleado        TEXT PRIMARY KEY,
+                    rol             TEXT NOT NULL DEFAULT '',
+                    categoria_tienda TEXT NOT NULL DEFAULT '',
+                    alias_json      TEXT NOT NULL DEFAULT '[]',
+                    sueldo          REAL NOT NULL DEFAULT 0,
+                    diario_manana   REAL NOT NULL DEFAULT 50,
+                    diario_noche    REAL NOT NULL DEFAULT 55,
+                    afp             REAL NOT NULL DEFAULT 0,
+                    descanso_dow    INTEGER NOT NULL DEFAULT 0,
+                    turno           TEXT NOT NULL DEFAULT 'DIA',
+                    orden           INTEGER NOT NULL DEFAULT 0,
+                    activo          INTEGER NOT NULL DEFAULT 1
+                );
+
+                CREATE TABLE IF NOT EXISTS horario_registros (
+                    empleado     TEXT NOT NULL,
+                    fecha_dmy    TEXT NOT NULL,
+                    ymd          INTEGER NOT NULL DEFAULT 0,
+                    e1           TEXT NOT NULL DEFAULT '',
+                    s1           TEXT NOT NULL DEFAULT '',
+                    e2           TEXT NOT NULL DEFAULT '',
+                    s2           TEXT NOT NULL DEFAULT '',
+                    estado       TEXT NOT NULL DEFAULT '',
+                    extras       TEXT NOT NULL DEFAULT '',
+                    extra_noche  INTEGER NOT NULL DEFAULT 0,
+                    nota         TEXT NOT NULL DEFAULT '',
+                    ult_marca_ts TEXT NOT NULL DEFAULT '',
+                    updated_at   TEXT NOT NULL DEFAULT '',
+                    equipo       TEXT NOT NULL DEFAULT '',
+                    synced       INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (empleado, fecha_dmy)
+                );
+                CREATE INDEX IF NOT EXISTS idx_hor_emp_ymd ON horario_registros (empleado, ymd);
+
+                CREATE TABLE IF NOT EXISTS horario_auditoria (
+                    audit_uuid     TEXT PRIMARY KEY,
+                    empleado       TEXT NOT NULL DEFAULT '',
+                    fecha_dmy      TEXT NOT NULL DEFAULT '',
+                    campo          TEXT NOT NULL DEFAULT '',
+                    valor_anterior TEXT NOT NULL DEFAULT '',
+                    valor_nuevo    TEXT NOT NULL DEFAULT '',
+                    editado_ts     TEXT NOT NULL DEFAULT '',
+                    equipo         TEXT NOT NULL DEFAULT '',
+                    synced         INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_hor_aud_ts ON horario_auditoria (editado_ts);
+
+                CREATE TABLE IF NOT EXISTS horario_liquidaciones (
+                    liq_uuid     TEXT PRIMARY KEY,
+                    empleado     TEXT NOT NULL DEFAULT '',
+                    desde_dmy    TEXT NOT NULL DEFAULT '',
+                    hasta_dmy    TEXT NOT NULL DEFAULT '',
+                    neto         REAL NOT NULL DEFAULT 0,
+                    yape         REAL NOT NULL DEFAULT 0,
+                    efectivo     REAL NOT NULL DEFAULT 0,
+                    detalle_json TEXT NOT NULL DEFAULT '{}',
+                    created_at   TEXT NOT NULL DEFAULT '',
+                    equipo       TEXT NOT NULL DEFAULT ''
+                );
+
                 -- 10. Estado de sistema y Caja Efectivo
                 CREATE TABLE IF NOT EXISTS estado_sistema (
                     clave      TEXT PRIMARY KEY,
@@ -359,6 +421,22 @@ def init_db() -> None:
             cols_est = [r[1] for r in conn.execute("PRAGMA table_info(estancias)").fetchall()]
             if "tipo_adicional" not in cols_est:
                 conn.execute("ALTER TABLE estancias ADD COLUMN tipo_adicional TEXT NOT NULL DEFAULT ''")
+            # Migración: personal asociado a gastos (Adelanto de sueldo -> columna J de Registro_Gastos)
+            cols_gas = [r[1] for r in conn.execute("PRAGMA table_info(gastos)").fetchall()]
+            if "personal" not in cols_gas:
+                conn.execute("ALTER TABLE gastos ADD COLUMN personal TEXT NOT NULL DEFAULT ''")
+            # Semilla de personal (editable luego desde Cuentas / Pagos)
+            if not conn.execute("SELECT 1 FROM personal_config LIMIT 1").fetchone():
+                semilla = [
+                    ("Eliana", "Recepcionista", "Eliana", '["eliana"]', 1500, 50, 55, 128.48, 3, "DIA", 0),
+                    ("Eleiza", "Limpieza", "Limpieza", '["eleiza","eleisa"]', 1350, 50, 55, 153.49, 1, "DIA", 1),
+                    ("Yolyi", "Turno Noche", "Turno Noche", '["yolyi","yoli","yoly"]', 1450, 50, 55, 0, 2, "NOCHE", 2),
+                ]
+                conn.executemany(
+                    "INSERT INTO personal_config (empleado, rol, categoria_tienda, alias_json, sueldo, diario_manana, "
+                    "diario_noche, afp, descanso_dow, turno, orden, activo) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)",
+                    semilla,
+                )
             conn.commit()
         finally:
             conn.close()

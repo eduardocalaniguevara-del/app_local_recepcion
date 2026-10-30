@@ -188,6 +188,8 @@
               class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🏦 Pago Empresas</button>
       <button type="button" id="tabVistaVitrina" onclick="cambiarVista('vitrina')"
               class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🏪 Vitrina Tienda</button>
+      <button type="button" id="tabVistaHorario" onclick="cambiarVista('horario')"
+              class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">⏰ Horario</button>
       <button type="button" id="btnMovimientos" onclick="abrirMovimientos()" title="Historial de movimientos (quién hizo qué y cuándo)"
               class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🕒 Movimientos</button>
     </div>
@@ -359,6 +361,80 @@
         </thead>
         <tbody id="empBody" class="divide-y divide-[#E6DCD2]"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- ======================= HOJA 4: HORARIO Y PAGOS DE PERSONAL ======================= -->
+  <div id="vistaHorario" class="hidden flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
+    <div class="shrink-0 flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg border" style="background-color: #FAF6F3; border-color: #DFD2C5;">
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-md border border-[#D8C7B8] shadow-2xs">
+          <label for="horEmpleado" class="text-[11px] font-black text-slate-700 whitespace-nowrap">👤 Trabajador:</label>
+          <select id="horEmpleado" onchange="horCambiarEmpleado()" class="px-2 py-0.5 rounded border border-slate-300 font-black text-slate-900 text-xs bg-amber-50/40 cursor-pointer"></select>
+          <span id="horRolLbl" class="text-[10.5px] font-bold text-slate-500"></span>
+        </div>
+        <div class="flex items-center gap-1 bg-white px-1.5 py-1 rounded-md border border-[#D8C7B8] shadow-2xs">
+          <button type="button" onclick="horMoverMes(-1)" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-900 font-black text-xs cursor-pointer" title="Mes anterior">◀</button>
+          <input type="month" id="horMes" onchange="horCargar()" class="px-1.5 py-0.5 rounded border border-slate-300 font-black text-slate-900 text-xs bg-white cursor-pointer">
+          <button type="button" onclick="horMoverMes(1)" class="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-900 font-black text-xs cursor-pointer" title="Mes siguiente">▶</button>
+        </div>
+        <button type="button" id="btnMarcarAhora" onclick="horMarcarAhora()"
+                class="px-3.5 py-1.5 rounded-lg font-black bg-emerald-600 hover:bg-emerald-700 text-white text-sm shadow-sm border border-emerald-800 flex items-center gap-2 cursor-pointer transition-colors"
+                title="Estampa la hora actual en la siguiente casilla libre de hoy">
+          <span>📍 Marcar ahora</span>
+          <span id="horReloj" class="bg-white text-emerald-900 px-1.5 rounded text-sm font-black">--:--</span>
+        </button>
+        <span id="horProxima" class="text-[11px] font-bold text-slate-600"></span>
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="px-2 py-0.5 rounded text-[10.5px] font-black bg-purple-200 text-purple-900 border border-purple-300">🟣 Descanso</span>
+        <span class="px-2 py-0.5 rounded text-[10.5px] font-black bg-green-200 text-green-900 border border-green-300">🟢 Feriado nacional</span>
+        <span id="horResumenPills" class="flex items-center gap-1 text-[10.5px] font-black"></span>
+        <button type="button" onclick="horCargar()" class="px-2 py-1 rounded font-bold bg-slate-700 hover:bg-slate-800 text-white text-[11px] cursor-pointer transition-colors">🔄 Actualizar</button>
+        <label id="btnToggleCuentas" onclick="toggleCuentasHorarioUI(event)"
+               class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded font-extrabold bg-amber-900 hover:bg-amber-950 text-amber-50 border border-amber-950 text-xs shadow-xs cursor-pointer transition-colors select-none ml-1"
+               title="Marcar para abrir Cuentas / Pagos (con contraseña); desmarcar para ocultar">
+          <input type="checkbox" id="chkCuentasHorario" class="accent-emerald-400 pointer-events-none w-3.5 h-3.5">
+          <span id="lblBtnCuentas">🔒 Cuentas / Pagos</span>
+        </label>
+      </div>
+    </div>
+
+    <div id="horBanner" class="hidden shrink-0 px-3 py-1.5 rounded-lg text-xs font-extrabold border"></div>
+
+    <div class="flex-1 min-h-0 flex flex-row gap-2 overflow-hidden">
+      <!-- MITAD IZQUIERDA: Horario mensual A:G -->
+      <div id="panelHorarioIzq" tabindex="0" role="region" aria-label="Horario mensual del trabajador"
+           class="flex-1 min-w-0 min-h-0 overflow-x-auto overflow-y-auto rounded-lg shadow-xs border"
+           style="background-color: #FAF6F3; border-color: #DFD2C5;">
+        <table class="w-full text-left text-[11px] select-none border-collapse">
+          <thead class="sticky top-0 text-white font-bold uppercase tracking-tight z-10" style="background-color: #2D2623;">
+            <tr class="h-8">
+              <th class="px-2 w-[168px] border-r border-[#433A36]">Fecha</th>
+              <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Entrada 1</th>
+              <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Salida 1</th>
+              <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Entrada 2</th>
+              <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Salida 2</th>
+              <th class="px-1 w-[128px] text-center border-r border-[#433A36] bg-amber-950/50" id="thHorEstado">Estado <span class="font-normal opacity-75">🔒</span></th>
+              <th class="px-1 w-[92px] text-center border-r border-[#433A36] bg-amber-950/50" id="thHorExtras">H. Extras <span class="font-normal opacity-75">🔒</span></th>
+              <th class="px-1 w-[48px] text-center" title="Horas marcadas ese día">Hrs</th>
+            </tr>
+          </thead>
+          <tbody id="horBody"></tbody>
+        </table>
+      </div>
+
+      <!-- MITAD DERECHA: Cuentas / Pagos (oculta hasta marcar el check + contraseña) -->
+      <div id="panelCuentasDer" class="hidden w-[52%] xl:w-[54%] shrink-0 min-h-0 flex flex-col rounded-lg shadow-md border overflow-hidden"
+           style="background-color: #FFFDFB; border-color: #C7B29F;">
+        <div class="shrink-0 bg-[#2D2623] text-white px-2.5 py-1.5 flex items-center gap-1 flex-wrap border-b border-[#433A36]">
+          <span class="font-black text-amber-300 text-xs mr-1">💰 Cuentas / Pagos</span>
+          <button type="button" id="cuTabLiq" onclick="cuCambiarTab('LIQ')" class="px-2 py-0.5 rounded text-[11px] font-extrabold bg-amber-500 text-slate-950 cursor-pointer">💵 Liquidación</button>
+          <button type="button" id="cuTabAud" onclick="cuCambiarTab('AUD')" class="px-2 py-0.5 rounded text-[11px] font-bold bg-white/10 hover:bg-white/20 text-slate-200 cursor-pointer">🕵️ Ediciones manuales</button>
+          <button type="button" id="cuTabCfg" onclick="cuCambiarTab('CFG')" class="px-2 py-0.5 rounded text-[11px] font-bold bg-white/10 hover:bg-white/20 text-slate-200 cursor-pointer">⚙️ Sueldos y personal</button>
+        </div>
+        <div id="cuBody" class="flex-1 min-h-0 overflow-y-auto p-2.5 text-[11.5px] text-slate-800"></div>
+      </div>
     </div>
   </div>
 
@@ -663,6 +739,27 @@
       </div>
       <div class="flex justify-end gap-2 pt-1">
         <button type="button" onclick="cerrarDialogClaveGT()" class="px-3 py-1 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer">Cancelar</button>
+        <button type="submit" class="px-3.5 py-1 rounded-lg bg-amber-800 hover:bg-amber-900 text-white text-xs font-extrabold cursor-pointer">Desbloquear</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- DIÁLOGO MODAL: CONTRASEÑA DE CUENTAS / PAGOS (la clave nunca se muestra) -->
+  <dialog id="dialogClaveCuentas" closedby="any" aria-labelledby="tituloDialogClaveCu"
+          class="rounded-xl shadow-2xl border border-slate-300 p-0 w-80 max-w-[92vw] bg-white text-slate-800 m-auto">
+    <form onsubmit="confirmarClaveCuentasUI(event)" class="p-4 space-y-3" autocomplete="off">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-2">
+        <h3 id="tituloDialogClaveCu" class="font-black text-sm text-slate-900 flex items-center gap-1.5">🔒 Acceso a Cuentas / Pagos</h3>
+        <button type="button" onclick="cerrarDialogClaveCu()" class="text-slate-400 hover:text-slate-700 font-bold text-sm w-6 h-6 rounded cursor-pointer">✕</button>
+      </div>
+      <div>
+        <label for="inpClaveCuentas" class="block text-xs font-bold text-slate-600 mb-1">Ingresa la contraseña de autorización:</label>
+        <input type="password" id="inpClaveCuentas" autocomplete="new-password" placeholder="Contraseña..."
+               class="w-full px-3 py-1.5 rounded-lg border border-slate-300 font-black text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-600">
+        <p id="errClaveCuentas" class="hidden text-[11px] font-extrabold text-red-600 mt-1"></p>
+      </div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" onclick="cerrarDialogClaveCu()" class="px-3 py-1 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer">Cancelar</button>
         <button type="submit" class="px-3.5 py-1 rounded-lg bg-amber-800 hover:bg-amber-900 text-white text-xs font-extrabold cursor-pointer">Desbloquear</button>
       </div>
     </form>
@@ -4006,6 +4103,7 @@
     var esPagos = (v === 'pagos');
     var esVitrina = (v === 'vitrina');
     var esEmp = (v === 'empresas');
+    var esHor = (v === 'horario');
     var show = function (id, on) { var el = document.getElementById(id); if (el) el.classList.toggle('hidden', !on); };
     show('vistaPanelTabla', esPanel);
     show('barraFiltrosPanel', esPanel);
@@ -4013,6 +4111,7 @@
     show('vistaPagos', esPagos);
     show('vistaVitrina', esVitrina);
     show('vistaEmpresas', esEmp);
+    show('vistaHorario', esHor);
     var act = 'px-2.5 py-1 text-xs font-black bg-slate-800 text-white cursor-pointer transition-colors';
     var ina = 'px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 cursor-pointer transition-colors';
     var bP = document.getElementById('tabVistaPanel');
@@ -4023,6 +4122,8 @@
     if (bG) bG.className = (esPagos ? act : ina) + ' border-l border-[#D8C7B8]';
     if (bV) bV.className = (esVitrina ? act : ina) + ' border-l border-[#D8C7B8]';
     if (bE) bE.className = (esEmp ? act : ina) + ' border-l border-[#D8C7B8]';
+    var bH = document.getElementById('tabVistaHorario');
+    if (bH) bH.className = (esHor ? act : ina) + ' border-l border-[#D8C7B8]';
     if (esPagos) {
       var inp = document.getElementById('pagosFecha');
       if (inp && !inp.value) inp.value = hoyISO();
@@ -4032,6 +4133,8 @@
       cargarVistaEmpresas();
     } else if (esVitrina) {
       cargarVistaVitrina();
+    } else if (esHor) {
+      cargarVistaHorario();
     }
   };
 
@@ -4597,6 +4700,406 @@
       }
       mostrarAvisoVitrina('error', '❌ ' + ((err && err.message) || err));
     });
+  };
+
+  // =========================================================================
+  // ⏰ HORARIO Y PAGOS DE PERSONAL (marcación abierta + Cuentas/Pagos con contraseña)
+  // =========================================================================
+  var HOR = { data: null, clave: '', cuentasAbierto: false, tab: 'LIQ', liq: null, pagoUlt: '', timer: null, scrollHecho: false, tramo2: false };
+  window.HOR = HOR;
+
+  function horBanner(tipo, msg) {
+    var b = document.getElementById('horBanner'); if (!b) return;
+    if (!msg) { b.classList.add('hidden'); return; }
+    b.className = 'shrink-0 px-3 py-1.5 rounded-lg text-xs font-extrabold border ' + (tipo === 'ok' ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-red-50 text-red-900 border-red-300');
+    b.textContent = msg;
+    clearTimeout(HOR.bannerT);
+    HOR.bannerT = setTimeout(function () { b.classList.add('hidden'); }, tipo === 'ok' ? 4500 : 8000);
+  }
+  function horErr(e) { return (e && e.message) || String(e || 'Error'); }
+
+  window.cargarVistaHorario = function () {
+    var mes = document.getElementById('horMes');
+    if (mes && !mes.value) mes.value = hoyISO().slice(0, 7);
+    horCargar();
+    clearInterval(HOR.timer);
+    HOR.timer = setInterval(function () {
+      var v = document.getElementById('vistaHorario');
+      if (!v || v.classList.contains('hidden')) { clearInterval(HOR.timer); return; }
+      var d = new Date();
+      var r = document.getElementById('horReloj');
+      if (r) r.textContent = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }, 15000);
+  };
+
+  window.horCargar = function () {
+    var sel = document.getElementById('horEmpleado');
+    var emp = (sel && sel.value) || (function () { try { return localStorage.getItem('ovalo_hor_emp') || ''; } catch (e) { return ''; } })();
+    var mes = (document.getElementById('horMes') || {}).value || hoyISO().slice(0, 7);
+    runGas('obtenerHorario', [{ empleado: emp, mes: mes }], function (res) {
+      HOR.data = res || {};
+      horRender();
+    }, function (e) { horBanner('error', 'No se pudo cargar el horario: ' + horErr(e)); });
+  };
+  window.horCambiarEmpleado = function () {
+    var v = document.getElementById('horEmpleado').value;
+    try { localStorage.setItem('ovalo_hor_emp', v); } catch (e) {}
+    HOR.scrollHecho = false;
+    horCargar();
+    if (HOR.cuentasAbierto && HOR.tab === 'LIQ') {
+      var s = document.getElementById('liqEmpleado'); if (s) { s.value = v; }
+      cuCargarLiquidacion();
+    }
+  };
+  window.horMoverMes = function (n) {
+    var el = document.getElementById('horMes');
+    var p = String(el.value || hoyISO().slice(0, 7)).split('-').map(Number);
+    var d = new Date(p[0], p[1] - 1 + n, 1);
+    el.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    HOR.scrollHecho = false;
+    horCargar();
+  };
+
+  function horRender() {
+    var D = HOR.data || {};
+    var sel = document.getElementById('horEmpleado');
+    if (sel) {
+      sel.innerHTML = (D.empleados || []).map(function (e) {
+        return '<option value="' + esc(e.id) + '">' + esc(e.id) + '</option>';
+      }).join('');
+      sel.value = D.empleado || '';
+    }
+    var rol = document.getElementById('horRolLbl');
+    if (rol) rol.textContent = (D.rol ? D.rol + ' · ' : '') + 'descansa ' + (D.descansoNombre || '');
+    var mes = document.getElementById('horMes'); if (mes && D.mes) mes.value = D.mes;
+    var rj = document.getElementById('horReloj'); if (rj) rj.textContent = D.ahoraHM || '--:--';
+    var px = document.getElementById('horProxima'); if (px) px.textContent = D.proximaMarca ? ('Próxima: ' + D.proximaMarca) : '';
+    var bm = document.getElementById('btnMarcarAhora');
+    if (bm) bm.title = 'Marcar ahora para ' + (D.empleado || '');
+    var pills = document.getElementById('horResumenPills');
+    if (pills) pills.innerHTML =
+      '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">⏱ ' + (D.totalHoras || 0) + ' h</span>' +
+      '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">📅 ' + (D.diasTrabajados || 0) + ' días</span>';
+
+    var abierto = !!HOR.clave;
+    ['thHorEstado', 'thHorExtras'].forEach(function (id) {
+      var th = document.getElementById(id);
+      if (th) th.innerHTML = (id === 'thHorEstado' ? 'Estado' : 'H. Extras') + (abierto ? '' : ' <span class="font-normal opacity-75">🔒</span>');
+    });
+
+    var body = document.getElementById('horBody');
+    if (!body) return;
+    var ESTADOS = [['', '—'], ['FALTÓ', 'FALTÓ'], ['MEDIA FALTA', '½ falta'], ['DESCANSO', 'Descanso trabajado'],
+                   ['MEDIO DESCANSO', '½ descanso trab.'], ['LIBRE', 'Libre (compensado)'], ['FERIADO', 'Feriado trabajado']];
+    body.innerHTML = (D.dias || []).map(function (d) {
+      var fondo = d.feriado ? 'background-color:#BBF7D0;' : (d.esDescanso ? 'background-color:#E9D5FF;' : (d.futuro ? 'background-color:#FFFFFFAA;' : 'background-color:#FFFFFF;'));
+      var marcaHoy = d.esHoy ? 'outline:2px solid #F59E0B; outline-offset:-2px;' : '';
+      var badges = '';
+      if (d.esDescanso) badges += '<span class="ml-1 px-1 rounded text-[9px] font-black bg-purple-700 text-white">DESCANSO</span>';
+      if (d.feriado) badges += '<span class="ml-1 px-1 rounded text-[9px] font-black bg-green-700 text-white" title="' + esc(d.feriado) + '">FERIADO</span>';
+      var celdas = ['e1', 's1', 'e2', 's2'].map(function (c) {
+        return '<td class="px-0.5 text-center border-r border-[#E6DCD2]"><input type="text" inputmode="numeric" maxlength="5" placeholder="--:--" value="' + esc(d[c]) + '"' +
+          ' data-f="' + esc(d.fecha) + '" data-c="' + c + '" data-v="' + esc(d[c]) + '" onchange="horEditar(this)" onfocus="this.select()"' +
+          ' class="w-[58px] text-center font-bold rounded border border-transparent hover:border-slate-400 focus:border-blue-600 bg-transparent focus:bg-white text-slate-900 text-[11.5px] py-0.5 outline-hidden"></td>';
+      }).join('');
+      var optsEst = ESTADOS.map(function (o) { return '<option value="' + o[0] + '"' + (d.estado === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('');
+      var estCss = d.estado === 'FALTÓ' ? 'color:#B91C1C;font-weight:900;' : 'font-weight:700;';
+      return '<tr class="h-7 border-b border-[#E6DCD2]" style="' + fondo + marcaHoy + '">' +
+        '<td class="px-2 border-r border-[#E6DCD2] whitespace-nowrap ' + (d.esHoy ? 'font-black' : 'font-bold') + '">' + esc(d.dowNombre) + ' ' + esc(d.fecha.slice(0, 5)) + badges + '</td>' +
+        celdas +
+        '<td class="px-0.5 text-center border-r border-[#E6DCD2]"><select ' + (abierto ? '' : 'disabled title="Solo con contraseña de Cuentas / Pagos" ') + 'data-f="' + esc(d.fecha) + '" data-c="estado" onchange="horEditar(this)" class="w-full text-[11px] rounded border border-transparent bg-transparent ' + (abierto ? 'hover:border-slate-400 cursor-pointer' : 'opacity-70') + '" style="' + estCss + '">' + optsEst + '</select></td>' +
+        '<td class="px-0.5 text-center border-r border-[#E6DCD2] whitespace-nowrap"><input type="text" ' + (abierto ? '' : 'disabled ') + 'maxlength="6" placeholder="0" value="' + esc(d.extras) + '" data-f="' + esc(d.fecha) + '" data-c="extras" data-v="' + esc(d.extras) + '" onchange="horEditar(this)" onfocus="this.select()" class="w-[44px] text-center font-bold rounded border border-transparent ' + (abierto ? 'hover:border-slate-400 focus:border-blue-600 focus:bg-white' : 'opacity-70') + ' bg-transparent text-slate-900 text-[11.5px] py-0.5 outline-hidden">' +
+        '<label class="ml-0.5 cursor-pointer" title="Extra nocturno (se paga con el valor de noche)"><input type="checkbox" ' + (abierto ? '' : 'disabled ') + (d.extraNoche ? 'checked ' : '') + 'data-f="' + esc(d.fecha) + '" data-c="extra_noche" onchange="horEditar(this)" class="align-middle"><span class="text-[10px]">🌙</span></label></td>' +
+        '<td class="px-1 text-center text-slate-600 font-bold">' + (d.horas ? d.horas : '') + '</td></tr>';
+    }).join('');
+
+    if (!HOR.scrollHecho) {
+      HOR.scrollHecho = true;
+      setTimeout(function () {
+        var hoyRow = body.querySelector('tr[style*="F59E0B"]');
+        if (hoyRow && hoyRow.scrollIntoView) hoyRow.scrollIntoView({ block: 'center' });
+      }, 30);
+    }
+  }
+
+  window.horMarcarAhora = function () {
+    var emp = (document.getElementById('horEmpleado') || {}).value;
+    if (!emp) return;
+    var btn = document.getElementById('btnMarcarAhora'); if (btn) btn.disabled = true;
+    runGas('marcarAsistenciaHorario', [{ empleado: emp }], function (r) {
+      if (btn) btn.disabled = false;
+      horBanner('ok', '✅ ' + r.empleado + ': ' + r.etiqueta + ' marcada a las ' + r.hora + ' (' + r.fecha.slice(0, 5) + ')');
+      HOR.scrollHecho = false;
+      horCargar();
+    }, function (e) { if (btn) btn.disabled = false; horBanner('error', '❌ ' + horErr(e)); });
+  };
+
+  window.horEditar = function (el) {
+    var emp = (document.getElementById('horEmpleado') || {}).value;
+    var campo = el.getAttribute('data-c');
+    var valor = (el.type === 'checkbox') ? (el.checked ? '1' : '0') : el.value;
+    var payload = { empleado: emp, fecha: el.getAttribute('data-f'), campo: campo, valor: valor, clave: HOR.clave || '' };
+    runGas('editarCeldaHorario', [payload], function () {
+      horCargar();
+      if (HOR.cuentasAbierto && HOR.tab === 'AUD') cuCargarAuditoria();
+    }, function (e) { horBanner('error', '❌ ' + horErr(e)); horCargar(); });
+  };
+
+  // ---------------------------- Contraseña y panel derecho ----------------------------
+  function horActualizarSplit() {
+    var panel = document.getElementById('panelCuentasDer');
+    var chk = document.getElementById('chkCuentasHorario');
+    var lbl = document.getElementById('lblBtnCuentas');
+    var btn = document.getElementById('btnToggleCuentas');
+    if (panel) panel.classList.toggle('hidden', !HOR.cuentasAbierto);
+    if (chk) chk.checked = HOR.cuentasAbierto;
+    if (lbl) lbl.textContent = HOR.cuentasAbierto ? '💰 Cuentas / Pagos' : '🔒 Cuentas / Pagos';
+    if (btn) btn.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded font-extrabold ' +
+      (HOR.cuentasAbierto ? 'bg-emerald-800 hover:bg-emerald-900 border-emerald-950 text-white' : 'bg-amber-900 hover:bg-amber-950 border-amber-950 text-amber-50') +
+      ' border text-xs shadow-xs cursor-pointer transition-colors select-none ml-1';
+  }
+  window.toggleCuentasHorarioUI = function (e) {
+    if (e) e.preventDefault();
+    if (HOR.cuentasAbierto) { cerrarCuentasHorarioUI(); return; }
+    var dlg = document.getElementById('dialogClaveCuentas');
+    var inp = document.getElementById('inpClaveCuentas');
+    var err = document.getElementById('errClaveCuentas');
+    if (err) { err.textContent = ''; err.classList.add('hidden'); }
+    if (inp) inp.value = '';
+    if (dlg && typeof dlg.showModal === 'function') { dlg.showModal(); setTimeout(function () { if (inp) inp.focus(); }, 40); }
+  };
+  window.cerrarDialogClaveCu = function () {
+    var dlg = document.getElementById('dialogClaveCuentas'); if (dlg && dlg.open) dlg.close();
+  };
+  window.confirmarClaveCuentasUI = function (e) {
+    if (e) e.preventDefault();
+    var inp = document.getElementById('inpClaveCuentas');
+    var err = document.getElementById('errClaveCuentas');
+    var clave = String((inp && inp.value) || '').trim();
+    if (!clave) { if (err) { err.textContent = 'Escribe la contraseña.'; err.classList.remove('hidden'); } return; }
+    runGas('verificarClaveCuentasHorario', [{ clave: clave }], function () {
+      HOR.clave = clave; HOR.cuentasAbierto = true;
+      if (inp) inp.value = '';
+      cerrarDialogClaveCu();
+      horActualizarSplit();
+      horRender();
+      cuCambiarTab('LIQ');
+    }, function (error) {
+      if (err) { err.textContent = '❌ ' + horErr(error); err.classList.remove('hidden'); }
+      if (inp) { inp.select(); inp.focus(); }
+    });
+  };
+  window.cerrarCuentasHorarioUI = function () {
+    HOR.cuentasAbierto = false; HOR.clave = ''; HOR.liq = null;
+    horActualizarSplit();
+    horRender();
+  };
+
+  window.cuCambiarTab = function (t) {
+    HOR.tab = t;
+    var on = 'px-2 py-0.5 rounded text-[11px] font-extrabold bg-amber-500 text-slate-950 cursor-pointer';
+    var off = 'px-2 py-0.5 rounded text-[11px] font-bold bg-white/10 hover:bg-white/20 text-slate-200 cursor-pointer';
+    document.getElementById('cuTabLiq').className = t === 'LIQ' ? on : off;
+    document.getElementById('cuTabAud').className = t === 'AUD' ? on : off;
+    document.getElementById('cuTabCfg').className = t === 'CFG' ? on : off;
+    if (t === 'LIQ') cuCargarLiquidacion();
+    else if (t === 'AUD') cuCargarAuditoria();
+    else cuCargarConfig();
+  };
+
+  function cuNum(id) { var el = document.getElementById(id); var n = parseFloat(String(el ? el.value : '').replace(',', '.')); return isNaN(n) ? 0 : n; }
+  function r2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+  function dmyAIsoH(s) { var p = String(s || '').split('/'); return p.length === 3 ? p[2] + '-' + p[1] + '-' + p[0] : ''; }
+  function cuMesRango() {
+    var p = (hoyISO()).split('-').map(Number);
+    var ult = new Date(p[0], p[1], 0).getDate();
+    return { d: p[0] + '-' + String(p[1]).padStart(2, '0') + '-01', h: p[0] + '-' + String(p[1]).padStart(2, '0') + '-' + String(ult).padStart(2, '0') };
+  }
+
+  // ---------------------------- Pestaña Liquidación ----------------------------
+  window.cuCargarLiquidacion = function () {
+    var body = document.getElementById('cuBody');
+    var emp = (document.getElementById('liqEmpleado') || {}).value || (document.getElementById('horEmpleado') || {}).value || '';
+    var dEl = document.getElementById('liqDesde'), hEl = document.getElementById('liqHasta');
+    var rg = cuMesRango();
+    var desde = (dEl && dEl.value) || (HOR.data && HOR.data.mes ? HOR.data.mes + '-01' : rg.d);
+    var hasta = (hEl && hEl.value) || (function () { var p = desde.split('-').map(Number); var u = new Date(p[0], p[1], 0).getDate(); return p[0] + '-' + String(p[1]).padStart(2, '0') + '-' + String(u).padStart(2, '0'); })();
+    if (!HOR.liq) body.innerHTML = '<p class="text-slate-500 font-bold">Calculando...</p>';
+    runGas('obtenerLiquidacionHorario', [{ clave: HOR.clave, empleado: emp, desde: aDMY(desde), hasta: aDMY(hasta) }], function (L) {
+      HOR.liq = L; HOR.liq._desdeIso = desde; HOR.liq._hastaIso = hasta; HOR.pagoUlt = ''; HOR.tramo2 = false;
+      cuRenderLiquidacion();
+    }, function (e) { body.innerHTML = '<p class="text-red-700 font-extrabold">❌ ' + esc(horErr(e)) + '</p>'; });
+  };
+
+  function cuLista(titulo, items, fmt) {
+    if (!items || !items.length) return '';
+    return '<details class="mt-0.5"><summary class="cursor-pointer text-[10.5px] text-slate-500 font-bold">' + titulo + ' (' + items.length + ')</summary><ul class="pl-3 text-[10.5px] text-slate-600">' +
+      items.map(function (i) { return '<li>' + fmt(i) + '</li>'; }).join('') + '</ul></details>';
+  }
+
+  function cuRenderLiquidacion() {
+    var L = HOR.liq; if (!L) return;
+    var inpC = 'w-20 px-1 py-0.5 text-right font-black rounded border border-slate-300 bg-white text-[11.5px]';
+    var optsEmp = (L.empleados || []).map(function (n) { return '<option' + (n === L.empleado ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('');
+    var fila = function (lbl, detalle, idv, extra) {
+      return '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">' + lbl + (detalle || '') + '</td><td class="py-1 text-right font-black whitespace-nowrap" id="' + idv + '"></td>' + (extra || '') + '</tr>';
+    };
+    var hist = (L.historial || []).map(function (h) {
+      return '<li>' + esc(h.desde) + ' → ' + esc(h.hasta) + ': <b>' + soles(h.neto) + '</b> (Yape ' + soles(h.yape) + ' · Efectivo ' + soles(h.efectivo) + ') <span class="text-slate-400">' + esc(String(h.creado || '').replace('T', ' ')) + '</span></li>';
+    }).join('');
+
+    document.getElementById('cuBody').innerHTML =
+      '<div class="flex flex-wrap items-end gap-2 mb-2">' +
+        '<div><label class="block text-[10px] font-black text-slate-500">Trabajador</label><select id="liqEmpleado" onchange="HOR.liq=null;cuCargarLiquidacion()" class="px-1.5 py-0.5 rounded border border-slate-300 font-black text-xs bg-white cursor-pointer">' + optsEmp + '</select></div>' +
+        '<div><label class="block text-[10px] font-black text-slate-500">Desde</label><input type="date" id="liqDesde" value="' + L._desdeIso + '" onchange="cuCargarLiquidacion()" class="px-1.5 py-0.5 rounded border border-slate-300 text-xs bg-white"></div>' +
+        '<div><label class="block text-[10px] font-black text-slate-500">Hasta</label><input type="date" id="liqHasta" value="' + L._hastaIso + '" onchange="cuCargarLiquidacion()" class="px-1.5 py-0.5 rounded border border-slate-300 text-xs bg-white"></div>' +
+        '<span class="text-[10.5px] font-bold text-slate-500 pb-1">' + esc(L.rol) + ' · valor del día S/ ' + L.valorDia.toFixed(2) + ' · ' + L.diasPeriodo + ' días</span>' +
+      '</div>' +
+      '<table class="w-full text-[11.5px]"><tbody>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">Sueldo base<div class="font-normal text-[10.5px] text-slate-500">sueldo × días ÷ 30' +
+          ' <button type="button" onclick="cuToggleTramo2()" class="ml-1 underline text-blue-700 cursor-pointer">+ cambio de sueldo en el periodo</button></div></td>' +
+          '<td class="py-1"><div class="flex flex-wrap items-center justify-end gap-1">S/ <input id="liqSueldo1" type="text" value="' + L.sueldo + '" oninput="cuCalc()" class="' + inpC + '"> × <input id="liqDias1" type="text" value="' + L.diasBase + '" oninput="cuCalc()" class="w-10 px-1 py-0.5 text-right font-black rounded border border-slate-300 bg-white text-[11.5px]"> ÷ 30</div>' +
+          '<div id="liqTramo2" class="hidden flex flex-wrap items-center justify-end gap-1 mt-1">S/ <input id="liqSueldo2" type="text" value="0" oninput="cuCalc()" class="' + inpC + '"> × <input id="liqDias2" type="text" value="0" oninput="cuCalc()" class="w-10 px-1 py-0.5 text-right font-black rounded border border-slate-300 bg-white text-[11.5px]"> ÷ 30</div></td>' +
+          '<td class="py-1 pl-2 text-right font-black text-emerald-800 whitespace-nowrap w-24" id="liqBase"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Faltas (' + L.faltas + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.faltasDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqFaltas"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-purple-800">+ Descansos trabajados (' + L.descansos + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.descansosDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-purple-800" id="liqDesc"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-green-800">+ Feriados trabajados (' + L.feriados + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.feriadosDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-green-800" id="liqFer"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">+ Horas extras mañana (' + L.horasExtraM + ' h × ' + (L.diarioManana / 8).toFixed(3) + ')</td><td></td><td class="py-1 pl-2 text-right font-black" id="liqExM"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">+ Horas extras noche 🌙 (' + L.horasExtraN + ' h × ' + (L.diarioNoche / 8).toFixed(3) + ')' + cuLista('detalle extras', L.extrasDetalle, function (x) { return esc(x.fecha) + ': ' + x.horas + ' h ' + (x.noche ? '🌙' : '☀️'); }) + '</td><td></td><td class="py-1 pl-2 text-right font-black" id="liqExN"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− AFP / planilla (monto fijo, editable)</td><td class="py-1 text-right">S/ <input id="liqAfp" type="text" value="' + L.afp + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqAfpTot"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Adelantos de sueldo (de Gastos)' + cuLista('detalle', L.adelantos, function (a) { return esc(a.fecha) + ' · ' + esc(a.descripcion) + ': ' + soles(a.monto) + (a.via === 'descripcion' ? ' <i>(por descripción)</i>' : ''); }) + '</td><td class="py-1 text-right">S/ <input id="liqAdel" type="text" value="' + L.adelantosTotal + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqAdelTot"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Consumo tienda (Cargar a la Cuenta)' + cuLista('detalle', L.tienda, function (t) { return esc(t.fecha) + ' · ' + t.cantidad + ' × ' + esc(t.producto) + ': ' + soles(t.subtotal); }) + '</td><td class="py-1 text-right">S/ <input id="liqTienda" type="text" value="' + L.tiendaTotal + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqTiendaTot"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">± Ajuste manual (opcional)</td><td class="py-1 text-right">S/ <input id="liqOtros" type="text" value="0" oninput="cuCalc()" class="' + inpC + '" title="Positivo suma, negativo resta"></td><td class="py-1 pl-2 text-right font-black" id="liqOtrosTot"></td></tr>' +
+      '</tbody></table>' +
+      '<div class="mt-2 flex items-center justify-between rounded-lg bg-slate-900 text-white px-3 py-2"><span class="font-black text-xs tracking-wide">TOTAL NETO A PAGAR</span><span class="font-black text-xl text-emerald-300" id="liqNeto">S/ 0.00</span></div>' +
+      '<div class="mt-2 grid grid-cols-2 gap-2">' +
+        '<div class="rounded-lg border border-[#D8C7B8] bg-white p-2"><label class="block text-[10px] font-black text-slate-500">📱 Pago por cuenta YAPE (S/)</label><input id="liqYape" type="text" value="0" oninput="cuPago(\'yape\')" class="w-full px-2 py-1 text-right font-black rounded border border-slate-300 text-sm"></div>' +
+        '<div class="rounded-lg border border-[#D8C7B8] bg-white p-2"><label class="block text-[10px] font-black text-slate-500">💵 Pago en EFECTIVO (S/)</label><input id="liqEfec" type="text" value="0" oninput="cuPago(\'efectivo\')" class="w-full px-2 py-1 text-right font-black rounded border border-slate-300 text-sm"></div>' +
+      '</div>' +
+      '<p id="liqAvisoPago" class="text-[10.5px] font-extrabold mt-1"></p>' +
+      '<label class="flex items-center gap-1.5 mt-1.5 text-[11px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" id="liqRegGastos"> Registrar este pago en Gastos (el efectivo sale de la Caja)</label>' +
+      '<button type="button" onclick="cuGuardarLiquidacion()" class="mt-2 w-full px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs cursor-pointer">💾 Guardar liquidación</button>' +
+      ((L.sinMarcar && L.sinMarcar.length) ? '<div class="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-300 text-[10.5px] text-amber-900"><b>⚠️ ' + L.sinMarcar.length + ' días sin marcar y sin "FALTÓ":</b> ' + L.sinMarcar.map(function (x) { return x.slice(0, 5); }).join(', ') + '. Márcales FALTÓ (o LIBRE) para que el cálculo sea exacto.</div>' : '') +
+      ((L.adelantosSinAsignar && L.adelantosSinAsignar.length) ? '<div class="mt-2 p-2 rounded-lg bg-red-50 border border-red-300 text-[10.5px] text-red-900"><b>⚠️ Adelantos del periodo sin personal asignado:</b><ul class="pl-3">' + L.adelantosSinAsignar.map(function (a) { return '<li>' + esc(a.fecha) + ' · ' + esc(a.descripcion) + ': ' + soles(a.monto) + '</li>'; }).join('') + '</ul></div>' : '') +
+      (hist ? '<details class="mt-2"><summary class="cursor-pointer text-[11px] font-black text-slate-600">📜 Liquidaciones guardadas</summary><ul class="pl-3 text-[10.5px] text-slate-700 mt-1">' + hist + '</ul></details>' : '');
+    cuCalc();
+  }
+
+  window.cuToggleTramo2 = function () {
+    HOR.tramo2 = !HOR.tramo2;
+    var el = document.getElementById('liqTramo2'); if (el) el.classList.toggle('hidden', !HOR.tramo2);
+    cuCalc();
+  };
+
+  window.cuCalc = function () {
+    var L = HOR.liq; if (!L) return;
+    var set = function (id, v, neg) { var el = document.getElementById(id); if (el) el.textContent = (neg ? '− ' : (v < 0 ? '− ' : '')) + 'S/ ' + Math.abs(v).toFixed(2); };
+    var base = r2(cuNum('liqSueldo1') * cuNum('liqDias1') / 30 + (HOR.tramo2 ? cuNum('liqSueldo2') * cuNum('liqDias2') / 30 : 0));
+    var faltas = r2(L.faltas * L.valorDia), desc = r2(L.descansos * L.valorDia), fer = r2(L.feriados * L.valorDia);
+    var exM = r2(L.horasExtraM * L.diarioManana / 8), exN = r2(L.horasExtraN * L.diarioNoche / 8);
+    var afp = r2(cuNum('liqAfp')), adel = r2(cuNum('liqAdel')), tienda = r2(cuNum('liqTienda')), otros = r2(cuNum('liqOtros'));
+    var neto = r2(base - faltas + desc + fer + exM + exN - afp - adel - tienda + otros);
+    set('liqBase', base); set('liqFaltas', faltas, true); set('liqDesc', desc); set('liqFer', fer);
+    set('liqExM', exM); set('liqExN', exN); set('liqAfpTot', afp, true); set('liqAdelTot', adel, true); set('liqTiendaTot', tienda, true); set('liqOtrosTot', otros);
+    var nEl = document.getElementById('liqNeto'); if (nEl) nEl.textContent = (neto < 0 ? '− ' : '') + 'S/ ' + Math.abs(neto).toFixed(2);
+    L._calc = { base: base, faltas: faltas, descansos: desc, feriados: fer, extrasManana: exM, extrasNoche: exN, afp: afp, adelantos: adel, tienda: tienda, otros: otros, neto: neto };
+    cuPago(HOR.pagoUlt || 'efectivoAuto');
+  };
+
+  window.cuPago = function (quien) {
+    var L = HOR.liq; if (!L || !L._calc) return;
+    var neto = L._calc.neto;
+    var y = document.getElementById('liqYape'), e = document.getElementById('liqEfec');
+    if (quien === 'yape') { HOR.pagoUlt = 'yape'; e.value = r2(neto - cuNum('liqYape')).toFixed(2); }
+    else if (quien === 'efectivo') { HOR.pagoUlt = 'efectivo'; y.value = r2(neto - cuNum('liqEfec')).toFixed(2); }
+    else if (HOR.pagoUlt === 'efectivo') { y.value = r2(neto - cuNum('liqEfec')).toFixed(2); }
+    else if (HOR.pagoUlt === 'yape') { e.value = r2(neto - cuNum('liqYape')).toFixed(2); }
+    else { y.value = '0.00'; e.value = neto.toFixed(2); }
+    var suma = r2(cuNum('liqYape') + cuNum('liqEfec'));
+    var av = document.getElementById('liqAvisoPago');
+    if (av) { var ok = Math.abs(suma - neto) <= 0.05; av.textContent = ok ? '✔ Yape + Efectivo = Total' : '⚠️ Yape + Efectivo (' + soles(suma) + ') no suma el Total (' + soles(neto) + ')'; av.className = 'text-[10.5px] font-extrabold mt-1 ' + (ok ? 'text-emerald-700' : 'text-red-700'); }
+  };
+
+  window.cuGuardarLiquidacion = function () {
+    var L = HOR.liq; if (!L || !L._calc) return;
+    var payload = {
+      clave: HOR.clave, empleado: L.empleado, desde: L.desde, hasta: L.hasta,
+      neto: L._calc.neto, yape: cuNum('liqYape'), efectivo: cuNum('liqEfec'),
+      registrarGastos: !!(document.getElementById('liqRegGastos') || {}).checked,
+      detalle: { calc: L._calc, faltasDias: L.faltasDias, descansosDias: L.descansosDias, feriadosDias: L.feriadosDias,
+                 horasExtraM: L.horasExtraM, horasExtraN: L.horasExtraN, adelantos: L.adelantos, tienda: L.tienda }
+    };
+    if (payload.neto < 0 && !confirm('El total es negativo. ¿Guardar igual?')) return;
+    runGas('guardarLiquidacionHorario', [payload], function (r) {
+      horBanner('ok', '✅ Liquidación guardada' + (r.gastosCreados ? ' y ' + r.gastosCreados + ' pago(s) registrado(s) en Gastos' : ''));
+      HOR.liq = null;
+      cuCargarLiquidacion();
+    }, function (e) { horBanner('error', '❌ ' + horErr(e)); });
+  };
+
+  // ---------------------------- Pestaña Ediciones manuales ----------------------------
+  window.cuCargarAuditoria = function () {
+    var body = document.getElementById('cuBody');
+    var fEmp = (document.getElementById('audEmpleado') || {}).value || '';
+    var fDias = (document.getElementById('audDias') || {}).value || '60';
+    runGas('obtenerAuditoriaHorario', [{ clave: HOR.clave, empleado: fEmp, dias: Number(fDias) }], function (res) {
+      var emps = ((HOR.data && HOR.data.empleados) || []).map(function (e) { return '<option' + (e.id === fEmp ? ' selected' : '') + '>' + esc(e.id) + '</option>'; }).join('');
+      var filas = (res.ediciones || []).map(function (x) {
+        var bg = x.alerta === 'rojo' ? 'background-color:#FEE2E2;' : (x.alerta === 'ambar' ? 'background-color:#FEF3C7;' : '');
+        var dem = '';
+        if (x.demoraMin !== null && x.demoraMin > 0) {
+          dem = x.demoraMin >= 1440 ? Math.floor(x.demoraMin / 1440) + ' d' : (x.demoraMin >= 60 ? Math.floor(x.demoraMin / 60) + ' h ' + (x.demoraMin % 60) + ' m' : x.demoraMin + ' m');
+        }
+        return '<tr class="border-b border-[#EDE3D9]" style="' + bg + '"><td class="px-1.5 py-1 font-black">' + esc(x.empleado) + '</td><td class="px-1.5">' + esc(x.fecha) + '</td><td class="px-1.5">' + esc(x.campo) + '</td>' +
+          '<td class="px-1.5 whitespace-nowrap"><span class="text-slate-500">' + esc(x.antes || 'vacío') + '</span> ➔ <b>' + esc(x.nuevo || 'vacío') + '</b></td>' +
+          '<td class="px-1.5 whitespace-nowrap font-bold">' + esc(x.editadoFecha) + ' ' + esc(x.editadoHora) + '</td><td class="px-1.5 text-center font-black ' + (x.alerta === 'rojo' ? 'text-red-700' : (x.alerta === 'ambar' ? 'text-amber-800' : '')) + '">' + dem + '</td><td class="px-1.5 text-[10px] text-slate-500">' + esc(x.equipo) + '</td></tr>';
+      }).join('') || '<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400 font-bold">Sin ediciones manuales en este periodo.</td></tr>';
+      body.innerHTML =
+        '<div class="flex flex-wrap items-end gap-2 mb-2"><div><label class="block text-[10px] font-black text-slate-500">Trabajador</label><select id="audEmpleado" onchange="cuCargarAuditoria()" class="px-1.5 py-0.5 rounded border border-slate-300 text-xs bg-white"><option value="">Todos</option>' + emps + '</select></div>' +
+        '<div><label class="block text-[10px] font-black text-slate-500">Últimos</label><select id="audDias" onchange="cuCargarAuditoria()" class="px-1.5 py-0.5 rounded border border-slate-300 text-xs bg-white">' +
+        ['15', '30', '60', '180', '365'].map(function (d) { return '<option value="' + d + '"' + (d === fDias ? ' selected' : '') + '>' + d + ' días</option>'; }).join('') + '</select></div>' +
+        '<span class="text-[10.5px] text-slate-500 font-bold pb-1">Cada vez que alguien corrige una hora a mano queda aquí, con la fecha y hora exacta de la edición. <span class="px-1 rounded bg-amber-100">ámbar</span> = tarde · <span class="px-1 rounded bg-red-100">rojo</span> = otro día</span></div>' +
+        '<table class="w-full text-[11px]"><thead class="bg-slate-800 text-white text-[10px] uppercase"><tr class="h-6"><th class="px-1.5 text-left">Quién</th><th class="px-1.5 text-left">Día del turno</th><th class="px-1.5 text-left">Casilla</th><th class="px-1.5 text-left">Antes ➔ Ahora</th><th class="px-1.5 text-left">Editado el</th><th class="px-1.5">Demora</th><th class="px-1.5 text-left">Equipo</th></tr></thead><tbody>' + filas + '</tbody></table>';
+    }, function (e) { body.innerHTML = '<p class="text-red-700 font-extrabold">❌ ' + esc(horErr(e)) + '</p>'; });
+  };
+
+  // ---------------------------- Pestaña Sueldos y personal ----------------------------
+  window.cuCargarConfig = function () {
+    var body = document.getElementById('cuBody');
+    runGas('obtenerPersonalConfig', [{ clave: HOR.clave }], function (res) {
+      HOR.cfg = res.personal || [];
+      var ci = 'w-full px-1 py-0.5 rounded border border-slate-300 text-[11px] font-bold bg-white';
+      var dow = function (v) { return ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].map(function (n, i) { return '<option value="' + i + '"' + (Number(v) === i ? ' selected' : '') + '>' + n + '</option>'; }).join(''); };
+      var tarjeta = function (p, i) {
+        var k = 'cfg' + i + '_';
+        return '<div class="rounded-lg border border-[#D8C7B8] bg-white p-2 mb-2"><div class="flex items-center justify-between mb-1"><b class="text-xs">' + (p ? esc(p.empleado) : '➕ Nuevo trabajador') + '</b>' +
+          '<button type="button" onclick="cuGuardarConfig(' + i + ')" class="px-2 py-0.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-black cursor-pointer">💾 Guardar</button></div>' +
+          '<div class="grid grid-cols-4 gap-1.5">' +
+          '<div class="col-span-2"><label class="text-[10px] font-black text-slate-500">Nombre</label><input id="' + k + 'emp" value="' + (p ? esc(p.empleado) : '') + '" ' + (p ? 'readonly' : '') + ' class="' + ci + '"></div>' +
+          '<div class="col-span-2"><label class="text-[10px] font-black text-slate-500">Cargo / rol</label><input id="' + k + 'rol" value="' + (p ? esc(p.rol) : '') + '" class="' + ci + '"></div>' +
+          '<div class="col-span-2"><label class="text-[10px] font-black text-slate-500" title="Etiqueta que usa Tienda (Cargar a la Cuenta) y Gastos">Etiqueta en Tienda/Gastos</label><input id="' + k + 'cat" value="' + (p ? esc(p.categoriaTienda) : '') + '" class="' + ci + '"></div>' +
+          '<div><label class="text-[10px] font-black text-slate-500">Sueldo mensual</label><input id="' + k + 'sue" value="' + (p ? p.sueldo : '') + '" class="' + ci + '"></div>' +
+          '<div><label class="text-[10px] font-black text-slate-500">AFP (fijo)</label><input id="' + k + 'afp" value="' + (p ? p.afp : '0') + '" class="' + ci + '"></div>' +
+          '<div><label class="text-[10px] font-black text-slate-500">Día mañana S/</label><input id="' + k + 'dm" value="' + (p ? p.diarioManana : '50') + '" class="' + ci + '"></div>' +
+          '<div><label class="text-[10px] font-black text-slate-500">Día noche S/</label><input id="' + k + 'dn" value="' + (p ? p.diarioNoche : '55') + '" class="' + ci + '"></div>' +
+          '<div><label class="text-[10px] font-black text-slate-500">Descansa</label><select id="' + k + 'dow" class="' + ci + '">' + dow(p ? p.descansoDow : 0) + '</select></div>' +
+          '<div><label class="text-[10px] font-black text-slate-500">Turno</label><select id="' + k + 'tur" class="' + ci + '"><option value="DIA"' + (p && p.turno === 'DIA' ? ' selected' : '') + '>Día</option><option value="NOCHE"' + (p && p.turno === 'NOCHE' ? ' selected' : '') + '>Noche</option></select></div>' +
+          '<div><label class="text-[10px] font-black text-slate-500">Activo</label><select id="' + k + 'act" class="' + ci + '"><option value="1"' + (!p || p.activo ? ' selected' : '') + '>Sí</option><option value="0"' + (p && !p.activo ? ' selected' : '') + '>No</option></select></div>' +
+          '</div></div>';
+      };
+      body.innerHTML = '<p class="text-[10.5px] text-slate-500 font-bold mb-2">El valor del día (faltas, descansos y feriados) usa «Día noche» para turno Noche y «Día mañana» para turno Día. Las horas extras usan mañana o noche según el 🌙 marcado en cada día.</p>' +
+        HOR.cfg.map(function (p, i) { return tarjeta(p, i); }).join('') + tarjeta(null, HOR.cfg.length);
+    }, function (e) { body.innerHTML = '<p class="text-red-700 font-extrabold">❌ ' + esc(horErr(e)) + '</p>'; });
+  };
+  window.cuGuardarConfig = function (i) {
+    var k = 'cfg' + i + '_';
+    var v = function (id) { return (document.getElementById(k + id) || {}).value; };
+    var payload = { clave: HOR.clave, empleado: String(v('emp') || '').trim(), rol: v('rol'), categoriaTienda: v('cat'), sueldo: v('sue'), afp: v('afp'),
+                    diarioManana: v('dm'), diarioNoche: v('dn'), descansoDow: Number(v('dow')), turno: v('tur'), activo: Number(v('act')) };
+    runGas('guardarPersonalConfig', [payload], function () {
+      horBanner('ok', '✅ Datos de ' + payload.empleado + ' guardados');
+      horCargar(); cuCargarConfig();
+    }, function (e) { horBanner('error', '❌ ' + horErr(e)); });
   };
 
   // =========================================================================

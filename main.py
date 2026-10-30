@@ -142,6 +142,10 @@ class RpcPayload(BaseModel):
 
 
 WRITE_METHODS = {
+    "marcarAsistenciaHorario",
+    "editarCeldaHorario",
+    "guardarPersonalConfig",
+    "guardarLiquidacionHorario",
     "guardarCheckInDesdeApp",
     "procesarCheckInApp",
     "guardarPagoPosteriorDesdeApp",
@@ -425,6 +429,33 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             res = dl.registrar_movimiento_tienda_local(args[0] if args else {})
         elif method_name == "anularMovimientoAlmacen":
             res = dl.anular_movimiento_almacen_local(args[0] if args else {})
+        elif method_name == "obtenerHorario":
+            import horario_logic as hl
+            res = hl.obtener_horario_local(args[0] if args else {})
+        elif method_name == "marcarAsistenciaHorario":
+            import horario_logic as hl
+            res = hl.marcar_asistencia_local(args[0] if args else {})
+        elif method_name == "editarCeldaHorario":
+            import horario_logic as hl
+            res = hl.editar_celda_horario_local(args[0] if args else {})
+        elif method_name == "verificarClaveCuentasHorario":
+            import horario_logic as hl
+            res = hl.verificar_clave_cuentas_horario_local(args[0] if args else {})
+        elif method_name == "obtenerLiquidacionHorario":
+            import horario_logic as hl
+            res = hl.obtener_liquidacion_horario_local(args[0] if args else {})
+        elif method_name == "obtenerAuditoriaHorario":
+            import horario_logic as hl
+            res = hl.obtener_auditoria_horario_local(args[0] if args else {})
+        elif method_name == "obtenerPersonalConfig":
+            import horario_logic as hl
+            res = hl.obtener_personal_config_local(args[0] if args else {})
+        elif method_name == "guardarPersonalConfig":
+            import horario_logic as hl
+            res = hl.guardar_personal_config_local(args[0] if args else {})
+        elif method_name == "guardarLiquidacionHorario":
+            import horario_logic as hl
+            res = hl.guardar_liquidacion_horario_local(args[0] if args else {})
         elif method_name == "guardarCheckInGrupalEmpresa":
             res = dl.guardar_checkin_grupal_empresa_local(args[0] if args else {})
         elif method_name == "obtenerEstanciasPagoMasivo":

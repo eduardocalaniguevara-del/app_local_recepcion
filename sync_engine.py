@@ -145,6 +145,12 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
         if "import_Almacen" in tabs:
             ranges_step1.append("'import_Almacen'!A2:J3000")
             keys_step1.append("almacen")
+        if "import_Horario" in tabs:
+            ranges_step1.append("'import_Horario'!A2:L8000")
+            keys_step1.append("horario")
+        if "import_Horario_Audit" in tabs:
+            ranges_step1.append("'import_Horario_Audit'!A2:H6000")
+            keys_step1.append("horario_audit")
 
         res_step1 = sh.values_batch_get(ranges_step1)
         vrs1 = res_step1.get("valueRanges", []) if isinstance(res_step1, dict) else []
@@ -173,6 +179,9 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
         col_g = step1_dict.get("col_g", [])
         vitrina_rows = step1_dict.get("vitrina", [])
         almacen_rows = step1_dict.get("almacen", [])
+        almacen_rows = step1_dict.get("almacen", [])
+        horario_rows = step1_dict.get("horario", [])
+        horario_audit_rows = step1_dict.get("horario_audit", [])
 
         total_rows_bd = max(len(col_a_bd), 1)
         last_t = len(col_t)
@@ -195,9 +204,9 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
         else:
             start_row_recent = max(2, total_rows_bd - 550 + 1)
 
-        st_t = max(2, last_t - 250 + 1)
+        st_t = max(2, last_t - 800 + 1)
         st_pg = max(2, last_pg - 900 + 1)
-        st_g = max(2, last_g - 120 + 1)
+        st_g = max(2, last_g - 400 + 1)
 
         ranges_step2 = []
         keys_step2 = []
@@ -211,7 +220,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
             ranges_step2.append(f"'Registro_Pagos'!A{st_pg}:J{last_pg}")
             keys_step2.append("pagos")
         if last_g >= 2:
-            ranges_step2.append(f"'Registro_Gastos'!A{st_g}:I{last_g}")
+            ranges_step2.append(f"'Registro_Gastos'!A{st_g}:J{last_g}")
             keys_step2.append("gastos")
 
         if ranges_step2:
@@ -799,9 +808,10 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                         """
                         INSERT INTO gastos (
                             gasto_uuid, id_ts_str, fecha_gasto_iso, fecha_gasto_dmy, hora_registro,
-                            descripcion, monto, categoria, metodo_pago, tipo_comp, nro_comp, responsable, sheet_row, synced
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                        ON CONFLICT(id_ts_str) DO UPDATE SET sheet_row = excluded.sheet_row, synced = 1
+                            descripcion, monto, categoria, metodo_pago, tipo_comp, nro_comp, responsable, personal, sheet_row, synced
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                        ON CONFLICT(id_ts_str) DO UPDATE SET sheet_row = excluded.sheet_row, synced = 1,
+                            personal = CASE WHEN excluded.personal != '' THEN excluded.personal ELSE gastos.personal END
                         """,
                         (
                             f"SH-G-{s_row_g}",
@@ -816,8 +826,52 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                             str(gr[6] or "").strip() if len(gr) > 6 else "",
                             str(gr[7] or "").strip() if len(gr) > 7 else "",
                             str(gr[8] or "Admin").strip() if len(gr) > 8 else "Admin",
+                            str(gr[9] or "").strip() if len(gr) > 9 else "",
                             s_row_g,
                         ),
+                    )
+
+            if horario_rows:
+                for hr in horario_rows:
+                    if len(hr) < 2 or not str(hr[0] or "").strip():
+                        continue
+                    emp_h = str(hr[0]).strip()
+                    f_h = normalizar_fecha_dmy(hr[1])
+                    loc_h = conn.execute(
+                        "SELECT synced FROM horario_registros WHERE empleado = ? AND fecha_dmy = ?", (emp_h, f_h)
+                    ).fetchone()
+                    if loc_h and int(loc_h["synced"] or 0) == 0:
+                        continue
+                    def _hc(i_h: int) -> str:
+                        return str(hr[i_h] or "").strip() if len(hr) > i_h else ""
+                    try:
+                        xn = 1 if _hc(8) in ("1", "TRUE", "true") else 0
+                    except Exception:
+                        xn = 0
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO horario_registros
+                            (empleado, fecha_dmy, ymd, e1, s1, e2, s2, estado, extras, extra_noche, nota, ult_marca_ts, updated_at, equipo, synced)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 1)
+                        """,
+                        (emp_h, f_h, fecha_dmy_a_ymd(f_h), _hm_pull(_hc(2)), _hm_pull(_hc(3)), _hm_pull(_hc(4)), _hm_pull(_hc(5)), _hc(6), _hc(7), xn, _hc(9), _hc(10), _hc(11)),
+                    )
+            if horario_audit_rows:
+                for ar_h in horario_audit_rows:
+                    if len(ar_h) < 7 or not str(ar_h[0] or "").strip():
+                        continue
+                    campo_h = str(ar_h[3] or "").strip()
+                    inv = {"Entrada 1": "e1", "Salida 1": "s1", "Entrada 2": "e2", "Salida 2": "s2", "Estado (F)": "estado",
+                           "Horas extras (G)": "extras", "Extra nocturno": "extra_noche", "Nota": "nota"}
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO horario_auditoria
+                            (audit_uuid, empleado, fecha_dmy, campo, valor_anterior, valor_nuevo, editado_ts, equipo, synced)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                        """,
+                        (str(ar_h[0]).strip(), str(ar_h[1] or "").strip(), normalizar_fecha_dmy(ar_h[2]), inv.get(campo_h, campo_h),
+                         _hm_pull(ar_h[4]), _hm_pull(ar_h[5]), str(ar_h[6] or "").strip(),
+                         str(ar_h[7] or "") if len(ar_h) > 7 else ""),
                     )
 
         return {
@@ -864,7 +918,7 @@ def _resolver_fila_estancia_en_sheets(ws_bd, sheet_row_hint: int, id_ts_str: str
     return 0
 
 
-def _append_fila_idempotente(ws, id_col_a: str, row_values: List[Any], range_end_col: str) -> int:
+def _append_fila_idempotente(ws, id_col_a: str, row_values: List[Any], range_end_col: str, value_input_option: str = "USER_ENTERED") -> int:
     """
     Verifica si id_col_a ya existe en las últimas 35 filas de la columna A.
     Si ya existe (por reintento tras micro-corte), devuelve su fila sin duplicar.
@@ -886,9 +940,34 @@ def _append_fila_idempotente(ws, id_col_a: str, row_values: List[Any], range_end
     ws.update(
         range_name=f"A{next_row}:{range_end_col}{next_row}",
         values=[row_values],
-        value_input_option="USER_ENTERED",
+        value_input_option=value_input_option,
     )
     return next_row
+
+
+def _hm_pull(v: Any) -> str:
+    s = str(v or "").strip()
+    m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::\d{2})?", s)
+    return f"{int(m.group(1)):02d}:{m.group(2)}" if m else s
+
+
+HORARIO_CABECERA = ["Empleado", "Fecha", "Entrada 1", "Salida 1", "Entrada 2", "Salida 2", "Estado (F)", "Horas extras (G)",
+                    "Extra nocturno", "Nota", "Actualizado", "Equipo"]
+HORARIO_AUDIT_CABECERA = ["ID", "Empleado", "Fecha turno", "Campo", "Valor anterior", "Valor nuevo", "Editado el", "Equipo"]
+
+
+def _asegurar_hoja_horario(sh, nombre: str, cabecera: List[str]):
+    """Devuelve la pestaña nativa de Horario; la crea con su cabecera si aún no existe."""
+    try:
+        return sh.worksheet(nombre)
+    except Exception:
+        ws_n = sh.add_worksheet(title=nombre, rows=2000, cols=len(cabecera))
+        ws_n.update(range_name="A1", values=[cabecera], value_input_option="USER_ENTERED")
+        try:
+            ws_n.freeze(rows=1)
+        except Exception:
+            pass
+        return ws_n
 
 
 def process_sync_queue() -> Dict[str, Any]:
@@ -917,6 +996,7 @@ def process_sync_queue() -> Dict[str, Any]:
         ws_tienda = None
         ws_gastos = None
         ws_disp = None
+        hor_cache: Dict[str, Any] = {}
 
         for item in pending_items:
             qid = item["queue_id"]
@@ -1025,9 +1105,44 @@ def process_sync_queue() -> Dict[str, Any]:
                 elif op_type == "GASTO":
                     if ws_gastos is None:
                         ws_gastos = sh.worksheet("Registro_Gastos")
-                    row_g = _append_fila_idempotente(ws_gastos, payload["id_ts_str"], payload["fila_gasto"], "I")
+                    row_g = _append_fila_idempotente(ws_gastos, payload["id_ts_str"], payload["fila_gasto"], "J")
                     with db_transaction() as c_up:
                         c_up.execute("UPDATE gastos SET sheet_row = ?, synced = 1 WHERE gasto_uuid = ?", (row_g, item["entity_uuid"]))
+
+                elif op_type == "HORARIO_UPSERT":
+                    if hor_cache.get("ws") is None:
+                        hor_cache["ws"] = _asegurar_hoja_horario(sh, "import_Horario", HORARIO_CABECERA)
+                        vals_ab = hor_cache["ws"].get("A2:B8000") or []
+                        hor_cache["idx"] = {
+                            (str(r[0]).strip(), normalizar_fecha_dmy(r[1]) if len(r) > 1 else ""): i + 2
+                            for i, r in enumerate(vals_ab) if r and str(r[0]).strip()
+                        }
+                        hor_cache["next"] = len(vals_ab) + 2
+                    ws_h = hor_cache["ws"]
+                    k_h = (payload["empleado"], payload["fecha_dmy"])
+                    fila_h = payload["fila"]
+                    r_h = hor_cache["idx"].get(k_h)
+                    if r_h:
+                        ws_h.update(range_name=f"A{r_h}:L{r_h}", values=[fila_h], value_input_option="RAW")
+                    else:
+                        r_h = hor_cache["next"]
+                        if r_h > ws_h.row_count:
+                            ws_h.add_rows(max(200, r_h - ws_h.row_count + 100))
+                        ws_h.update(range_name=f"A{r_h}:L{r_h}", values=[fila_h], value_input_option="RAW")
+                        hor_cache["idx"][k_h] = r_h
+                        hor_cache["next"] = r_h + 1
+                    with db_transaction() as c_up:
+                        c_up.execute(
+                            "UPDATE horario_registros SET synced = 1 WHERE empleado = ? AND fecha_dmy = ? AND updated_at = ?",
+                            (payload["empleado"], payload["fecha_dmy"], payload["updated_at"]),
+                        )
+
+                elif op_type == "HORARIO_AUDIT":
+                    if hor_cache.get("ws_aud") is None:
+                        hor_cache["ws_aud"] = _asegurar_hoja_horario(sh, "import_Horario_Audit", HORARIO_AUDIT_CABECERA)
+                    _append_fila_idempotente(hor_cache["ws_aud"], payload["audit_uuid"], payload["fila"], "H", value_input_option="RAW")
+                    with db_transaction() as c_up:
+                        c_up.execute("UPDATE horario_auditoria SET synced = 1 WHERE audit_uuid = ?", (payload["audit_uuid"],))
 
                 elif op_type == "MODIFICAR":
                     t_row = _resolver_fila_estancia_en_sheets(
