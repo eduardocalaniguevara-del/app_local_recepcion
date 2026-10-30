@@ -4578,7 +4578,7 @@ def obtener_registro_estancias_bd_local(datos: Optional[Dict[str, Any]] = None) 
         sql = (
             "SELECT * FROM estancias WHERE "
             + " AND ".join(where_clauses)
-            + " ORDER BY ymd_in DESC, sheet_row DESC, rowid DESC LIMIT ?"
+            + " ORDER BY CASE WHEN sheet_row = 0 THEN 999999999 ELSE sheet_row END DESC, ymd_in DESC, rowid DESC LIMIT ?"
         )
         params.append(limite)
 
@@ -4711,4 +4711,576 @@ def editar_estancia_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     import horario_logic as hl
     hl.validar_clave_cuentas(datos)
     return modificar_estancia_local(datos)
+
+
+def _parse_ts_hms_key(ts_str: str, fecha_dmy: str, sheet_row: int) -> tuple:
+    """Clave de ordenamiento descendente: última anotación / fecha arriba (Fila 1)."""
+    s = str(ts_str or "").strip()
+    ymd_ts = 0
+    hms_ts = 0
+    if " " in s:
+        p_d, p_t = s.split(" ", 1)
+        ymd_ts = fecha_dmy_a_ymd(normalizar_fecha_dmy(p_d))
+        partes_h = re.findall(r"\d+", p_t)
+        if len(partes_h) >= 2:
+            hh = int(partes_h[0])
+            mm = int(partes_h[1])
+            ss = int(partes_h[2]) if len(partes_h) >= 3 else 0
+            hms_ts = hh * 10000 + mm * 100 + ss
+    elif "/" in s or "-" in s:
+        ymd_ts = fecha_dmy_a_ymd(normalizar_fecha_dmy(s))
+    ymd_f = fecha_dmy_a_ymd(normalizar_fecha_dmy(fecha_dmy))
+    ymd_efectivo = max(ymd_ts, ymd_f)
+    fila_ord = 999999999 if int(sheet_row or 0) == 0 else int(sheet_row or 0)
+    return (ymd_efectivo, hms_ts, fila_ord)
+
+
+def obtener_registro_gastos_bd_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Base de datos completa de Registro_Gastos con filtros en 0 ms y última anotación en Fila 1."""
+    datos = datos or {}
+    desde_raw = str(datos.get("desde") or "").strip()
+    hasta_raw = str(datos.get("hasta") or "").strip()
+    cat_f = str(datos.get("categoria") or "").strip()
+    met_f = str(datos.get("metodoPago") or "").strip()
+    resp_f = str(datos.get("responsable") or "").strip()
+    pers_f = str(datos.get("personal") or "").strip()
+    busq = str(datos.get("q") or "").strip().lower()
+    limite = min(2500, max(50, int(datos.get("limite") or 1000)))
+
+    ymd_desde = fecha_dmy_a_ymd(normalizar_fecha_dmy(desde_raw)) if desde_raw else 0
+    ymd_hasta = fecha_dmy_a_ymd(normalizar_fecha_dmy(hasta_raw)) if hasta_raw else 0
+
+    conn = get_connection()
+    try:
+        total_bd = conn.execute("SELECT COUNT(*) FROM gastos").fetchone()[0]
+        cats_cfg = [
+            r["clave"] for r in conn.execute(
+                "SELECT clave FROM catalogos_local WHERE categoria = 'CAT_GASTO' ORDER BY orden"
+            ).fetchall()
+        ]
+        for r in conn.execute("SELECT DISTINCT categoria FROM gastos WHERE trim(categoria) != '' ORDER BY categoria").fetchall():
+            if r["categoria"] not in cats_cfg:
+                cats_cfg.append(r["categoria"])
+
+        mets_cfg = [
+            r["clave"] for r in conn.execute(
+                "SELECT clave FROM catalogos_local WHERE categoria = 'MET_GASTO' ORDER BY orden"
+            ).fetchall()
+        ]
+        for r in conn.execute("SELECT DISTINCT metodo_pago FROM gastos WHERE trim(metodo_pago) != '' ORDER BY metodo_pago").fetchall():
+            if r["metodo_pago"] not in mets_cfg:
+                mets_cfg.append(r["metodo_pago"])
+
+        resps_cfg = [
+            r["responsable"] for r in conn.execute(
+                "SELECT DISTINCT responsable FROM gastos WHERE trim(responsable) != '' ORDER BY responsable"
+            ).fetchall()
+        ]
+        pers_cfg = [
+            r["clave"] for r in conn.execute(
+                "SELECT clave FROM catalogos_local WHERE categoria = 'PERSONAL' ORDER BY orden"
+            ).fetchall()
+        ]
+        for r in conn.execute("SELECT DISTINCT personal FROM gastos WHERE trim(personal) != '' ORDER BY personal").fetchall():
+            if r["personal"] not in pers_cfg:
+                pers_cfg.append(r["personal"])
+
+        where_clauses = ["1=1"]
+        params: List[Any] = []
+        if cat_f:
+            where_clauses.append("categoria = ? COLLATE NOCASE")
+            params.append(cat_f)
+        if met_f:
+            where_clauses.append("metodo_pago = ? COLLATE NOCASE")
+            params.append(met_f)
+        if resp_f:
+            where_clauses.append("responsable = ? COLLATE NOCASE")
+            params.append(resp_f)
+        if pers_f == "__CON_PERSONAL__":
+            where_clauses.append("trim(personal) != ''")
+        elif pers_f:
+            where_clauses.append("personal = ? COLLATE NOCASE")
+            params.append(pers_f)
+        if busq:
+            like_q = f"%{busq}%"
+            where_clauses.append(
+                "(lower(descripcion) LIKE ? OR lower(categoria) LIKE ? OR lower(metodo_pago) LIKE ? "
+                "OR lower(tipo_comp) LIKE ? OR lower(nro_comp) LIKE ? OR lower(responsable) LIKE ? "
+                "OR lower(personal) LIKE ? OR lower(id_ts_str) LIKE ? OR lower(fecha_gasto_dmy) LIKE ?)"
+            )
+            params.extend([like_q] * 9)
+
+        sql = (
+            "SELECT * FROM gastos WHERE "
+            + " AND ".join(where_clauses)
+            + " ORDER BY CASE WHEN sheet_row = 0 THEN 999999999 ELSE sheet_row END DESC, rowid DESC"
+        )
+        rows_raw = conn.execute(sql, params).fetchall()
+
+        candidatos = []
+        for r in rows_raw:
+            f_dmy = normalizar_fecha_dmy(r["fecha_gasto_dmy"])
+            ymd_g = fecha_dmy_a_ymd(f_dmy)
+            if ymd_desde > 0 and ymd_g > 0 and ymd_g < ymd_desde:
+                continue
+            if ymd_hasta > 0 and ymd_g > 0 and ymd_g > ymd_hasta:
+                continue
+            candidatos.append((r, f_dmy, _parse_ts_hms_key(r["id_ts_str"], f_dmy, r["sheet_row"])))
+
+        # Ordenar: última fecha o anotación en la primera fila (arriba) y los anteriores hacia abajo
+        candidatos.sort(key=lambda x: x[2], reverse=True)
+
+        filas_out = []
+        hay_personal = False
+        tot_monto = tot_efec = tot_yape = tot_sueldos = tot_tienda = 0.0
+
+        for r, f_dmy, _ in candidatos[:limite]:
+            monto = round(float(r["monto"] or 0), 2)
+            met = str(r["metodo_pago"] or "").strip()
+            cat = str(r["categoria"] or "").strip()
+            pers = str(r["personal"] if "personal" in r.keys() else "").strip()
+            if pers:
+                hay_personal = True
+
+            tot_monto = round(tot_monto + monto, 2)
+            if "efectivo" in met.lower():
+                tot_efec = round(tot_efec + monto, 2)
+            else:
+                tot_yape = round(tot_yape + monto, 2)
+            cat_l = cat.lower()
+            if "sueldo" in cat_l or "adelanto" in cat_l or "planilla" in cat_l or "personal" in cat_l:
+                tot_sueldos = round(tot_sueldos + monto, 2)
+            elif "tienda" in cat_l:
+                tot_tienda = round(tot_tienda + monto, 2)
+
+            filas_out.append({
+                "gastoUuid": r["gasto_uuid"],
+                "fila": int(r["sheet_row"] or 0),
+                "id": r["id_ts_str"],
+                "fecha": f_dmy,
+                "hora": r["hora_registro"] or "",
+                "descripcion": r["descripcion"] or "",
+                "monto": monto,
+                "categoria": cat,
+                "metodoPago": met,
+                "tipoComp": r["tipo_comp"] or "",
+                "nroComp": r["nro_comp"] or "",
+                "responsable": r["responsable"] or "Admin",
+                "personal": pers,
+                "synced": int(r["synced"] or 0),
+            })
+
+        return {
+            "filas": filas_out,
+            "totalEnBD": total_bd,
+            "hayPersonal": hay_personal,
+            "categorias": cats_cfg,
+            "metodosPago": mets_cfg,
+            "responsables": resps_cfg,
+            "listaPersonal": pers_cfg,
+            "resumen": {
+                "cantidad": len(filas_out),
+                "totalMonto": tot_monto,
+                "totalEfectivo": tot_efec,
+                "totalYapeBanco": tot_yape,
+                "totalSueldosAdelantos": tot_sueldos,
+                "totalTienda": tot_tienda,
+            },
+        }
+    finally:
+        conn.close()
+
+
+def editar_gasto_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    import horario_logic as hl
+    hl.validar_clave_cuentas(datos)
+
+    g_uuid = str(datos.get("gastoUuid") or "").strip()
+    if not g_uuid:
+        raise ValueError("Falta el identificador del gasto a editar.")
+
+    fecha_dmy = normalizar_fecha_dmy(datos.get("fecha")) or hoy_dmy()
+    desc = str(datos.get("descripcion") or "").strip()
+    monto = round(parse_moneda(datos.get("monto")), 2)
+    cat = str(datos.get("categoria") or "").strip()
+    met = str(datos.get("metodoPago") or "").strip()
+    tipo_c = str(datos.get("tipoComp") or "").strip()
+    nro_c = str(datos.get("nroComp") or "").strip()
+    resp = str(datos.get("responsable") or "Admin").strip() or "Admin"
+    pers = str(datos.get("personal") or "").strip()
+
+    if not desc:
+        raise ValueError("La descripción del gasto no puede quedar vacía.")
+    if monto <= 0:
+        raise ValueError("El monto del gasto debe ser mayor a 0.")
+
+    with db_transaction() as conn:
+        actual = conn.execute("SELECT * FROM gastos WHERE gasto_uuid = ?", (g_uuid,)).fetchone()
+        if not actual:
+            raise ValueError("No se encontró el gasto en la base de datos interna.")
+
+        monto_prev = round(float(actual["monto"] or 0), 2)
+        met_prev = str(actual["metodo_pago"] or "").strip()
+        efec_prev = monto_prev if "efectivo" in met_prev.lower() else 0.0
+        efec_nuevo = monto if "efectivo" in met.lower() else 0.0
+        delta_caja = round(-(efec_nuevo - efec_prev), 2)
+
+        conn.execute(
+            """
+            UPDATE gastos SET
+                fecha_gasto_dmy = ?, descripcion = ?, monto = ?, categoria = ?,
+                metodo_pago = ?, tipo_comp = ?, nro_comp = ?, responsable = ?,
+                personal = ?, synced = 0
+            WHERE gasto_uuid = ?
+            """,
+            (fecha_dmy, desc, monto, cat, met, tipo_c, nro_c, resp, pers, g_uuid),
+        )
+
+        _encolar_operacion(
+            conn,
+            "EDITAR_GASTO_ADMIN",
+            g_uuid,
+            {
+                "gasto_uuid": g_uuid,
+                "id_ts_str": actual["id_ts_str"],
+                "sheet_row": int(actual["sheet_row"] or 0),
+                "fila_bj": [fecha_dmy, desc, monto, cat, met, tipo_c, nro_c, resp, pers],
+            },
+            delta_caja=delta_caja,
+        )
+
+    return {"ok": True, "gastoUuid": g_uuid}
+
+
+def eliminar_gasto_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    import horario_logic as hl
+    hl.validar_clave_cuentas(datos)
+
+    g_uuid = str(datos.get("gastoUuid") or "").strip()
+    if not g_uuid:
+        raise ValueError("Falta el identificador del gasto a eliminar.")
+
+    with db_transaction() as conn:
+        actual = conn.execute("SELECT * FROM gastos WHERE gasto_uuid = ?", (g_uuid,)).fetchone()
+        if not actual:
+            raise ValueError("No se encontró el gasto en la base de datos interna.")
+
+        monto_prev = round(float(actual["monto"] or 0), 2)
+        met_prev = str(actual["metodo_pago"] or "").strip()
+        delta_caja = monto_prev if "efectivo" in met_prev.lower() else 0.0
+
+        conn.execute("DELETE FROM gastos WHERE gasto_uuid = ?", (g_uuid,))
+        _encolar_operacion(
+            conn,
+            "ELIMINAR_GASTO_ADMIN",
+            g_uuid,
+            {
+                "gasto_uuid": g_uuid,
+                "id_ts_str": actual["id_ts_str"],
+                "sheet_row": int(actual["sheet_row"] or 0),
+            },
+            delta_caja=delta_caja,
+        )
+
+    return {"ok": True, "gastoUuid": g_uuid}
+
+
+def obtener_registro_ventas_tienda_bd_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Base de datos completa de 2.Registro_Ventas_Tienda con filtros en 0 ms y última anotación en Fila 1."""
+    datos = datos or {}
+    desde_raw = str(datos.get("desde") or "").strip()
+    hasta_raw = str(datos.get("hasta") or "").strip()
+    prod_f = str(datos.get("producto") or "").strip()
+    met_f = str(datos.get("metodoPago") or "").strip()
+    hab_f = str(datos.get("hab") or "").strip()
+    pers_f = str(datos.get("personal") or "").strip()
+    busq = str(datos.get("q") or "").strip().lower()
+    limite = min(2500, max(50, int(datos.get("limite") or 1000)))
+
+    ymd_desde = fecha_dmy_a_ymd(normalizar_fecha_dmy(desde_raw)) if desde_raw else 0
+    ymd_hasta = fecha_dmy_a_ymd(normalizar_fecha_dmy(hasta_raw)) if hasta_raw else 0
+
+    conn = get_connection()
+    try:
+        total_bd = conn.execute("SELECT COUNT(*) FROM ventas_tienda").fetchone()[0]
+        prods_cfg = [
+            r["clave"] for r in conn.execute(
+                "SELECT clave FROM catalogos_local WHERE categoria = 'PRODUCTO_TIENDA' ORDER BY orden"
+            ).fetchall()
+        ]
+        for r in conn.execute("SELECT DISTINCT producto FROM ventas_tienda WHERE trim(producto) != '' ORDER BY producto").fetchall():
+            if r["producto"] not in prods_cfg:
+                prods_cfg.append(r["producto"])
+
+        mets_cfg = ["Efectivo", "Yape", "VISA", "Cargar a Habitación", "Cargar a la Cuenta"]
+        for r in conn.execute("SELECT DISTINCT metodo_pago FROM ventas_tienda WHERE trim(metodo_pago) != '' ORDER BY metodo_pago").fetchall():
+            if r["metodo_pago"] not in mets_cfg:
+                mets_cfg.append(r["metodo_pago"])
+
+        habs_cfg = [r["hab"] for r in conn.execute("SELECT hab FROM habitaciones_config ORDER BY orden").fetchall()]
+        pers_cfg = [
+            r["clave"] for r in conn.execute(
+                "SELECT clave FROM catalogos_local WHERE categoria = 'PERSONAL' ORDER BY orden"
+            ).fetchall()
+        ]
+        for r in conn.execute("SELECT DISTINCT personal FROM ventas_tienda WHERE trim(personal) != '' ORDER BY personal").fetchall():
+            if r["personal"] not in pers_cfg:
+                pers_cfg.append(r["personal"])
+
+        where_clauses = ["1=1"]
+        params: List[Any] = []
+        if prod_f:
+            where_clauses.append("producto = ? COLLATE NOCASE")
+            params.append(prod_f)
+        if met_f:
+            where_clauses.append("metodo_pago = ? COLLATE NOCASE")
+            params.append(met_f)
+        if hab_f == "__CON_HAB__":
+            where_clauses.append("trim(hab) != ''")
+        elif hab_f:
+            where_clauses.append("hab = ?")
+            params.append(hab_f)
+        if pers_f == "__CON_PERSONAL__":
+            where_clauses.append("trim(personal) != ''")
+        elif pers_f:
+            where_clauses.append("personal = ? COLLATE NOCASE")
+            params.append(pers_f)
+        if busq:
+            like_q = f"%{busq}%"
+            where_clauses.append(
+                "(lower(producto) LIKE ? OR lower(metodo_pago) LIKE ? OR lower(hab) LIKE ? "
+                "OR lower(personal) LIKE ? OR lower(nro_op_yape) LIKE ? OR lower(id_estancia) LIKE ? "
+                "OR lower(fecha_iso) LIKE ? OR lower(fecha_dmy) LIKE ?)"
+            )
+            params.extend([like_q] * 8)
+
+        sql = (
+            "SELECT * FROM ventas_tienda WHERE "
+            + " AND ".join(where_clauses)
+            + " ORDER BY CASE WHEN sheet_row = 0 THEN 999999999 ELSE sheet_row END DESC, rowid DESC"
+        )
+        rows_raw = conn.execute(sql, params).fetchall()
+
+        candidatos = []
+        for r in rows_raw:
+            f_dmy = normalizar_fecha_dmy(r["fecha_dmy"] or r["fecha_iso"])
+            ymd_v = fecha_dmy_a_ymd(f_dmy)
+            if ymd_desde > 0 and ymd_v > 0 and ymd_v < ymd_desde:
+                continue
+            if ymd_hasta > 0 and ymd_v > 0 and ymd_v > ymd_hasta:
+                continue
+            candidatos.append((r, f_dmy, _parse_ts_hms_key(r["fecha_iso"], f_dmy, r["sheet_row"])))
+
+        # Ordenar: última fecha o anotación en la primera fila (arriba) y los anteriores hacia abajo
+        candidatos.sort(key=lambda x: x[2], reverse=True)
+
+        filas_out = []
+        tot_unid = 0
+        tot_venta = tot_efec = tot_yape_visa = tot_cargo_hab = tot_cargo_pers = 0.0
+
+        for r, f_dmy, _ in candidatos[:limite]:
+            cant = max(1, int(r["cantidad"] or 1))
+            p_unit = round(float(r["precio_unit"] or 0), 2)
+            sub = round(float(r["subtotal"] or 0), 2)
+            met = str(r["metodo_pago"] or "").strip()
+            hab_v = str(r["hab"] or "").strip()
+            pers_v = str(r["personal"] or "").strip()
+
+            tot_unid += cant
+            tot_venta = round(tot_venta + sub, 2)
+            met_l = met.lower()
+            if "efectivo" in met_l:
+                tot_efec = round(tot_efec + sub, 2)
+            elif "habitaci" in met_l or (hab_v and "cuenta" in met_l and not pers_v):
+                tot_cargo_hab = round(tot_cargo_hab + sub, 2)
+            elif "cuenta" in met_l or pers_v:
+                tot_cargo_pers = round(tot_cargo_pers + sub, 2)
+            else:
+                tot_yape_visa = round(tot_yape_visa + sub, 2)
+
+            filas_out.append({
+                "ventaUuid": r["venta_uuid"],
+                "fila": int(r["sheet_row"] or 0),
+                "id": r["fecha_iso"] or f_dmy,
+                "fecha": f_dmy,
+                "producto": r["producto"] or "",
+                "cantidad": cant,
+                "precioUnit": p_unit,
+                "subtotal": sub,
+                "metodoPago": met,
+                "hab": hab_v,
+                "personal": pers_v,
+                "idEstancia": r["id_estancia"] or "",
+                "nroOpYape": r["nro_op_yape"] or "",
+                "synced": int(r["synced"] or 0),
+            })
+
+        return {
+            "filas": filas_out,
+            "totalEnBD": total_bd,
+            "productos": prods_cfg,
+            "metodosPago": mets_cfg,
+            "habitaciones": habs_cfg,
+            "listaPersonal": pers_cfg,
+            "resumen": {
+                "cantidadFilas": len(filas_out),
+                "totalUnidades": tot_unid,
+                "totalVenta": tot_venta,
+                "totalEfectivo": tot_efec,
+                "totalYapeVisa": tot_yape_visa,
+                "totalCargoHab": tot_cargo_hab,
+                "totalCargoPersonal": tot_cargo_pers,
+            },
+        }
+    finally:
+        conn.close()
+
+
+def editar_venta_tienda_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    import horario_logic as hl
+    hl.validar_clave_cuentas(datos)
+
+    v_uuid = str(datos.get("ventaUuid") or "").strip()
+    if not v_uuid:
+        raise ValueError("Falta el identificador de la venta a editar.")
+
+    fecha_dmy = normalizar_fecha_dmy(datos.get("fecha")) or hoy_dmy()
+    prod = str(datos.get("producto") or "").strip()
+    cant = max(1, int(parse_moneda(datos.get("cantidad")) or 1))
+    p_unit = round(parse_moneda(datos.get("precioUnit")), 2)
+    sub_in = datos.get("subtotal")
+    sub = round(parse_moneda(sub_in), 2) if sub_in not in (None, "") else round(cant * p_unit, 2)
+    if abs(sub - round(cant * p_unit, 2)) > 0.05 and p_unit > 0:
+        sub = round(cant * p_unit, 2)
+    met = str(datos.get("metodoPago") or "").strip()
+    hab = str(datos.get("hab") or "").strip()
+    pers = str(datos.get("personal") or "").strip()
+    nro_op = str(datos.get("nroOpYape") or "").strip()
+
+    if not prod:
+        raise ValueError("El producto no puede quedar vacío.")
+    if sub <= 0:
+        raise ValueError("El subtotal de la venta debe ser mayor a 0.")
+
+    with db_transaction() as conn:
+        actual = conn.execute("SELECT * FROM ventas_tienda WHERE venta_uuid = ?", (v_uuid,)).fetchone()
+        if not actual:
+            raise ValueError("No se encontró la venta en la base de datos interna.")
+
+        sub_prev = round(float(actual["subtotal"] or 0), 2)
+        met_prev = str(actual["metodo_pago"] or "").strip()
+        efec_prev = sub_prev if "efectivo" in met_prev.lower() else 0.0
+        efec_nuevo = sub if "efectivo" in met.lower() else 0.0
+        delta_caja = round(efec_nuevo - efec_prev, 2)
+
+        # Si estaba o está cargada a una habitación vinculada, ajustar adic_snacks en la estancia
+        est_updates = None
+        id_est = str(actual["id_estancia"] or "").strip()
+        est_u = str(actual["estancia_uuid"] or "").strip()
+        era_cargo_hab = met_prev in ("Cargar a Habitación", "Cargar a la Cuenta") and bool(actual["hab"])
+        es_cargo_hab = met in ("Cargar a Habitación", "Cargar a la Cuenta") and bool(hab)
+        delta_snacks = (sub if es_cargo_hab else 0.0) - (sub_prev if era_cargo_hab else 0.0)
+        if abs(delta_snacks) > 0.005 and (est_u or id_est):
+            st = None
+            if est_u:
+                st = conn.execute("SELECT * FROM estancias WHERE estancia_uuid = ?", (est_u,)).fetchone()
+            if not st and id_est:
+                st = conn.execute("SELECT * FROM estancias WHERE id_timestamp_str = ?", (id_est,)).fetchone()
+            if st:
+                snacks_new = max(0.0, round(float(st["adic_snacks"] or 0) + delta_snacks, 2))
+                conn.execute(
+                    "UPDATE estancias SET adic_snacks = ?, dirty = 1, updated_at = ? WHERE estancia_uuid = ?",
+                    (snacks_new, datetime.now().isoformat(), st["estancia_uuid"]),
+                )
+                est_updates = {
+                    "estancia_uuid": st["estancia_uuid"],
+                    "id_timestamp_str": st["id_timestamp_str"],
+                    "sheet_row": int(st["sheet_row"] or 0),
+                    "adic_snacks": snacks_new,
+                }
+
+        conn.execute(
+            """
+            UPDATE ventas_tienda SET
+                fecha_dmy = ?, producto = ?, cantidad = ?, metodo_pago = ?,
+                hab = ?, personal = ?, precio_unit = ?, subtotal = ?, nro_op_yape = ?, synced = 0
+            WHERE venta_uuid = ?
+            """,
+            (fecha_dmy, prod, cant, met, hab, pers, p_unit, sub, nro_op, v_uuid),
+        )
+
+        _encolar_operacion(
+            conn,
+            "EDITAR_VENTA_TIENDA_ADMIN",
+            v_uuid,
+            {
+                "venta_uuid": v_uuid,
+                "fecha_iso": actual["fecha_iso"],
+                "sheet_row": int(actual["sheet_row"] or 0),
+                "fila_bi": [fecha_dmy, prod, cant, met, hab, pers, p_unit, sub],
+                "nro_op_yape": nro_op,
+                "estancia_updates": est_updates,
+            },
+            delta_caja=delta_caja,
+        )
+
+    return {"ok": True, "ventaUuid": v_uuid}
+
+
+def eliminar_venta_tienda_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    import horario_logic as hl
+    hl.validar_clave_cuentas(datos)
+
+    v_uuid = str(datos.get("ventaUuid") or "").strip()
+    if not v_uuid:
+        raise ValueError("Falta el identificador de la venta a eliminar.")
+
+    with db_transaction() as conn:
+        actual = conn.execute("SELECT * FROM ventas_tienda WHERE venta_uuid = ?", (v_uuid,)).fetchone()
+        if not actual:
+            raise ValueError("No se encontró la venta en la base de datos interna.")
+
+        sub_prev = round(float(actual["subtotal"] or 0), 2)
+        met_prev = str(actual["metodo_pago"] or "").strip()
+        delta_caja = -sub_prev if "efectivo" in met_prev.lower() else 0.0
+
+        est_updates = None
+        id_est = str(actual["id_estancia"] or "").strip()
+        est_u = str(actual["estancia_uuid"] or "").strip()
+        era_cargo_hab = met_prev in ("Cargar a Habitación", "Cargar a la Cuenta") and bool(actual["hab"])
+        if era_cargo_hab and sub_prev > 0 and (est_u or id_est):
+            st = None
+            if est_u:
+                st = conn.execute("SELECT * FROM estancias WHERE estancia_uuid = ?", (est_u,)).fetchone()
+            if not st and id_est:
+                st = conn.execute("SELECT * FROM estancias WHERE id_timestamp_str = ?", (id_est,)).fetchone()
+            if st:
+                snacks_new = max(0.0, round(float(st["adic_snacks"] or 0) - sub_prev, 2))
+                conn.execute(
+                    "UPDATE estancias SET adic_snacks = ?, dirty = 1, updated_at = ? WHERE estancia_uuid = ?",
+                    (snacks_new, datetime.now().isoformat(), st["estancia_uuid"]),
+                )
+                est_updates = {
+                    "estancia_uuid": st["estancia_uuid"],
+                    "id_timestamp_str": st["id_timestamp_str"],
+                    "sheet_row": int(st["sheet_row"] or 0),
+                    "adic_snacks": snacks_new,
+                }
+
+        conn.execute("DELETE FROM ventas_tienda WHERE venta_uuid = ?", (v_uuid,))
+        _encolar_operacion(
+            conn,
+            "ELIMINAR_VENTA_TIENDA_ADMIN",
+            v_uuid,
+            {
+                "venta_uuid": v_uuid,
+                "fecha_iso": actual["fecha_iso"],
+                "sheet_row": int(actual["sheet_row"] or 0),
+                "estancia_updates": est_updates,
+            },
+            delta_caja=delta_caja,
+        )
+
+    return {"ok": True, "ventaUuid": v_uuid}
+
 

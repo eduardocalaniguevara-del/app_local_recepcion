@@ -191,7 +191,7 @@
       <button type="button" id="tabVistaHorario" onclick="cambiarVista('horario')"
               class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">⏰ Horario</button>
       <button type="button" id="tabVistaEstanciasBD" onclick="cambiarVista('estancias_bd')"
-              class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors" title="Base de datos histórica y editable de Registro_Estancias">📋 Registro Estancias</button>
+              class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors" title="Bases de datos internas: Estancias, Gastos y Ventas Tienda">🗂️ Registros (BD)</button>
       <button type="button" id="btnMovimientos" onclick="abrirMovimientos()" title="Historial de movimientos (quién hizo qué y cuándo)"
               class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🕒 Movimientos</button>
     </div>
@@ -366,61 +366,127 @@
     </div>
   </div>
 
-  <!-- ======================= HOJA 5: REGISTRO DE ESTANCIAS (Base de Datos Completa + Filtros + Edición Admin con Clave) ======================= -->
+  <!-- ======================= HOJA 5: 🗂️ REGISTROS (BD) — ESTANCIAS, GASTOS Y VENTAS TIENDA ======================= -->
   <div id="vistaEstanciasBD" class="hidden flex-1 min-h-0 flex flex-col gap-1.5 overflow-hidden">
-    <!-- Barra de filtros y resumen -->
+    <!-- Barra de sub-pestañas, filtros contextuales y resumen -->
     <div class="shrink-0 flex flex-col gap-1.5 p-2 rounded-lg border" style="background-color: #FAF6F3; border-color: #DFD2C5;">
       <div class="flex flex-wrap items-end justify-between gap-2">
         <div class="flex flex-wrap items-end gap-1.5">
+          <!-- Selector de las 3 Sub-pestañas de Base de Datos -->
+          <div class="inline-flex rounded-md border border-[#C5B29E] overflow-hidden shadow-2xs mr-1 self-center">
+            <button type="button" id="subTabBDEstancias" onclick="bdCambiarSubTab('ESTANCIAS')"
+                    class="px-2.5 py-1 text-xs font-black bg-slate-800 text-white cursor-pointer transition-colors">🛏️ Estancias</button>
+            <button type="button" id="subTabBDGastos" onclick="bdCambiarSubTab('GASTOS')"
+                    class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">💸 Gastos</button>
+            <button type="button" id="subTabBDTienda" onclick="bdCambiarSubTab('TIENDA')"
+                    class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🛒 Ventas Tienda</button>
+          </div>
+
           <div>
-            <label class="block text-[10px] font-black text-slate-600">Desde (Check-In)</label>
+            <label id="lblBdDesde" class="block text-[10px] font-black text-slate-600">Desde</label>
             <input type="date" id="bdDesde" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
           </div>
           <div>
-            <label class="block text-[10px] font-black text-slate-600">Hasta (Check-In)</label>
+            <label id="lblBdHasta" class="block text-[10px] font-black text-slate-600">Hasta</label>
             <input type="date" id="bdHasta" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
           </div>
           <div class="flex items-center gap-1 pb-0.5">
             <button type="button" onclick="bdRangoRapido('HOY')" class="px-1.5 py-0.5 rounded bg-white hover:bg-amber-50 border border-[#D8C7B8] text-[10.5px] font-extrabold text-slate-700 cursor-pointer">Hoy</button>
             <button type="button" onclick="bdRangoRapido('MES')" class="px-1.5 py-0.5 rounded bg-white hover:bg-amber-50 border border-[#D8C7B8] text-[10.5px] font-extrabold text-slate-700 cursor-pointer">Este mes</button>
-            <button type="button" onclick="bdRangoRapido('TODO')" class="px-1.5 py-0.5 rounded bg-white hover:bg-amber-50 border border-[#D8C7B8] text-[10.5px] font-extrabold text-slate-700 cursor-pointer">Todo el historial</button>
+            <button type="button" onclick="bdRangoRapido('TODO')" class="px-1.5 py-0.5 rounded bg-white hover:bg-amber-50 border border-[#D8C7B8] text-[10.5px] font-extrabold text-slate-700 cursor-pointer">Todo</button>
           </div>
 
           <div>
-            <label class="block text-[10px] font-black text-slate-600">🔍 Huésped / DNI / RUC / Op. AW / Celular</label>
-            <input type="text" id="bdBuscar" oninput="bdDispararBusqueda()" placeholder="Escribe nombre, DNI, RUC, operación..."
-                   class="px-2 py-0.5 rounded border border-[#D8C7B8] text-xs bg-white w-52 focus:outline-hidden focus:ring-1 focus:ring-amber-700">
+            <label id="lblBdBuscar" class="block text-[10px] font-black text-slate-600">🔍 Huésped / DNI / RUC / Op. AW / Celular</label>
+            <input type="text" id="bdBuscar" oninput="bdDispararBusqueda()" placeholder="Buscar..."
+                   class="px-2 py-0.5 rounded border border-[#D8C7B8] text-xs bg-white w-48 focus:outline-hidden focus:ring-1 focus:ring-amber-700">
           </div>
 
-          <div>
-            <label class="block text-[10px] font-black text-slate-600">Hab.</label>
-            <select id="bdHab" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
-              <option value="">Todas</option>
-            </select>
+          <!-- Filtros contextuales: ESTANCIAS -->
+          <div id="filtrosCtxEstancias" class="flex flex-wrap items-end gap-1.5">
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Hab.</label>
+              <select id="bdHab" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todas</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Tipo Hab.</label>
+              <select id="bdTipoHab" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer max-w-[140px]">
+                <option value="">Todos</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Empresa (AQ)</label>
+              <select id="bdEmpresa" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white max-w-[155px] cursor-pointer">
+                <option value="">Todas</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Estado Pago (AN)</label>
+              <select id="bdEstadoPago" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todos</option>
+                <option value="PENDIENTE">⚠️ Con Deuda / Pendiente</option>
+                <option value="COMPLETADO">✅ Pagos Completados</option>
+                <option value="CANCELADO">🚫 Cancelados</option>
+              </select>
+            </div>
           </div>
 
-          <div>
-            <label class="block text-[10px] font-black text-slate-600">Tipo Hab.</label>
-            <select id="bdTipoHab" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
-              <option value="">Todos</option>
-            </select>
+          <!-- Filtros contextuales: GASTOS -->
+          <div id="filtrosCtxGastos" class="hidden flex flex-wrap items-end gap-1.5">
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Categoría (E)</label>
+              <select id="bdGastoCat" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white max-w-[165px] cursor-pointer">
+                <option value="">Todas</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Método Pago (F)</label>
+              <select id="bdGastoMet" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todos</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Responsable (I)</label>
+              <select id="bdGastoResp" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todos</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Personal (Col J)</label>
+              <select id="bdGastoPers" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todos</option>
+              </select>
+            </div>
           </div>
 
-          <div>
-            <label class="block text-[10px] font-black text-slate-600">Empresa (AQ)</label>
-            <select id="bdEmpresa" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white max-w-[170px] cursor-pointer">
-              <option value="">Todas</option>
-            </select>
-          </div>
-
-          <div>
-            <label class="block text-[10px] font-black text-slate-600">Estado Pago (AN)</label>
-            <select id="bdEstadoPago" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
-              <option value="">Todos</option>
-              <option value="PENDIENTE">⚠️ Con Deuda / Pendiente</option>
-              <option value="COMPLETADO">✅ Pagos Completados</option>
-              <option value="CANCELADO">🚫 Cancelados</option>
-            </select>
+          <!-- Filtros contextuales: VENTAS TIENDA -->
+          <div id="filtrosCtxTienda" class="hidden flex flex-wrap items-end gap-1.5">
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Producto (C)</label>
+              <select id="bdTiendaProd" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white max-w-[165px] cursor-pointer">
+                <option value="">Todos</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Método Pago (E)</label>
+              <select id="bdTiendaMet" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todos</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Hab. (F)</label>
+              <select id="bdTiendaHab" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todas</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10px] font-black text-slate-600">Personal (G)</label>
+              <select id="bdTiendaPers" onchange="cargarVistaEstanciasBD()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
+                <option value="">Todos</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -429,7 +495,7 @@
           <button type="button" onclick="cargarVistaEstanciasBD()" class="px-2 py-1 rounded font-bold bg-slate-700 hover:bg-slate-800 text-white text-[11px] cursor-pointer">🔄 Actualizar</button>
           <label id="btnToggleAdminBD" onclick="toggleModoEdicionBDUI(event)"
                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded font-extrabold bg-amber-900 hover:bg-amber-950 text-amber-50 border border-amber-950 text-xs shadow-xs cursor-pointer transition-colors select-none"
-                 title="Recepcionista: solo lectura. Marcar con contraseña de Administrador para habilitar edición.">
+                 title="Recepcionista: solo lectura. Marcar con contraseña de Administrador para habilitar edición en las 3 bases de datos.">
             <input type="checkbox" id="chkAdminBD" class="accent-emerald-400 pointer-events-none w-3.5 h-3.5">
             <span id="lblBtnAdminBD">🔒 Modo Edición (Admin)</span>
           </label>
@@ -441,10 +507,10 @@
 
     <div id="bdBanner" class="hidden shrink-0 px-3 py-1.5 rounded-lg text-xs font-extrabold border"></div>
 
-    <!-- Tabla principal de Registro_Estancias -->
-    <div id="panelTablaEstanciasBD" tabindex="0" role="region" aria-label="Base de datos de Registro de Estancias"
-         class="flex-1 min-h-0 overflow-x-auto overflow-y-auto rounded-lg shadow-xs border"
-         style="background-color: #FAF6F3; border-color: #DFD2C5;">
+    <!-- Tabla principal dinámica (Estancias / Gastos / Ventas Tienda) -->
+    <div id="panelTablaEstanciasBD" tabindex="0" role="region" aria-label="Base de datos histórica"
+          class="flex-1 min-h-0 overflow-x-auto overflow-y-auto rounded-lg shadow-xs border"
+          style="background-color: #FAF6F3; border-color: #DFD2C5;">
       <table class="w-full text-left text-[11px] select-none border-collapse">
         <thead id="bdHead" class="sticky top-0 text-white font-bold uppercase tracking-tight z-10" style="background-color: #2D2623;"></thead>
         <tbody id="bdBody" class="divide-y divide-[#E6DCD2]"></tbody>
@@ -452,7 +518,7 @@
     </div>
   </div>
 
-  <!-- DIÁLOGO MODAL: CONTRASEÑA DE MODO EDICIÓN ADMIN (REGISTRO ESTANCIAS) -->
+  <!-- DIÁLOGO MODAL: CONTRASEÑA DE MODO EDICIÓN ADMIN (REGISTROS BD) -->
   <dialog id="dialogClaveAdminBD" closedby="any" aria-labelledby="tituloDialogClaveBD"
           class="rounded-xl shadow-2xl border border-slate-300 p-0 w-80 max-w-[92vw] bg-white text-slate-800 m-auto">
     <form onsubmit="confirmarClaveAdminBDUI(event)" class="p-4 space-y-3" autocomplete="off">
@@ -473,17 +539,17 @@
     </form>
   </dialog>
 
-  <!-- DIÁLOGO MODAL: EDITOR COMPLETO DE FILA DE REGISTRO_ESTANCIAS (SOLO ADMIN) -->
+  <!-- DIÁLOGO MODAL: EDITOR COMPLETO DE FILA (ESTANCIAS / GASTOS / VENTAS TIENDA) -->
   <dialog id="dialogEditarFilaBD" closedby="any" aria-labelledby="tituloEditarFilaBD"
           class="rounded-xl shadow-2xl border border-slate-300 p-0 w-[760px] max-w-[96vw] bg-white text-slate-800 m-auto">
     <form onsubmit="guardarEdicionFilaBDUI(event)" class="p-4 space-y-3 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b border-slate-200 pb-2">
-        <h3 id="tituloEditarFilaBD" class="font-black text-sm text-slate-900">✏️ Editar Estancia</h3>
+        <h3 id="tituloEditarFilaBD" class="font-black text-sm text-slate-900">✏️ Editar Registro</h3>
         <button type="button" onclick="cerrarModalEditarFilaBD()" class="text-slate-400 hover:text-slate-700 font-bold text-sm w-6 h-6 rounded cursor-pointer">✕</button>
       </div>
       <div id="formEditarFilaBDBody" class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs"></div>
-      <p class="text-[10.5px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1">
-        ℹ️ Al guardar se actualiza la Base Interna en 0 ms (recalculando Subtotal, Total Cuenta, Total Pagado, Saldo y Estado AN) y se sincroniza con Google Sheets sin tocar ninguna columna de fórmula.
+      <p id="notaEditarFilaBD" class="text-[10.5px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1">
+        ℹ️ Al guardar se actualiza la Base Interna en 0 ms y se sincroniza con Google Sheets sin tocar ninguna columna de fórmula.
       </p>
       <div class="flex justify-end gap-2 pt-1 border-t border-slate-200">
         <button type="button" onclick="cerrarModalEditarFilaBD()" class="px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer">Cancelar</button>
@@ -491,7 +557,6 @@
       </div>
     </form>
   </dialog>
-
 
 
   <!-- ======================= HOJA 4: HORARIO Y PAGOS DE PERSONAL ======================= -->
@@ -4839,9 +4904,19 @@
   };
 
   // =========================================================================
-  // 📋 REGISTRO DE ESTANCIAS (Base de Datos Completa + Filtros + Edición Admin)
+  // 🗂️ REGISTROS (BD): ESTANCIAS, GASTOS Y VENTAS TIENDA (Filtros 0ms + Edición Admin)
   // =========================================================================
-  var BDE = { filas: [], clave: '', adminActivo: false, mostrar3roForzado: false, timerQ: null, editando: null, catalogosCargados: false };
+  var BDE = {
+    subtab: 'ESTANCIAS',
+    filas: [],
+    data: {},
+    clave: '',
+    adminActivo: false,
+    mostrar3roForzado: false,
+    mostrarPersGastoForzado: false,
+    timerQ: null,
+    editando: null
+  };
   window.BDE = BDE;
 
   function bdBanner(tipo, msg) {
@@ -4852,6 +4927,37 @@
     clearTimeout(BDE.bannerT);
     BDE.bannerT = setTimeout(function () { b.classList.add('hidden'); }, tipo === 'ok' ? 4500 : 8000);
   }
+
+  window.bdCambiarSubTab = function (tab) {
+    BDE.subtab = tab || 'ESTANCIAS';
+    var act = 'px-2.5 py-1 text-xs font-black bg-slate-800 text-white cursor-pointer transition-colors';
+    var ina = 'px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 cursor-pointer transition-colors';
+    var bE = document.getElementById('subTabBDEstancias');
+    var bG = document.getElementById('subTabBDGastos');
+    var bT = document.getElementById('subTabBDTienda');
+    if (bE) bE.className = (BDE.subtab === 'ESTANCIAS' ? act : ina);
+    if (bG) bG.className = (BDE.subtab === 'GASTOS' ? act : ina) + ' border-l border-[#D8C7B8]';
+    if (bT) bT.className = (BDE.subtab === 'TIENDA' ? act : ina) + ' border-l border-[#D8C7B8]';
+
+    var show = function (id, on) { var el = document.getElementById(id); if (el) el.classList.toggle('hidden', !on); };
+    show('filtrosCtxEstancias', BDE.subtab === 'ESTANCIAS');
+    show('filtrosCtxGastos', BDE.subtab === 'GASTOS');
+    show('filtrosCtxTienda', BDE.subtab === 'TIENDA');
+
+    var lblB = document.getElementById('lblBdBuscar');
+    var inpB = document.getElementById('bdBuscar');
+    if (BDE.subtab === 'ESTANCIAS') {
+      if (lblB) lblB.textContent = '🔍 Huésped / DNI / RUC / Op. AW / Celular';
+      if (inpB) inpB.placeholder = 'Nombre, DNI, RUC, operación...';
+    } else if (BDE.subtab === 'GASTOS') {
+      if (lblB) lblB.textContent = '🔍 Descripción / Comprobante / Personal';
+      if (inpB) inpB.placeholder = 'Descripción, N° comp, personal...';
+    } else {
+      if (lblB) lblB.textContent = '🔍 Producto / Hab. / Personal / Op. Yape';
+      if (inpB) inpB.placeholder = 'Producto, hab, operación...';
+    }
+    cargarVistaEstanciasBD();
+  };
 
   window.bdRangoRapido = function (modo) {
     var dEl = document.getElementById('bdDesde'), hEl = document.getElementById('bdHasta');
@@ -4874,7 +4980,11 @@
   };
 
   window.bdLimpiarFiltros = function () {
-    ['bdBuscar', 'bdHab', 'bdTipoHab', 'bdEmpresa', 'bdEstadoPago'].forEach(function (id) {
+    [
+      'bdBuscar', 'bdHab', 'bdTipoHab', 'bdEmpresa', 'bdEstadoPago',
+      'bdGastoCat', 'bdGastoMet', 'bdGastoResp', 'bdGastoPers',
+      'bdTiendaProd', 'bdTiendaMet', 'bdTiendaHab', 'bdTiendaPers'
+    ].forEach(function (id) {
       var el = document.getElementById(id); if (el) el.value = '';
     });
     bdRangoRapido('MES');
@@ -4895,27 +5005,75 @@
       hEl.value = p[0] + '-' + String(p[1]).padStart(2, '0') + '-' + String(ult).padStart(2, '0');
       dispararFoco(dEl); dispararFoco(hEl);
     }
-    var payload = {
-      desde: dEl && dEl.value ? aDMY(dEl.value) : '',
-      hasta: hEl && hEl.value ? aDMY(hEl.value) : '',
-      q: (document.getElementById('bdBuscar') || {}).value || '',
+    var desdeVal = dEl && dEl.value ? aDMY(dEl.value) : '';
+    var hastaVal = hEl && hEl.value ? aDMY(hEl.value) : '';
+    var qVal = (document.getElementById('bdBuscar') || {}).value || '';
+
+    if (BDE.subtab === 'GASTOS') {
+      var payloadG = {
+        desde: desdeVal,
+        hasta: hastaVal,
+        q: qVal,
+        categoria: (document.getElementById('bdGastoCat') || {}).value || '',
+        metodoPago: (document.getElementById('bdGastoMet') || {}).value || '',
+        responsable: (document.getElementById('bdGastoResp') || {}).value || '',
+        personal: (document.getElementById('bdGastoPers') || {}).value || '',
+        limite: 1000
+      };
+      runGas('obtenerRegistroGastosBD', [payloadG], function (res) {
+        BDE.data = res || {};
+        BDE.filas = (res && res.filas) || [];
+        bdPoblarSelectoresGastos(res || {});
+        bdRenderTabla();
+      }, function (err) {
+        bdBanner('error', '❌ Error al cargar Registro de Gastos: ' + ((err && err.message) || err));
+      });
+      return;
+    }
+
+    if (BDE.subtab === 'TIENDA') {
+      var payloadT = {
+        desde: desdeVal,
+        hasta: hastaVal,
+        q: qVal,
+        producto: (document.getElementById('bdTiendaProd') || {}).value || '',
+        metodoPago: (document.getElementById('bdTiendaMet') || {}).value || '',
+        hab: (document.getElementById('bdTiendaHab') || {}).value || '',
+        personal: (document.getElementById('bdTiendaPers') || {}).value || '',
+        limite: 1000
+      };
+      runGas('obtenerRegistroVentasTiendaBD', [payloadT], function (res) {
+        BDE.data = res || {};
+        BDE.filas = (res && res.filas) || [];
+        bdPoblarSelectoresTienda(res || {});
+        bdRenderTabla();
+      }, function (err) {
+        bdBanner('error', '❌ Error al cargar Registro de Ventas Tienda: ' + ((err && err.message) || err));
+      });
+      return;
+    }
+
+    var payloadE = {
+      desde: desdeVal,
+      hasta: hastaVal,
+      q: qVal,
       hab: (document.getElementById('bdHab') || {}).value || '',
       tipoHab: (document.getElementById('bdTipoHab') || {}).value || '',
       empresa: (document.getElementById('bdEmpresa') || {}).value || '',
       estadoPago: (document.getElementById('bdEstadoPago') || {}).value || '',
       limite: 800
     };
-    runGas('obtenerRegistroEstanciasBD', [payload], function (res) {
+    runGas('obtenerRegistroEstanciasBD', [payloadE], function (res) {
       BDE.data = res || {};
       BDE.filas = (res && res.filas) || [];
-      bdPoblarSelectores(res || {});
+      bdPoblarSelectoresEstancias(res || {});
       bdRenderTabla();
     }, function (err) {
       bdBanner('error', '❌ Error al cargar Registro de Estancias: ' + ((err && err.message) || err));
     });
   };
 
-  function bdPoblarSelectores(res) {
+  function bdPoblarSelectoresEstancias(res) {
     var sh = document.getElementById('bdHab');
     if (sh && res.habitaciones) {
       var prevH = sh.value;
@@ -4937,12 +5095,87 @@
     }
   }
 
+  function bdPoblarSelectoresGastos(res) {
+    var sc = document.getElementById('bdGastoCat');
+    if (sc && res.categorias) {
+      var prevC = sc.value;
+      sc.innerHTML = '<option value="">Todas</option>' + res.categorias.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+      sc.value = prevC;
+    }
+    var sm = document.getElementById('bdGastoMet');
+    if (sm && res.metodosPago) {
+      var prevM = sm.value;
+      sm.innerHTML = '<option value="">Todos</option>' + res.metodosPago.map(function (m) { return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('');
+      sm.value = prevM;
+    }
+    var sr = document.getElementById('bdGastoResp');
+    if (sr && res.responsables) {
+      var prevR = sr.value;
+      sr.innerHTML = '<option value="">Todos</option>' + res.responsables.map(function (r) { return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('');
+      sr.value = prevR;
+    }
+    var sp = document.getElementById('bdGastoPers');
+    if (sp && res.listaPersonal) {
+      var prevP = sp.value;
+      sp.innerHTML = '<option value="">Todos</option><option value="__CON_PERSONAL__">👤 Solo con personal (Col J)</option>' +
+        res.listaPersonal.map(function (p) { return '<option value="' + esc(p) + '">' + esc(p) + '</option>'; }).join('');
+      sp.value = prevP;
+    }
+  }
+
+  function bdPoblarSelectoresTienda(res) {
+    var sp = document.getElementById('bdTiendaProd');
+    if (sp && res.productos) {
+      var prevP = sp.value;
+      sp.innerHTML = '<option value="">Todos</option>' + res.productos.map(function (p) { return '<option value="' + esc(p) + '">' + esc(p) + '</option>'; }).join('');
+      sp.value = prevP;
+    }
+    var sm = document.getElementById('bdTiendaMet');
+    if (sm && res.metodosPago) {
+      var prevM = sm.value;
+      sm.innerHTML = '<option value="">Todos</option>' + res.metodosPago.map(function (m) { return '<option value="' + esc(m) + '">' + esc(m) + '</option>'; }).join('');
+      sm.value = prevM;
+    }
+    var sh = document.getElementById('bdTiendaHab');
+    if (sh && res.habitaciones) {
+      var prevH = sh.value;
+      sh.innerHTML = '<option value="">Todas</option><option value="__CON_HAB__">🛏️ Solo con habitación</option>' +
+        res.habitaciones.map(function (h) { return '<option value="' + esc(h) + '">' + esc(h) + '</option>'; }).join('');
+      sh.value = prevH;
+    }
+    var spe = document.getElementById('bdTiendaPers');
+    if (spe && res.listaPersonal) {
+      var prevPe = spe.value;
+      spe.innerHTML = '<option value="">Todos</option><option value="__CON_PERSONAL__">👤 Solo consumo personal</option>' +
+        res.listaPersonal.map(function (p) { return '<option value="' + esc(p) + '">' + esc(p) + '</option>'; }).join('');
+      spe.value = prevPe;
+    }
+  }
+
   window.bdToggleCol3ro = function () {
     BDE.mostrar3roForzado = !BDE.mostrar3roForzado;
     bdRenderTabla();
   };
 
+  window.bdToggleColPersGasto = function () {
+    BDE.mostrarPersGastoForzado = !BDE.mostrarPersGastoForzado;
+    bdRenderTabla();
+  };
+
   function bdRenderTabla() {
+    if (BDE.subtab === 'GASTOS') {
+      bdRenderTablaGastos();
+      return;
+    }
+    if (BDE.subtab === 'TIENDA') {
+      bdRenderTablaTienda();
+      return;
+    }
+    bdRenderTablaEstancias();
+  }
+
+  // -------------------- 1. RENDER TABLA ESTANCIAS --------------------
+  function bdRenderTablaEstancias() {
     var res = BDE.data || {};
     var R = res.resumen || {};
     var expandir3ro = !!(res.hayTercerHuesped || BDE.mostrar3roForzado);
@@ -4952,15 +5185,15 @@
     if (bar) {
       bar.innerHTML =
         '<div class="flex flex-wrap items-center gap-1.5 font-extrabold">' +
-          '<span class="px-2 py-0.5 rounded bg-slate-800 text-white">📋 ' + (R.cantidad || 0) + ' estancias mostradas <span class="font-normal opacity-80">(de ' + (res.totalEnBD || 0) + ' en BD local)</span></span>' +
-          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">🛏️ Subtotal: ' + soles(R.subtotalAloj) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-slate-800 text-white">🛏️ ' + (R.cantidad || 0) + ' estancias <span class="font-normal opacity-80">(de ' + (res.totalEnBD || 0) + ' • ⬇️ última anotación en Fila 1)</span></span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">Subtotal: ' + soles(R.subtotalAloj) + '</span>' +
           '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">➕ Adic.: ' + soles(R.totalAdic) + '</span>' +
           '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-900">💰 Total Cuenta: ' + soles(R.totalCuenta) + '</span>' +
           '<span class="px-2 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-950">✅ Pagado: ' + soles(R.totalPagado) + '</span>' +
           '<span class="px-2 py-0.5 rounded ' + ((R.saldoPendiente || 0) > 0 ? 'bg-red-100 border border-red-300 text-red-900' : 'bg-slate-100 border border-slate-300 text-slate-600') + '">⚠️ Saldo Pendiente: ' + soles(R.saldoPendiente) + '</span>' +
         '</div>' +
         '<span class="text-[10.5px] font-bold ' + (admin ? 'text-emerald-800' : 'text-slate-500') + '">' +
-          (admin ? '🔓 Modo Administrador activo: haz clic en «✏️» en cualquier fila para editar.' : '👁️ Vista Recepcionista (solo lectura).') +
+          (admin ? '🔓 Modo Admin activo: clic en «✏️» para editar.' : '👁️ Vista Recepcionista (solo lectura).') +
         '</span>';
     }
 
@@ -4969,7 +5202,7 @@
       head.innerHTML =
         '<tr class="h-8 text-[10px]">' +
           (admin ? '<th class="px-1.5 w-[44px] text-center border-r border-[#433A36] bg-emerald-900">Editar</th>' : '') +
-          '<th class="px-1.5 w-[118px] border-r border-[#433A36]">ID / Hora Anot.</th>' +
+          '<th class="px-1.5 w-[118px] border-r border-[#433A36]" title="Ordenado de más reciente (arriba) a más antiguo (abajo)">⬇️ ID / Hora Anot.</th>' +
           '<th class="px-1.5 w-[74px] text-center border-r border-[#433A36]">Check-In</th>' +
           '<th class="px-1.5 w-[74px] text-center border-r border-[#433A36]">Check-Out</th>' +
           '<th class="px-2 min-w-[175px] border-r border-[#433A36]">Huésped 1 + DNI</th>' +
@@ -5074,6 +5307,165 @@
     }).join('');
   }
 
+  // -------------------- 2. RENDER TABLA GASTOS --------------------
+  function bdRenderTablaGastos() {
+    var res = BDE.data || {};
+    var R = res.resumen || {};
+    var expandirPers = !!(res.hayPersonal || BDE.mostrarPersGastoForzado);
+    var admin = !!BDE.adminActivo;
+
+    var bar = document.getElementById('bdResumenBar');
+    if (bar) {
+      bar.innerHTML =
+        '<div class="flex flex-wrap items-center gap-1.5 font-extrabold">' +
+          '<span class="px-2 py-0.5 rounded bg-slate-800 text-white">💸 ' + (R.cantidad || 0) + ' gastos <span class="font-normal opacity-80">(de ' + (res.totalEnBD || 0) + ' • ⬇️ última anotación en Fila 1)</span></span>' +
+          '<span class="px-2 py-0.5 rounded bg-red-100 border border-red-300 text-red-950">💰 Total Gastos: ' + soles(R.totalMonto) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-300 text-emerald-900">💵 Efectivo: ' + soles(R.totalEfectivo) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-purple-50 border border-purple-300 text-purple-900">📱 Yape / Banco: ' + soles(R.totalYapeBanco) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">👤 Sueldos / Adelantos: ' + soles(R.totalSueldosAdelantos) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">🏪 Compras Tienda: ' + soles(R.totalTienda) + '</span>' +
+        '</div>' +
+        '<span class="text-[10.5px] font-bold ' + (admin ? 'text-emerald-800' : 'text-slate-500') + '">' +
+          (admin ? '🔓 Modo Admin activo: puedes editar (✏️) o eliminar (🗑️) gastos.' : '👁️ Vista Recepcionista (solo lectura).') +
+        '</span>';
+    }
+
+    var head = document.getElementById('bdHead');
+    if (head) {
+      head.innerHTML =
+        '<tr class="h-8 text-[10px]">' +
+          (admin ? '<th class="px-1.5 w-[68px] text-center border-r border-[#433A36] bg-emerald-900">Acción</th>' : '') +
+          '<th class="px-2 w-[135px] border-r border-[#433A36]" title="Columna A: ID / Fecha-Hora de anotación (última arriba)">⬇️ ID / Hora Anot. (A)</th>' +
+          '<th class="px-2 w-[88px] text-center border-r border-[#433A36]" title="Columna B: Fecha del gasto">Fecha Gasto (B)</th>' +
+          '<th class="px-2.5 min-w-[230px] border-r border-[#433A36]" title="Columna C: Descripción">Descripción / Detalle (C)</th>' +
+          '<th class="px-2 w-[86px] text-right border-r border-[#433A36] bg-amber-950/60" title="Columna D: Monto">Monto S/ (D)</th>' +
+          '<th class="px-2 w-[160px] border-r border-[#433A36]" title="Columna E: Categoría">Categoría (E)</th>' +
+          '<th class="px-2 w-[105px] text-center border-r border-[#433A36]" title="Columna F: Método de Pago">Método Pago (F)</th>' +
+          '<th class="px-2 w-[95px] text-center border-r border-[#433A36]" title="Columna G: Tipo de Comprobante">Tipo Comp. (G)</th>' +
+          '<th class="px-2 w-[100px] border-r border-[#433A36]" title="Columna H: N° de Comprobante">N° Comp. (H)</th>' +
+          '<th class="px-2 w-[95px] border-r border-[#433A36]" title="Columna I: Responsable">Responsable (I)</th>' +
+          (expandirPers
+            ? '<th class="px-2 w-[135px] cursor-pointer" onclick="bdToggleColPersGasto()" title="Columna J: Personal asociado (clic para encoger)">Personal (Col J) ▾</th>'
+            : '<th class="px-0.5 w-[28px] max-w-[28px] text-center cursor-pointer opacity-75 hover:opacity-100" onclick="bdToggleColPersGasto()" title="Columna J: Personal (clic para expandir)">J</th>') +
+        '</tr>';
+    }
+
+    var body = document.getElementById('bdBody');
+    if (!body) return;
+    if (!BDE.filas.length) {
+      body.innerHTML = '<tr><td colspan="12" class="px-4 py-8 text-center text-slate-400 font-bold">No se encontraron gastos con estos filtros.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = BDE.filas.map(function (f, idx) {
+      var esEfec = String(f.metodoPago || '').toLowerCase().indexOf('efectivo') >= 0;
+      var badgeMet = esEfec
+        ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">💵 ' + esc(f.metodoPago) + '</span>'
+        : '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-purple-100 text-purple-900 border border-purple-300">📱 ' + esc(f.metodoPago || '—') + '</span>';
+      var colJ = expandirPers
+        ? '<td class="px-2 font-bold text-amber-950">' + (f.personal ? '<span class="px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-[10px]">👤 ' + esc(f.personal) + '</span>' : '<span class="text-slate-300">—</span>') + '</td>'
+        : '<td class="px-0.5 w-[28px] max-w-[28px] text-center text-amber-700 text-[9px]">' + (f.personal ? '●' : '') + '</td>';
+
+      return '<tr class="h-8 bg-white hover:bg-amber-50/60">' +
+        (admin
+          ? '<td class="px-1 text-center border-r border-[#E6DCD2] whitespace-nowrap">' +
+              '<button type="button" onclick="bdAbrirModalEditar(' + idx + ')" class="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-[10px] border border-amber-300 cursor-pointer mr-0.5" title="Editar gasto">✏️</button>' +
+              '<button type="button" onclick="bdEliminarRegistroUI(' + idx + ')" class="px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-900 font-black text-[10px] border border-red-300 cursor-pointer" title="Eliminar gasto">🗑️</button>' +
+            '</td>'
+          : '') +
+        '<td class="px-2 py-1 border-r border-[#E6DCD2] whitespace-nowrap"><div class="font-bold text-slate-800 text-[10.5px]">' + esc(f.id) + '</div><div class="text-[9.5px] text-slate-400">Fila #' + f.fila + (!f.synced ? ' • ⏳' : '') + '</div></td>' +
+        '<td class="px-2 text-center font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + esc(f.fecha) + '</td>' +
+        '<td class="px-2.5 font-bold text-slate-900 border-r border-[#E6DCD2]">' + esc(f.descripcion) + '</td>' +
+        '<td class="px-2 text-right font-black text-red-900 border-r border-[#E6DCD2] bg-amber-50/40">' + Number(f.monto || 0).toFixed(2) + '</td>' +
+        '<td class="px-2 font-bold text-slate-800 border-r border-[#E6DCD2]">' + esc(f.categoria) + '</td>' +
+        '<td class="px-2 text-center border-r border-[#E6DCD2] whitespace-nowrap">' + badgeMet + '</td>' +
+        '<td class="px-2 text-center text-slate-700 border-r border-[#E6DCD2]">' + (esc(f.tipoComp) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-2 font-mono text-[10.5px] text-slate-700 border-r border-[#E6DCD2]">' + (esc(f.nroComp) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-2 font-bold text-slate-700 border-r border-[#E6DCD2]">' + esc(f.responsable) + '</td>' +
+        colJ +
+      '</tr>';
+    }).join('');
+  }
+
+  // -------------------- 3. RENDER TABLA VENTAS TIENDA --------------------
+  function bdRenderTablaTienda() {
+    var res = BDE.data || {};
+    var R = res.resumen || {};
+    var admin = !!BDE.adminActivo;
+
+    var bar = document.getElementById('bdResumenBar');
+    if (bar) {
+      bar.innerHTML =
+        '<div class="flex flex-wrap items-center gap-1.5 font-extrabold">' +
+          '<span class="px-2 py-0.5 rounded bg-slate-800 text-white">🛒 ' + (R.cantidadFilas || 0) + ' ventas (' + (R.totalUnidades || 0) + ' unid.) <span class="font-normal opacity-80">(de ' + (res.totalEnBD || 0) + ' • ⬇️ última anotación en Fila 1)</span></span>' +
+          '<span class="px-2 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-950">💰 Total Ventas: ' + soles(R.totalVenta) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-300 text-emerald-900">💵 Efectivo: ' + soles(R.totalEfectivo) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-purple-50 border border-purple-300 text-purple-900">📱 Yape / VISA: ' + soles(R.totalYapeVisa) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-blue-50 border border-blue-300 text-blue-900">🛏️ Cargo Hab.: ' + soles(R.totalCargoHab) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">👤 Cargo Personal: ' + soles(R.totalCargoPersonal) + '</span>' +
+        '</div>' +
+        '<span class="text-[10.5px] font-bold ' + (admin ? 'text-emerald-800' : 'text-slate-500') + '">' +
+          (admin ? '🔓 Modo Admin activo: puedes editar (✏️) o eliminar (🗑️) ventas.' : '👁️ Vista Recepcionista (solo lectura).') +
+        '</span>';
+    }
+
+    var head = document.getElementById('bdHead');
+    if (head) {
+      head.innerHTML =
+        '<tr class="h-8 text-[10px]">' +
+          (admin ? '<th class="px-1.5 w-[68px] text-center border-r border-[#433A36] bg-emerald-900">Acción</th>' : '') +
+          '<th class="px-2 w-[135px] border-r border-[#433A36]" title="Columna A: Fecha y Hora de anotación (última arriba)">⬇️ ID / Hora Anot. (A)</th>' +
+          '<th class="px-2 w-[85px] text-center border-r border-[#433A36]" title="Columna B: Fecha">Fecha (B)</th>' +
+          '<th class="px-2.5 min-w-[180px] border-r border-[#433A36]" title="Columna C: Producto">Producto (C)</th>' +
+          '<th class="px-2 w-[62px] text-center border-r border-[#433A36]" title="Columna D: Cantidad">Cant. (D)</th>' +
+          '<th class="px-2 w-[78px] text-right border-r border-[#433A36]" title="Columna H: Precio Unitario">P. Unit (H)</th>' +
+          '<th class="px-2 w-[86px] text-right border-r border-[#433A36] bg-amber-950/60" title="Columna I: Subtotal">Subtotal (I)</th>' +
+          '<th class="px-2 w-[130px] text-center border-r border-[#433A36]" title="Columna E: Método de Pago">Método Pago (E)</th>' +
+          '<th class="px-2 w-[72px] text-center border-r border-[#433A36]" title="Columna F: Habitación">Hab. (F)</th>' +
+          '<th class="px-2 w-[130px] border-r border-[#433A36]" title="Columna G: Personal">Personal (G)</th>' +
+          '<th class="px-2 w-[115px] border-r border-[#433A36]" title="Columna L: N° de Operación Yape">N° Op. Yape (L)</th>' +
+          '<th class="px-2 w-[125px]" title="Columna J: ID Estancia vinculada">ID Estancia (J)</th>' +
+        '</tr>';
+    }
+
+    var body = document.getElementById('bdBody');
+    if (!body) return;
+    if (!BDE.filas.length) {
+      body.innerHTML = '<tr><td colspan="12" class="px-4 py-8 text-center text-slate-400 font-bold">No se encontraron ventas de tienda con estos filtros.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = BDE.filas.map(function (f, idx) {
+      var metL = String(f.metodoPago || '').toLowerCase();
+      var badgeM = '';
+      if (metL.indexOf('efectivo') >= 0) badgeM = '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">💵 Efectivo</span>';
+      else if (metL.indexOf('yape') >= 0) badgeM = '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-purple-100 text-purple-900 border border-purple-300">📱 Yape</span>';
+      else if (metL.indexOf('habitaci') >= 0) badgeM = '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300">🛏️ Cargo Hab.</span>';
+      else if (metL.indexOf('cuenta') >= 0) badgeM = '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">👤 Cargo Cuenta</span>';
+      else badgeM = '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">' + esc(f.metodoPago || '—') + '</span>';
+
+      return '<tr class="h-8 bg-white hover:bg-amber-50/60">' +
+        (admin
+          ? '<td class="px-1 text-center border-r border-[#E6DCD2] whitespace-nowrap">' +
+              '<button type="button" onclick="bdAbrirModalEditar(' + idx + ')" class="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-[10px] border border-amber-300 cursor-pointer mr-0.5" title="Editar venta">✏️</button>' +
+              '<button type="button" onclick="bdEliminarRegistroUI(' + idx + ')" class="px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-900 font-black text-[10px] border border-red-300 cursor-pointer" title="Eliminar venta">🗑️</button>' +
+            '</td>'
+          : '') +
+        '<td class="px-2 py-1 border-r border-[#E6DCD2] whitespace-nowrap"><div class="font-bold text-slate-800 text-[10.5px]">' + esc(f.id) + '</div><div class="text-[9.5px] text-slate-400">Fila #' + f.fila + (!f.synced ? ' • ⏳' : '') + '</div></td>' +
+        '<td class="px-2 text-center font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + esc(f.fecha) + '</td>' +
+        '<td class="px-2.5 font-black text-slate-900 border-r border-[#E6DCD2]">' + esc(f.producto) + '</td>' +
+        '<td class="px-2 text-center font-extrabold text-slate-800 border-r border-[#E6DCD2]">' + f.cantidad + '</td>' +
+        '<td class="px-2 text-right font-bold text-slate-700 border-r border-[#E6DCD2]">' + Number(f.precioUnit || 0).toFixed(2) + '</td>' +
+        '<td class="px-2 text-right font-black text-emerald-950 border-r border-[#E6DCD2] bg-amber-50/40">' + Number(f.subtotal || 0).toFixed(2) + '</td>' +
+        '<td class="px-2 text-center border-r border-[#E6DCD2] whitespace-nowrap">' + badgeM + '</td>' +
+        '<td class="px-2 text-center font-black text-slate-900 border-r border-[#E6DCD2]">' + (esc(f.hab) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-2 font-bold text-slate-800 border-r border-[#E6DCD2]">' + (esc(f.personal) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-2 font-mono text-[10.5px] text-slate-700 border-r border-[#E6DCD2]">' + (esc(f.nroOpYape) || '<span class="text-slate-300">—</span>') + '</td>' +
+        '<td class="px-2 text-[10px] text-slate-500 whitespace-nowrap">' + (esc(f.idEstancia) || '<span class="text-slate-300">—</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
   // ---------------------------- Modo Edición Admin con Clave ----------------------------
   function bdActualizarBotonAdmin() {
     var chk = document.getElementById('chkAdminBD');
@@ -5095,7 +5487,6 @@
       bdRenderTabla();
       return;
     }
-    // Si ya desbloqueó Cuentas en Horario en esta sesión, reutilizar la misma clave Admin
     if (window.HOR && HOR.clave) {
       BDE.clave = HOR.clave;
       BDE.adminActivo = true;
@@ -5137,46 +5528,79 @@
     });
   };
 
+  // ---------------------------- Editar y Eliminar Registros (Admin) ----------------------------
   window.bdAbrirModalEditar = function (idx) {
     var f = BDE.filas[idx];
     if (!f) return;
     BDE.editando = f;
     var t = document.getElementById('tituloEditarFilaBD');
-    if (t) t.textContent = '✏️ Editar Estancia — Hab. ' + f.hab + ' (' + f.id + ' • Fila #' + f.fila + ')';
     var box = document.getElementById('formEditarFilaBDBody');
     var ci = 'w-full px-2 py-1 rounded border border-slate-300 font-bold text-xs text-slate-900 bg-white';
     var campo = function (lbl, id, val, colSpan) {
       return '<div class="' + (colSpan || '') + '"><label class="block text-[10px] font-black text-slate-500 mb-0.5">' + lbl + '</label><input type="text" id="' + id + '" value="' + esc(val == null ? '' : val) + '" class="' + ci + '"></div>';
     };
-    box.innerHTML =
-      campo('Check-In (DD/MM/AAAA)', 'bdeFechaIn', f.fechaIn) +
-      campo('Check-Out (DD/MM/AAAA)', 'bdeFechaOut', f.fechaOut) +
-      campo('Habitación', 'bdeHab', f.hab) +
-      '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">Estado Estancia</label><select id="bdeEstadoEst" class="' + ci + '">' +
-        ['En Curso', 'Finalizado', 'Finalizado - Continúa', 'Cancelado'].map(function (s) { return '<option' + (f.estadoEstancia === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') +
-      '</select></div>' +
-      campo('Huésped 1 (Nombre completo)', 'bdeHuesped', f.huesped, 'col-span-2') +
-      campo('DNI / Doc. Huésped 1', 'bdeDni', f.dni) +
-      campo('Celular (AX)', 'bdeCelular', f.celular) +
-      campo('2° Huésped', 'bdeNAcomp', f.nAcomp, 'col-span-2') +
-      campo('DNI 2° Huésped', 'bdeDniAcomp', f.dniAcomp) +
-      campo('3° Huésped (Triple)', 'bdeTriple1', f.triple1) +
-      campo('DNI 3° Huésped', 'bdeTriple2', f.triple2) +
-      campo('Tarifa por noche (S/)', 'bdeTarifa', f.tarifa) +
-      campo('Adic. Snacks / Tienda (S/)', 'bdeSnacks', f.snacks) +
-      campo('Adic. Servicios (S/)', 'bdeServicios', f.servicios) +
-      campo('Adic. Comprobante (S/)', 'bdeAdicComp', f.adicComp) +
-      campo('Tipo de Adicional (BA)', 'bdeTipoAdic', f.tipoAdicional, 'col-span-2') +
-      campo('Cargo Deuda Anterior (AL)', 'bdeDeudaAnt', f.deudaAnt) +
-      campo('Pago Inicial Efectivo (W)', 'bdePEfecIni', f.pEfecIni) +
-      campo('Pago Inicial Yape (X)', 'bdePElecIni', f.pElecIni) +
-      campo('Pago Posterior Efectivo (Y)', 'bdePEfecPost', f.pEfecPost) +
-      campo('Pago Posterior Yape (Z)', 'bdePYapePost', f.pYapePost) +
-      campo('Pagos VISA (AM)', 'bdePVisa', f.pVisa) +
-      campo('Empresa (AQ)', 'bdeEmpresa', f.empresa, 'col-span-2') +
-      campo('RUC (AY)', 'bdeRuc', f.ruc) +
-      campo('N° Operación Yape/Banco (AW)', 'bdeNroOp', f.nroOpYape) +
-      campo('Observaciones', 'bdeObs', f.observaciones, 'col-span-2 sm:col-span-4');
+
+    if (BDE.subtab === 'GASTOS') {
+      if (t) t.textContent = '✏️ Editar Gasto — ' + f.id + ' (Fila #' + f.fila + ')';
+      var catsG = (BDE.data && BDE.data.categorias) || [];
+      var metsG = (BDE.data && BDE.data.metodosPago) || ['Efectivo', 'Yape', 'Transferencia'];
+      var persG = (BDE.data && BDE.data.listaPersonal) || [];
+      box.innerHTML =
+        campo('Fecha Gasto (DD/MM/AAAA)', 'bdgFecha', f.fecha) +
+        campo('Monto (S/)', 'bdgMonto', f.monto) +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">Categoría (E)</label><input type="text" id="bdgCat" list="dlBdgCat" value="' + esc(f.categoria) + '" class="' + ci + '"><datalist id="dlBdgCat">' + catsG.map(function (c) { return '<option value="' + esc(c) + '">'; }).join('') + '</datalist></div>' +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">Método Pago (F)</label><input type="text" id="bdgMet" list="dlBdgMet" value="' + esc(f.metodoPago) + '" class="' + ci + '"><datalist id="dlBdgMet">' + metsG.map(function (m) { return '<option value="' + esc(m) + '">'; }).join('') + '</datalist></div>' +
+        campo('Descripción / Detalle (C)', 'bdgDesc', f.descripcion, 'col-span-2 sm:col-span-4') +
+        campo('Tipo Comprobante (G)', 'bdgTipoComp', f.tipoComp) +
+        campo('N° Comprobante (H)', 'bdgNroComp', f.nroComp) +
+        campo('Responsable (I)', 'bdgResp', f.responsable) +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">Personal Asociado (Col J)</label><input type="text" id="bdgPers" list="dlBdgPers" value="' + esc(f.personal) + '" class="' + ci + '"><datalist id="dlBdgPers">' + persG.map(function (p) { return '<option value="' + esc(p) + '">'; }).join('') + '</datalist></div>';
+    } else if (BDE.subtab === 'TIENDA') {
+      if (t) t.textContent = '✏️ Editar Venta Tienda — ' + f.id + ' (Fila #' + f.fila + ')';
+      var prodsT = (BDE.data && BDE.data.productos) || [];
+      var metsT = (BDE.data && BDE.data.metodosPago) || ['Efectivo', 'Yape', 'VISA', 'Cargar a Habitación', 'Cargar a la Cuenta'];
+      box.innerHTML =
+        campo('Fecha (DD/MM/AAAA)', 'bdtFecha', f.fecha) +
+        '<div class="col-span-2"><label class="block text-[10px] font-black text-slate-500 mb-0.5">Producto (C)</label><input type="text" id="bdtProd" list="dlBdtProd" value="' + esc(f.producto) + '" class="' + ci + '"><datalist id="dlBdtProd">' + prodsT.map(function (p) { return '<option value="' + esc(p) + '">'; }).join('') + '</datalist></div>' +
+        campo('Cantidad (D)', 'bdtCant', f.cantidad) +
+        campo('Precio Unitario (H)', 'bdtPUnit', f.precioUnit) +
+        campo('Subtotal S/ (I)', 'bdtSub', f.subtotal) +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">Método Pago (E)</label><select id="bdtMet" class="' + ci + '">' + metsT.map(function (m) { return '<option' + (f.metodoPago === m ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select></div>' +
+        campo('Habitación (F)', 'bdtHab', f.hab) +
+        campo('Personal (G)', 'bdtPers', f.personal, 'col-span-2') +
+        campo('N° Operación Yape (L)', 'bdtNroOp', f.nroOpYape, 'col-span-2');
+    } else {
+      if (t) t.textContent = '✏️ Editar Estancia — Hab. ' + f.hab + ' (' + f.id + ' • Fila #' + f.fila + ')';
+      box.innerHTML =
+        campo('Check-In (DD/MM/AAAA)', 'bdeFechaIn', f.fechaIn) +
+        campo('Check-Out (DD/MM/AAAA)', 'bdeFechaOut', f.fechaOut) +
+        campo('Habitación', 'bdeHab', f.hab) +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">Estado Estancia</label><select id="bdeEstadoEst" class="' + ci + '">' +
+          ['En Curso', 'Finalizado', 'Finalizado - Continúa', 'Cancelado'].map(function (s) { return '<option' + (f.estadoEstancia === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') +
+        '</select></div>' +
+        campo('Huésped 1 (Nombre completo)', 'bdeHuesped', f.huesped, 'col-span-2') +
+        campo('DNI / Doc. Huésped 1', 'bdeDni', f.dni) +
+        campo('Celular (AX)', 'bdeCelular', f.celular) +
+        campo('2° Huésped', 'bdeNAcomp', f.nAcomp, 'col-span-2') +
+        campo('DNI 2° Huésped', 'bdeDniAcomp', f.dniAcomp) +
+        campo('3° Huésped (Triple)', 'bdeTriple1', f.triple1) +
+        campo('DNI 3° Huésped', 'bdeTriple2', f.triple2) +
+        campo('Tarifa por noche (S/)', 'bdeTarifa', f.tarifa) +
+        campo('Adic. Snacks / Tienda (S/)', 'bdeSnacks', f.snacks) +
+        campo('Adic. Servicios (S/)', 'bdeServicios', f.servicios) +
+        campo('Adic. Comprobante (S/)', 'bdeAdicComp', f.adicComp) +
+        campo('Tipo de Adicional (BA)', 'bdeTipoAdic', f.tipoAdicional, 'col-span-2') +
+        campo('Cargo Deuda Anterior (AL)', 'bdeDeudaAnt', f.deudaAnt) +
+        campo('Pago Inicial Efectivo (W)', 'bdePEfecIni', f.pEfecIni) +
+        campo('Pago Inicial Yape (X)', 'bdePElecIni', f.pElecIni) +
+        campo('Pago Posterior Efectivo (Y)', 'bdePEfecPost', f.pEfecPost) +
+        campo('Pago Posterior Yape (Z)', 'bdePYapePost', f.pYapePost) +
+        campo('Pagos VISA (AM)', 'bdePVisa', f.pVisa) +
+        campo('Empresa (AQ)', 'bdeEmpresa', f.empresa, 'col-span-2') +
+        campo('RUC (AY)', 'bdeRuc', f.ruc) +
+        campo('N° Operación Yape/Banco (AW)', 'bdeNroOp', f.nroOpYape) +
+        campo('Observaciones', 'bdeObs', f.observaciones, 'col-span-2 sm:col-span-4');
+    }
 
     var dlg = document.getElementById('dialogEditarFilaBD');
     if (dlg && typeof dlg.showModal === 'function') dlg.showModal();
@@ -5190,7 +5614,62 @@
     if (e) e.preventDefault();
     var f = BDE.editando; if (!f) return;
     var gv = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
-    var payload = {
+    var btn = document.getElementById('btnGuardarFilaBD');
+    if (btn) btn.disabled = true;
+
+    if (BDE.subtab === 'GASTOS') {
+      var payloadG = {
+        clave: BDE.clave,
+        gastoUuid: f.gastoUuid,
+        fecha: gv('bdgFecha'),
+        monto: gv('bdgMonto'),
+        categoria: gv('bdgCat'),
+        metodoPago: gv('bdgMet'),
+        descripcion: gv('bdgDesc'),
+        tipoComp: gv('bdgTipoComp'),
+        nroComp: gv('bdgNroComp'),
+        responsable: gv('bdgResp'),
+        personal: gv('bdgPers')
+      };
+      runGas('editarGastoBDAdmin', [payloadG], function () {
+        if (btn) btn.disabled = false;
+        cerrarModalEditarFilaBD();
+        bdBanner('ok', '✅ Gasto actualizado en la Base Interna y sincronizado con Google Sheets.');
+        cargarVistaEstanciasBD();
+      }, function (err) {
+        if (btn) btn.disabled = false;
+        bdBanner('error', '❌ ' + ((err && errorMsg(err)) || err));
+      });
+      return;
+    }
+
+    if (BDE.subtab === 'TIENDA') {
+      var payloadT = {
+        clave: BDE.clave,
+        ventaUuid: f.ventaUuid,
+        fecha: gv('bdtFecha'),
+        producto: gv('bdtProd'),
+        cantidad: gv('bdtCant'),
+        precioUnit: gv('bdtPUnit'),
+        subtotal: gv('bdtSub'),
+        metodoPago: gv('bdtMet'),
+        hab: gv('bdtHab'),
+        personal: gv('bdtPers'),
+        nroOpYape: gv('bdtNroOp')
+      };
+      runGas('editarVentaTiendaBDAdmin', [payloadT], function () {
+        if (btn) btn.disabled = false;
+        cerrarModalEditarFilaBD();
+        bdBanner('ok', '✅ Venta de tienda actualizada en la Base Interna y sincronizada con Google Sheets.');
+        cargarVistaEstanciasBD();
+      }, function (err) {
+        if (btn) btn.disabled = false;
+        bdBanner('error', '❌ ' + ((err && errorMsg(err)) || err));
+      });
+      return;
+    }
+
+    var payloadE = {
       clave: BDE.clave,
       estanciaUuid: f.estanciaUuid,
       fila: f.fila,
@@ -5222,19 +5701,42 @@
       nroOpYape: gv('bdeNroOp'),
       observaciones: gv('bdeObs')
     };
-    var btn = document.getElementById('btnGuardarFilaBD');
-    if (btn) btn.disabled = true;
-    runGas('editarEstanciaBDAdmin', [payload], function () {
+    runGas('editarEstanciaBDAdmin', [payloadE], function () {
       if (btn) btn.disabled = false;
       cerrarModalEditarFilaBD();
       bdBanner('ok', '✅ Estancia actualizada en la Base Interna y encolada hacia Google Sheets (respetando fórmulas).');
       cargarVistaEstanciasBD();
     }, function (err) {
       if (btn) btn.disabled = false;
-      bdBanner('error', '❌ ' + ((err && err.message) || err));
+      bdBanner('error', '❌ ' + ((err && errorMsg(err)) || err));
     });
   };
 
+  function errorMsg(err) {
+    return (err && err.message) ? err.message : String(err || '');
+  }
+
+  window.bdEliminarRegistroUI = function (idx) {
+    var f = BDE.filas[idx];
+    if (!f) return;
+    if (BDE.subtab === 'GASTOS') {
+      if (!confirm('¿Eliminar este gasto (' + f.descripcion + ' — S/ ' + Number(f.monto || 0).toFixed(2) + ') de la base interna y de Google Sheets?')) return;
+      runGas('eliminarGastoBDAdmin', [{ clave: BDE.clave, gastoUuid: f.gastoUuid }], function () {
+        bdBanner('ok', '🗑️ Gasto eliminado de la Base Interna y limpiado en Google Sheets.');
+        cargarVistaEstanciasBD();
+      }, function (err) {
+        bdBanner('error', '❌ ' + errorMsg(err));
+      });
+    } else if (BDE.subtab === 'TIENDA') {
+      if (!confirm('¿Eliminar esta venta de tienda (' + f.cantidad + 'x ' + f.producto + ' — S/ ' + Number(f.subtotal || 0).toFixed(2) + ') de la base interna y de Google Sheets?')) return;
+      runGas('eliminarVentaTiendaBDAdmin', [{ clave: BDE.clave, ventaUuid: f.ventaUuid }], function () {
+        bdBanner('ok', '🗑️ Venta eliminada de la Base Interna y limpiada en Google Sheets.');
+        cargarVistaEstanciasBD();
+      }, function (err) {
+        bdBanner('error', '❌ ' + errorMsg(err));
+      });
+    }
+  };
 
 
   // =========================================================================

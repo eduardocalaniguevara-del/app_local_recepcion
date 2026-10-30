@@ -204,9 +204,9 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
         else:
             start_row_recent = max(2, total_rows_bd - 550 + 1)
 
-        st_t = max(2, last_t - 800 + 1)
-        st_pg = max(2, last_pg - 900 + 1)
-        st_g = max(2, last_g - 400 + 1)
+        st_t = 2 if full_bootstrap else max(2, last_t - 800 + 1)
+        st_pg = 2 if full_bootstrap else max(2, last_pg - 900 + 1)
+        st_g = 2 if full_bootstrap else max(2, last_g - 400 + 1)
 
         ranges_step2 = []
         keys_step2 = []
@@ -630,10 +630,16 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                         ),
                     )
 
-            # Actualizar Tienda y Gastos sincronizados desde Sheets (sin borrar los locales synced=0)
+            # Actualizar Tienda y Gastos sincronizados desde Sheets (sin borrar historial previo a st_t ni locales synced=0)
             if tienda_rows:
-                conn.execute("DELETE FROM ventas_tienda WHERE synced = 1")
+                dirty_t_rows = {
+                    int(r["sheet_row"])
+                    for r in conn.execute("SELECT sheet_row FROM ventas_tienda WHERE synced = 0 AND sheet_row >= 2").fetchall()
+                }
+                conn.execute("DELETE FROM ventas_tienda WHERE synced = 1 AND sheet_row >= ?", (st_t,))
                 for s_row_t, tr in tienda_rows:
+                    if s_row_t in dirty_t_rows:
+                        continue
                     if len(tr) < 9:
                         continue
                     prod_t = str(tr[2] or "").strip()
@@ -642,7 +648,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                         continue
                     conn.execute(
                         """
-                        INSERT INTO ventas_tienda (
+                        INSERT OR REPLACE INTO ventas_tienda (
                             venta_uuid, lote_uuid, estancia_uuid, id_estancia, fecha_iso, fecha_dmy,
                             producto, cantidad, metodo_pago, hab, personal, precio_unit, subtotal, nro_op_yape, sheet_row, synced
                         ) VALUES (?, 'SHEET', '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
@@ -797,6 +803,10 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                 for s_row_g, gr in gastos_rows:
                     if len(gr) < 6:
                         continue
+                    desc_g_raw = str(gr[2] or "").strip()
+                    monto_g_raw = parse_moneda(gr[3])
+                    if not str(gr[0] or "").strip() and not desc_g_raw and monto_g_raw <= 0:
+                        continue
                     id_g_str = str(gr[0] or "").strip() or f"SH-G-{s_row_g}"
                     f_g_dmy = normalizar_fecha_dmy(gr[1])
                     hora_g = ""
@@ -810,8 +820,19 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                             gasto_uuid, id_ts_str, fecha_gasto_iso, fecha_gasto_dmy, hora_registro,
                             descripcion, monto, categoria, metodo_pago, tipo_comp, nro_comp, responsable, personal, sheet_row, synced
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                        ON CONFLICT(id_ts_str) DO UPDATE SET sheet_row = excluded.sheet_row, synced = 1,
-                            personal = CASE WHEN excluded.personal != '' THEN excluded.personal ELSE gastos.personal END
+                        ON CONFLICT(id_ts_str) DO UPDATE SET
+                            sheet_row = excluded.sheet_row,
+                            fecha_gasto_dmy = excluded.fecha_gasto_dmy,
+                            descripcion = excluded.descripcion,
+                            monto = excluded.monto,
+                            categoria = excluded.categoria,
+                            metodo_pago = excluded.metodo_pago,
+                            tipo_comp = excluded.tipo_comp,
+                            nro_comp = excluded.nro_comp,
+                            responsable = excluded.responsable,
+                            personal = CASE WHEN excluded.personal != '' THEN excluded.personal ELSE gastos.personal END,
+                            synced = 1
+                        WHERE gastos.synced = 1
                         """,
                         (
                             f"SH-G-{s_row_g}",
@@ -819,8 +840,8 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                             id_g_str if "/" in id_g_str else f_g_dmy,
                             f_g_dmy,
                             hora_g,
-                            str(gr[2] or "").strip(),
-                            parse_moneda(gr[3]),
+                            desc_g_raw,
+                            monto_g_raw,
                             str(gr[4] or "").strip(),
                             str(gr[5] or "").strip(),
                             str(gr[6] or "").strip() if len(gr) > 6 else "",
@@ -1108,6 +1129,95 @@ def process_sync_queue() -> Dict[str, Any]:
                     row_g = _append_fila_idempotente(ws_gastos, payload["id_ts_str"], payload["fila_gasto"], "J")
                     with db_transaction() as c_up:
                         c_up.execute("UPDATE gastos SET sheet_row = ?, synced = 1 WHERE gasto_uuid = ?", (row_g, item["entity_uuid"]))
+
+                elif op_type == "EDITAR_GASTO_ADMIN":
+                    if ws_gastos is None:
+                        ws_gastos = sh.worksheet("Registro_Gastos")
+                    t_row_g = int(payload.get("sheet_row") or 0)
+                    id_ts_g = str(payload.get("id_ts_str") or "").strip()
+                    col_a_g = ws_gastos.col_values(1)
+                    if t_row_g >= 2 and t_row_g <= len(col_a_g) and str(col_a_g[t_row_g - 1]).strip() == id_ts_g:
+                        pass
+                    elif id_ts_g:
+                        t_row_g = 0
+                        for idx_g, val_a in enumerate(col_a_g):
+                            if idx_g >= 1 and str(val_a).strip() == id_ts_g:
+                                t_row_g = idx_g + 1
+                                break
+                    if t_row_g >= 2:
+                        ws_gastos.update(
+                            range_name=f"B{t_row_g}:J{t_row_g}",
+                            values=[payload["fila_bj"]],
+                            value_input_option="USER_ENTERED",
+                        )
+                    with db_transaction() as c_up:
+                        c_up.execute(
+                            "UPDATE gastos SET sheet_row = CASE WHEN ? >= 2 THEN ? ELSE sheet_row END, synced = 1 WHERE gasto_uuid = ?",
+                            (t_row_g, t_row_g, item["entity_uuid"]),
+                        )
+
+                elif op_type == "ELIMINAR_GASTO_ADMIN":
+                    if ws_gastos is None:
+                        ws_gastos = sh.worksheet("Registro_Gastos")
+                    t_row_g = int(payload.get("sheet_row") or 0)
+                    id_ts_g = str(payload.get("id_ts_str") or "").strip()
+                    col_a_g = ws_gastos.col_values(1)
+                    if t_row_g >= 2 and t_row_g <= len(col_a_g) and str(col_a_g[t_row_g - 1]).strip() == id_ts_g:
+                        pass
+                    elif id_ts_g:
+                        t_row_g = 0
+                        for idx_g, val_a in enumerate(col_a_g):
+                            if idx_g >= 1 and str(val_a).strip() == id_ts_g:
+                                t_row_g = idx_g + 1
+                                break
+                    if t_row_g >= 2:
+                        ws_gastos.batch_clear([f"A{t_row_g}:J{t_row_g}"])
+
+                elif op_type == "EDITAR_VENTA_TIENDA_ADMIN":
+                    if ws_tienda is None:
+                        ws_tienda = sh.worksheet("2.Registro_Ventas_Tienda")
+                    t_row_t = int(payload.get("sheet_row") or 0)
+                    f_iso_t = str(payload.get("fecha_iso") or "").strip()
+                    if t_row_t < 2 and f_iso_t:
+                        col_a_t = ws_tienda.col_values(1)
+                        for idx_t, val_at in enumerate(col_a_t):
+                            if idx_t >= 1 and str(val_at).strip() == f_iso_t:
+                                t_row_t = idx_t + 1
+                                break
+                    if t_row_t >= 2:
+                        ws_tienda.batch_update(
+                            [
+                                {"range": f"B{t_row_t}:I{t_row_t}", "values": [payload["fila_bi"]]},
+                                {"range": f"L{t_row_t}", "values": [[payload.get("nro_op_yape") or ""]]},
+                            ],
+                            value_input_option="USER_ENTERED",
+                        )
+                    est_up_t = payload.get("estancia_updates")
+                    if est_up_t and "adic_snacks" in est_up_t:
+                        est_r = _resolver_fila_estancia_en_sheets(
+                            ws_bd, int(est_up_t.get("sheet_row") or 0), est_up_t.get("id_timestamp_str") or ""
+                        )
+                        if est_r >= 2 and not FORMULA_SNACKS_EN_S2:
+                            ws_bd.update(f"S{est_r}", [[est_up_t["adic_snacks"]]], value_input_option="USER_ENTERED")
+                    with db_transaction() as c_up:
+                        c_up.execute(
+                            "UPDATE ventas_tienda SET sheet_row = CASE WHEN ? >= 2 THEN ? ELSE sheet_row END, synced = 1 WHERE venta_uuid = ?",
+                            (t_row_t, t_row_t, item["entity_uuid"]),
+                        )
+
+                elif op_type == "ELIMINAR_VENTA_TIENDA_ADMIN":
+                    if ws_tienda is None:
+                        ws_tienda = sh.worksheet("2.Registro_Ventas_Tienda")
+                    t_row_t = int(payload.get("sheet_row") or 0)
+                    if t_row_t >= 2:
+                        ws_tienda.batch_clear([f"A{t_row_t}:L{t_row_t}"])
+                    est_up_t = payload.get("estancia_updates")
+                    if est_up_t and "adic_snacks" in est_up_t:
+                        est_r = _resolver_fila_estancia_en_sheets(
+                            ws_bd, int(est_up_t.get("sheet_row") or 0), est_up_t.get("id_timestamp_str") or ""
+                        )
+                        if est_r >= 2 and not FORMULA_SNACKS_EN_S2:
+                            ws_bd.update(f"S{est_r}", [[est_up_t["adic_snacks"]]], value_input_option="USER_ENTERED")
 
                 elif op_type == "HORARIO_UPSERT":
                     if hor_cache.get("ws") is None:
