@@ -669,9 +669,10 @@
           <div class="field">
             <label for="region">Región <span class="req">*</span></label>
             <select id="region" name="region" required>
+              <option value="" selected disabled>-- Seleccionar Región / Dpto --</option>
               <option value="Arequipa">Arequipa</option>
               <option value="Cusco">Cusco</option>
-              <option value="Lima" selected>Lima</option>
+              <option value="Lima">Lima</option>
               <option value="Moquegua">Moquegua</option>
               <option value="Puno">Puno</option>
               <option value="Tacna">Tacna</option>
@@ -1790,7 +1791,7 @@
         document.getElementById('sexoM').checked = true;
       }
       if (h.nac) nacSelect.value = h.nac;
-      if (h.reg) regSelect.value = h.reg;
+      regSelect.value = '';
       if (h.mot) motSelect.value = h.mot;
       celularInput.value = h.celular || '';
       if (h.tarifa && !tarifaInput.value) {
@@ -2034,7 +2035,7 @@
       checkInForm.reset();
       mostrarSelectorHabitacion();
       nacSelect.value = 'Perú';
-      regSelect.value = 'Lima';
+      regSelect.value = '';
       motSelect.value = 'Vacaciones, recreo u ocio';
       document.getElementById('sexoM').checked = true;
       document.querySelector('input[name="tipoC"][value=""]').checked = true;
