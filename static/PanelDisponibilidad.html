@@ -1145,7 +1145,11 @@
             </div>
             <div>
               <label class="block text-[10.5px] font-bold text-slate-600 mb-0.5">DNI / Doc.</label>
-              <input type="text" id="mod_dni" required class="w-full px-2 py-1 rounded border border-slate-300 font-bold text-slate-900">
+              <div class="flex items-stretch gap-1">
+                <input type="text" id="mod_dni" required oninput="autoBuscarDniEnPanel('mod_dni','mod_nombre','lblModDni1')" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarDniEnPanel('mod_dni','mod_nombre','lblModDni1');}" class="w-full min-w-0 flex-1 px-2 py-1 rounded border border-slate-300 font-bold text-slate-900">
+                <button type="button" onclick="buscarDniEnPanel('mod_dni','mod_nombre','lblModDni1')" title="Buscar DNI en RENIEC" class="shrink-0 px-2 py-1 rounded bg-sky-800 hover:bg-sky-900 text-white text-xs font-bold">🔍</button>
+              </div>
+              <div id="lblModDni1" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div>
             </div>
           </div>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1181,7 +1185,11 @@
             </div>
             <div>
               <label class="block text-[10px] font-bold text-slate-600">2.º huésped — DNI</label>
-              <input type="text" id="mod_dniAcomp" class="w-full px-2 py-1 rounded border border-slate-300 bg-white">
+              <div class="flex items-stretch gap-1">
+                <input type="text" id="mod_dniAcomp" oninput="autoBuscarDniEnPanel('mod_dniAcomp','mod_nAcomp','lblModDni2')" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarDniEnPanel('mod_dniAcomp','mod_nAcomp','lblModDni2');}" class="w-full min-w-0 flex-1 px-2 py-1 rounded border border-slate-300 bg-white">
+                <button type="button" onclick="buscarDniEnPanel('mod_dniAcomp','mod_nAcomp','lblModDni2')" title="Buscar 2do huésped en RENIEC" class="shrink-0 px-2 py-1 rounded bg-sky-800 hover:bg-sky-900 text-white text-xs font-bold">🔍</button>
+              </div>
+              <div id="lblModDni2" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div>
             </div>
             <div class="hidden sm:block"></div>
             <div class="sm:col-span-2">
@@ -1190,7 +1198,11 @@
             </div>
             <div>
               <label class="block text-[10px] font-bold text-slate-600">3.er huésped — DNI</label>
-              <input type="text" id="mod_triple2" class="w-full px-2 py-1 rounded border border-slate-300 bg-white">
+              <div class="flex items-stretch gap-1">
+                <input type="text" id="mod_triple2" oninput="autoBuscarDniEnPanel('mod_triple2','mod_triple1','lblModDni3')" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarDniEnPanel('mod_triple2','mod_triple1','lblModDni3');}" class="w-full min-w-0 flex-1 px-2 py-1 rounded border border-slate-300 bg-white">
+                <button type="button" onclick="buscarDniEnPanel('mod_triple2','mod_triple1','lblModDni3')" title="Buscar 3er huésped en RENIEC" class="shrink-0 px-2 py-1 rounded bg-sky-800 hover:bg-sky-900 text-white text-xs font-bold">🔍</button>
+              </div>
+              <div id="lblModDni3" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div>
             </div>
           </div>
         </div>
@@ -1296,7 +1308,11 @@
             </div>
             <div>
               <label class="block text-[10px] font-bold text-slate-600">RUC</label>
-              <input type="text" id="mod_ruc" maxlength="11" inputmode="numeric" class="w-full px-2 py-1 rounded border border-slate-300 bg-white font-mono">
+              <div class="flex items-stretch gap-1">
+                <input type="text" id="mod_ruc" maxlength="11" inputmode="numeric" oninput="autoBuscarRucEnPanel('mod_ruc','mod_empresa','mod_tipoComp','lblModRuc')" onkeydown="if(event.key==='Enter'){event.preventDefault();buscarRucEnPanel('mod_ruc','mod_empresa','mod_tipoComp','lblModRuc');}" class="w-full min-w-0 flex-1 px-2 py-1 rounded border border-slate-300 bg-white font-mono">
+                <button type="button" onclick="buscarRucEnPanel('mod_ruc','mod_empresa','mod_tipoComp','lblModRuc')" title="Buscar RUC en SUNAT" class="shrink-0 px-2 py-1 rounded bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold">🔍</button>
+              </div>
+              <div id="lblModRuc" class="text-[9.5px] font-bold text-emerald-700 mt-0.5"></div>
             </div>
           </div>
         </div>
@@ -3474,6 +3490,113 @@
     }
 
     // Al escribir el RUC: solo números; con 11 dígitos busca la Razón Social (historial local → SUNAT)
+    const _timersPanelLookup = {};
+
+    function buscarDniEnPanel(idDni, idNombre, idLbl) {
+      const inpDni = document.getElementById(idDni);
+      const inpNom = document.getElementById(idNombre);
+      const lbl = idLbl ? document.getElementById(idLbl) : null;
+      if (!inpDni || !inpNom) return;
+      const val = String(inpDni.value || "").replace(/\D/g, "").trim();
+      if (inpDni.value !== val) inpDni.value = val;
+      if (val.length !== 8) {
+        if (lbl) lbl.textContent = "⚠️ DNI de 8 dígitos";
+        return;
+      }
+      if (lbl) lbl.textContent = "\u23F3 Buscando RENIEC...";
+      if (typeof google !== "undefined" && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function(res) {
+            if (res && res.ok && res.nombre) {
+              inpNom.value = res.nombre;
+              if (lbl) lbl.textContent = "✅ " + res.nombre;
+            } else if (lbl) {
+              lbl.textContent = "⚠️ No encontrado en RENIEC";
+            }
+          })
+          .withFailureHandler(function() {
+            if (lbl) lbl.textContent = "⚠️ Error al consultar RENIEC";
+          })
+          .consultarDniReniec(val);
+      }
+    }
+
+    function autoBuscarDniEnPanel(idDni, idNombre, idLbl) {
+      const inpDni = document.getElementById(idDni);
+      const lbl = idLbl ? document.getElementById(idLbl) : null;
+      if (!inpDni) return;
+      const val = String(inpDni.value || "").replace(/\D/g, "").trim();
+      if (inpDni.value !== val) inpDni.value = val;
+      clearTimeout(_timersPanelLookup[idDni]);
+      if (val.length === 8) {
+        _timersPanelLookup[idDni] = setTimeout(function() {
+          buscarDniEnPanel(idDni, idNombre, idLbl);
+        }, 300);
+      } else if (lbl) {
+        lbl.textContent = "";
+      }
+    }
+
+    function buscarRucEnPanel(idRuc, idEmpresa, idTipoComp, idLbl) {
+      const inpRuc = document.getElementById(idRuc);
+      const inpEmp = document.getElementById(idEmpresa);
+      const selTipo = idTipoComp ? document.getElementById(idTipoComp) : null;
+      const lbl = idLbl ? document.getElementById(idLbl) : null;
+      if (!inpRuc || !inpEmp) return;
+      const ruc = String(inpRuc.value || "").replace(/\D/g, "").slice(0, 11);
+      if (inpRuc.value !== ruc) inpRuc.value = ruc;
+      if (ruc.length > 0 && selTipo && selTipo.value !== "Factura") {
+        selTipo.value = "Factura";
+      }
+      if (ruc.length !== 11 || !/^(10|15|17|20)\d{9}$/.test(ruc)) {
+        if (lbl) lbl.textContent = "⚠️ RUC de 11 dígitos (10 o 20)";
+        return;
+      }
+      const previo = (habitacionesData || []).map(x => x.facturacion).find(fx => fx && fx.ruc === ruc && fx.empresa);
+      if (previo && previo.empresa) {
+        inpEmp.value = previo.empresa;
+        if (lbl) lbl.textContent = "✅ Padrón: " + previo.empresa;
+        return;
+      }
+      if (lbl) lbl.textContent = "\u23F3 Consultando SUNAT...";
+      if (typeof google !== "undefined" && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function(res) {
+            const razon = res && (res.razonSocial || res.empresa || res.nombre);
+            if (res && res.ok && razon) {
+              inpEmp.value = razon;
+              if (lbl) lbl.textContent = "✅ SUNAT: " + razon;
+            } else if (lbl) {
+              lbl.textContent = "⚠️ RUC no encontrado en SUNAT";
+            }
+          })
+          .withFailureHandler(function() {
+            if (lbl) lbl.textContent = "⚠️ Error al consultar SUNAT";
+          })
+          .consultarRucSunat(ruc);
+      }
+    }
+
+    function autoBuscarRucEnPanel(idRuc, idEmpresa, idTipoComp, idLbl) {
+      const inpRuc = document.getElementById(idRuc);
+      const selTipo = idTipoComp ? document.getElementById(idTipoComp) : null;
+      const lbl = idLbl ? document.getElementById(idLbl) : null;
+      if (!inpRuc) return;
+      const ruc = String(inpRuc.value || "").replace(/\D/g, "").slice(0, 11);
+      if (inpRuc.value !== ruc) inpRuc.value = ruc;
+      if (ruc.length > 0 && selTipo && selTipo.value !== "Factura") {
+        selTipo.value = "Factura";
+      }
+      clearTimeout(_timersPanelLookup[idRuc]);
+      if (ruc.length === 11) {
+        _timersPanelLookup[idRuc] = setTimeout(function() {
+          buscarRucEnPanel(idRuc, idEmpresa, idTipoComp, idLbl);
+        }, 300);
+      } else if (lbl) {
+        lbl.textContent = "";
+      }
+    }
+
     function onInputRucModal(inp) {
       inp.value = inp.value.replace(/\D/g, "").slice(0, 11);
       const lbl = document.getElementById("lblRucStatus");
@@ -5769,12 +5892,12 @@
           ['En Curso', 'Finalizado', 'Finalizado - Continúa', 'Cancelado'].map(function (s) { return '<option' + (f.estadoEstancia === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') +
         '</select></div>' +
         campo('Huésped 1 (Nombre completo)', 'bdeHuesped', f.huesped, 'col-span-2') +
-        campo('DNI / Doc. Huésped 1', 'bdeDni', f.dni) +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">DNI / Doc. Huésped 1</label><div class="flex items-stretch gap-1"><input id="bdeDni" type="text" value="' + escAttr(f.dni) + '" oninput="autoBuscarDniEnPanel(\'bdeDni\',\'bdeHuesped\',\'lblBdeDni1\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarDniEnPanel(\'bdeDni\',\'bdeHuesped\',\'lblBdeDni1\');}" class="' + ci + ' flex-1 min-w-0"><button type="button" onclick="buscarDniEnPanel(\'bdeDni\',\'bdeHuesped\',\'lblBdeDni1\')" class="shrink-0 px-2 py-1 rounded bg-sky-800 text-white text-xs font-bold" title="Buscar en RENIEC">🔍</button></div><div id="lblBdeDni1" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div></div>' +
         campo('Celular (AX)', 'bdeCelular', f.celular) +
         campo('2° Huésped', 'bdeNAcomp', f.nAcomp, 'col-span-2') +
-        campo('DNI 2° Huésped', 'bdeDniAcomp', f.dniAcomp) +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">DNI 2° Huésped</label><div class="flex items-stretch gap-1"><input id="bdeDniAcomp" type="text" value="' + escAttr(f.dniAcomp) + '" oninput="autoBuscarDniEnPanel(\'bdeDniAcomp\',\'bdeNAcomp\',\'lblBdeDni2\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarDniEnPanel(\'bdeDniAcomp\',\'bdeNAcomp\',\'lblBdeDni2\');}" class="' + ci + ' flex-1 min-w-0"><button type="button" onclick="buscarDniEnPanel(\'bdeDniAcomp\',\'bdeNAcomp\',\'lblBdeDni2\')" class="shrink-0 px-2 py-1 rounded bg-sky-800 text-white text-xs font-bold" title="Buscar en RENIEC">🔍</button></div><div id="lblBdeDni2" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div></div>' +
         campo('3° Huésped (Triple)', 'bdeTriple1', f.triple1) +
-        campo('DNI 3° Huésped', 'bdeTriple2', f.triple2) +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">DNI 3° Huésped</label><div class="flex items-stretch gap-1"><input id="bdeTriple2" type="text" value="' + escAttr(f.triple2) + '" oninput="autoBuscarDniEnPanel(\'bdeTriple2\',\'bdeTriple1\',\'lblBdeDni3\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarDniEnPanel(\'bdeTriple2\',\'bdeTriple1\',\'lblBdeDni3\');}" class="' + ci + ' flex-1 min-w-0"><button type="button" onclick="buscarDniEnPanel(\'bdeTriple2\',\'bdeTriple1\',\'lblBdeDni3\')" class="shrink-0 px-2 py-1 rounded bg-sky-800 text-white text-xs font-bold" title="Buscar en RENIEC">🔍</button></div><div id="lblBdeDni3" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div></div>' +
         campo('Tarifa por noche (S/)', 'bdeTarifa', f.tarifa) +
         campo('Adic. Snacks / Tienda (S/)', 'bdeSnacks', f.snacks) +
         campo('Adic. Servicios (S/)', 'bdeServicios', f.servicios) +
@@ -5787,7 +5910,7 @@
         campo('Pago Posterior Electrónico (Z)', 'bdePYapePost', f.pYapePost) +
         campo('Pagos VISA (AM)', 'bdePVisa', f.pVisa) +
         campo('Empresa (AQ)', 'bdeEmpresa', f.empresa, 'col-span-2') +
-        campo('RUC (AY)', 'bdeRuc', f.ruc) +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">RUC (AY)</label><div class="flex items-stretch gap-1"><input id="bdeRuc" type="text" maxlength="11" value="' + escAttr(f.ruc) + '" oninput="autoBuscarRucEnPanel(\'bdeRuc\',\'bdeEmpresa\',\'\',\'lblBdeRuc\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarRucEnPanel(\'bdeRuc\',\'bdeEmpresa\',\'\',\'lblBdeRuc\');}" class="' + ci + ' flex-1 min-w-0 font-mono"><button type="button" onclick="buscarRucEnPanel(\'bdeRuc\',\'bdeEmpresa\',\'\',\'lblBdeRuc\')" class="shrink-0 px-2 py-1 rounded bg-amber-700 text-white text-xs font-bold" title="Buscar RUC en SUNAT">🔍</button></div><div id="lblBdeRuc" class="text-[9.5px] font-bold text-emerald-700 mt-0.5"></div></div>' +
         campo('N° Operación Yape/Banco (AW)', 'bdeNroOp', f.nroOpYape) +
         campo('Observaciones', 'bdeObs', f.observaciones, 'col-span-2 sm:col-span-4');
     }

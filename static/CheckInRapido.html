@@ -721,24 +721,36 @@
         <details id="acompDetails">
           <summary>➕ Agregar Acompañantes (Hab. Doble / Triple)</summary>
           <div class="details-body">
-            <div class="grid-2">
-              <div class="field">
-                <label for="nAcomp">2. Nombre Acompañante (Doble)</label>
-                <input type="text" id="nAcomp" name="nAcomp" placeholder="Nombre 2do huésped">
-              </div>
-              <div class="field">
+            <div class="grid-2" style="grid-template-columns: minmax(135px, 42%) 1fr; align-items: start;">
+              <div class="field" style="min-width: 0;">
                 <label for="dniAcomp">2. DNI Acompañante</label>
-                <input type="text" id="dniAcomp" name="dniAcomp" inputmode="numeric" placeholder="DNI 2do huésped">
+                <div style="display: flex; gap: 5px; align-items: stretch;">
+                  <input type="text" id="dniAcomp" name="dniAcomp" inputmode="numeric" maxlength="12"
+                         autocorrect="off" autocapitalize="off" spellcheck="false"
+                         placeholder="DNI 2do..." style="flex: 1; min-width: 0;">
+                  <button type="button" id="btnBuscarDniAcomp" class="btn-reniec" style="flex-shrink: 0; padding: 0 9px;" title="Buscar 2do huésped en RENIEC">🔍</button>
+                </div>
+              </div>
+              <div class="field" style="min-width: 0;">
+                <label for="nAcomp">2. Nombre Acompañante (Doble)</label>
+                <input type="text" id="nAcomp" name="nAcomp" list="listaClientesNombres" autocomplete="off" placeholder="Nombre 2do huésped" style="min-width: 0;">
+                <div id="hintAcomp2" class="prev-stay-hint"></div>
               </div>
             </div>
-            <div class="grid-2">
-              <div class="field">
-                <label for="triple1">3. Nombre Acompañante (Triple)</label>
-                <input type="text" id="triple1" name="triple1" placeholder="Nombre 3er huésped">
-              </div>
-              <div class="field">
+            <div class="grid-2" style="grid-template-columns: minmax(135px, 42%) 1fr; align-items: start;">
+              <div class="field" style="min-width: 0;">
                 <label for="triple2">3. DNI Acompañante (Triple)</label>
-                <input type="text" id="triple2" name="triple2" inputmode="numeric" placeholder="DNI 3er huésped">
+                <div style="display: flex; gap: 5px; align-items: stretch;">
+                  <input type="text" id="triple2" name="triple2" inputmode="numeric" maxlength="12"
+                         autocorrect="off" autocapitalize="off" spellcheck="false"
+                         placeholder="DNI 3ro..." style="flex: 1; min-width: 0;">
+                  <button type="button" id="btnBuscarDniTriple" class="btn-reniec" style="flex-shrink: 0; padding: 0 9px;" title="Buscar 3er huésped en RENIEC">🔍</button>
+                </div>
+              </div>
+              <div class="field" style="min-width: 0;">
+                <label for="triple1">3. Nombre Acompañante (Triple)</label>
+                <input type="text" id="triple1" name="triple1" list="listaClientesNombres" autocomplete="off" placeholder="Nombre 3er huésped" style="min-width: 0;">
+                <div id="hintAcomp3" class="prev-stay-hint"></div>
               </div>
             </div>
           </div>
@@ -873,27 +885,33 @@
         <details id="empresaDetails">
           <summary>🏢 Datos de Facturación / Empresa / Hotel Apoyo</summary>
           <div class="details-body">
-            <div class="grid-3">
-              <div class="field">
-                <label for="ruc">RUC</label>
-                <input type="text" id="ruc" name="ruc" inputmode="numeric" placeholder="Ej. 20123456789">
+            <div class="grid-2" style="grid-template-columns: minmax(150px, 44%) 1fr; align-items: start;">
+              <div class="field" style="min-width: 0;">
+                <label for="ruc">RUC (11 dígitos)</label>
+                <div style="display: flex; gap: 5px; align-items: stretch;">
+                  <input type="text" id="ruc" name="ruc" inputmode="numeric" maxlength="11"
+                         autocorrect="off" autocapitalize="off" spellcheck="false"
+                         placeholder="Ej. 20123456789" style="flex: 1; min-width: 0;">
+                  <button type="button" id="btnBuscarRucCheckIn" class="btn-reniec" style="flex-shrink: 0; padding: 0 9px;" title="Buscar RUC en SUNAT / Padrón">🔍</button>
+                </div>
               </div>
-              <div class="field">
+              <div class="field" style="min-width: 0;">
+                <label for="empresa">Nombre de la Empresa / Razón Social</label>
+                <input type="text" id="empresa" name="empresa" list="listaEmpresasGrupal" autocomplete="off" placeholder="Razón social o empresa" style="min-width: 0;">
+                <div id="hintRucCheckIn" class="prev-stay-hint"></div>
+              </div>
+            </div>
+            <div class="grid-3">
+              <div class="field" style="min-width: 0;">
                 <label for="mFact">Monto Factura/Comp. (S/)</label>
                 <input type="text" id="mFact" name="mFact" inputmode="decimal" placeholder="Ej. 90">
               </div>
-              <div class="field">
+              <div class="field" style="min-width: 0;">
                 <label for="adicComp">Adic. por Comp. (S/)</label>
                 <input type="text" id="adicComp" name="adicComp" inputmode="decimal" placeholder="Ej. 10">
               </div>
-            </div>
-            <div class="grid-2">
-              <div class="field">
-                <label for="empresa">Nombre de la Empresa</label>
-                <input type="text" id="empresa" name="empresa" placeholder="Razón social o empresa">
-              </div>
-              <div class="field">
-                <label for="hotelTercerizado">Hotel Tercerizado (Apoyo)</label>
+              <div class="field" style="min-width: 0;">
+                <label for="hotelTercerizado">Hotel Apoyo</label>
                 <select id="hotelTercerizado" name="hotelTercerizado">
                   <option value="">-- Ninguno --</option>
                   <option value="HOSTAL POSADA DEL REY">HOSTAL POSADA DEL REY</option>
@@ -927,9 +945,13 @@
           <input type="text" id="grEmpresa" list="listaEmpresasGrupal" autocomplete="off" placeholder="Razón social (ej. VILLA ADAMS)">
           <datalist id="listaEmpresasGrupal"></datalist>
         </div>
-        <div class="field">
-          <label for="grRuc">RUC</label>
-          <input type="text" id="grRuc" inputmode="numeric" placeholder="Se autocompleta">
+        <div class="field" style="min-width: 0;">
+          <label for="grRuc">RUC (11 dígitos)</label>
+          <div style="display: flex; gap: 5px; align-items: stretch;">
+            <input type="text" id="grRuc" inputmode="numeric" maxlength="11" placeholder="Escribe RUC o empresa" style="flex: 1; min-width: 0;">
+            <button type="button" id="btnBuscarRucGrupal" class="btn-reniec" style="flex-shrink: 0; padding: 0 9px;" title="Buscar RUC en SUNAT">🔍</button>
+          </div>
+          <div id="hintRucGrupal" class="prev-stay-hint"></div>
         </div>
       </div>
       <div class="grid-3">
@@ -1210,14 +1232,266 @@
     const adicCompInput = document.getElementById('adicComp');
     const hotelSelect = document.getElementById('hotelTercerizado');
 
-    if (rucInput) {
-      rucInput.addEventListener('input', () => {
-        if (rucInput.value.trim().length > 0) {
-          const radFact = document.querySelector('input[name="tipoC"][value="Factura"]');
-          if (radFact) radFact.checked = true;
+    const nAcompInput = document.getElementById('nAcomp');
+    const dniAcompInput = document.getElementById('dniAcomp');
+    const btnBuscarDniAcomp = document.getElementById('btnBuscarDniAcomp');
+    const hintAcomp2 = document.getElementById('hintAcomp2');
+    const triple1Input = document.getElementById('triple1');
+    const triple2Input = document.getElementById('triple2');
+    const btnBuscarDniTriple = document.getElementById('btnBuscarDniTriple');
+    const hintAcomp3 = document.getElementById('hintAcomp3');
+    const btnBuscarRucCheckIn = document.getElementById('btnBuscarRucCheckIn');
+    const hintRucCheckIn = document.getElementById('hintRucCheckIn');
+
+    // Buscador RENIEC / Padrón Local para 2do y 3er huésped (sin colapsar acordeón)
+    function configurarBuscadorAcompanante(inpDni, inpNom, btnBuscar, hintEl) {
+      if (!inpDni || !inpNom) return;
+      let timerAcomp = null;
+
+      function ejecutarBusquedaAcomp(forzarRed) {
+        const acompDet = document.getElementById('acompDetails');
+        if (acompDet) acompDet.open = true;
+        const val = inpDni.value.replace(/\D/g, '').trim();
+        if (inpDni.value !== val) inpDni.value = val;
+        if (val.length !== 8) {
+          if (forzarRed && hintEl) {
+            hintEl.textContent = '⚠️ Ingresa un DNI de 8 dígitos.';
+            hintEl.classList.add('visible');
+          }
+          return;
+        }
+        const hLocal = DB_HUESPEDES[val];
+        if (hLocal && hLocal.nombre && !forzarRed) {
+          inpNom.value = hLocal.nombre;
+          if (hintEl) {
+            hintEl.textContent = `✓ Padrón: ${hLocal.nombre}`;
+            hintEl.classList.add('visible');
+          }
+          return;
+        }
+        if (hintEl) {
+          hintEl.textContent = '🔍 Consultando RENIEC...';
+          hintEl.classList.add('visible');
+        }
+        if (btnBuscar) btnBuscar.disabled = true;
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          google.script.run
+            .withSuccessHandler((res) => {
+              if (btnBuscar) btnBuscar.disabled = false;
+              if (acompDet) acompDet.open = true;
+              if (inpDni.value.trim() !== val) return;
+              if (res && res.ok && res.nombre) {
+                inpNom.value = res.nombre;
+                if (hintEl) {
+                  hintEl.textContent = `✓ ${res.fuente === 'HISTORIAL_LOCAL' ? 'Padrón' : 'RENIEC'}: ${res.nombre}`;
+                  hintEl.classList.add('visible');
+                }
+              } else if (hintEl) {
+                hintEl.textContent = res && res.error ? `⚠️ ${res.error}` : '⚠️ DNI no encontrado en RENIEC.';
+                hintEl.classList.add('visible');
+              }
+            })
+            .withFailureHandler(() => {
+              if (btnBuscar) btnBuscar.disabled = false;
+              if (hintEl) {
+                hintEl.textContent = '⚠️ Error al conectar con RENIEC.';
+                hintEl.classList.add('visible');
+              }
+            })
+            .consultarDniReniec(val);
+        }
+      }
+
+      inpDni.addEventListener('input', () => {
+        clearTimeout(timerAcomp);
+        const val = inpDni.value.replace(/\D/g, '').trim();
+        if (inpDni.value !== val) inpDni.value = val;
+        if (!val) {
+          if (hintEl) hintEl.classList.remove('visible');
+          return;
+        }
+        const hLocal = DB_HUESPEDES[val];
+        if (hLocal && hLocal.nombre) {
+          inpNom.value = hLocal.nombre;
+          if (hintEl) {
+            hintEl.textContent = `✓ Padrón: ${hLocal.nombre}`;
+            hintEl.classList.add('visible');
+          }
+        } else if (val.length === 8) {
+          timerAcomp = setTimeout(() => ejecutarBusquedaAcomp(false), 300);
+        } else if (hintEl) {
+          hintEl.classList.remove('visible');
+        }
+      });
+
+      inpDni.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.isComposing) {
+          e.preventDefault();
+          e.stopPropagation();
+          ejecutarBusquedaAcomp(true);
+        }
+      });
+
+      if (btnBuscar) {
+        btnBuscar.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          ejecutarBusquedaAcomp(true);
+        });
+      }
+
+      inpNom.addEventListener('input', () => {
+        const nomVal = inpNom.value.trim().toUpperCase();
+        if (nomVal && MAPA_NOMBRES[nomVal]) {
+          const dniEnc = MAPA_NOMBRES[nomVal];
+          inpDni.value = dniEnc;
+          if (hintEl) {
+            hintEl.textContent = `✓ DNI autocompletado: ${dniEnc}`;
+            hintEl.classList.add('visible');
+          }
         }
       });
     }
+
+    configurarBuscadorAcompanante(dniAcompInput, nAcompInput, btnBuscarDniAcomp, hintAcomp2);
+    configurarBuscadorAcompanante(triple2Input, triple1Input, btnBuscarDniTriple, hintAcomp3);
+
+    // Buscador RUC en SUNAT / Padrón para Check-In y Grupal
+    function configurarBuscadorRuc(inpRuc, inpEmp, btnRuc, hintEl, marcarRadioFactura) {
+      if (!inpRuc || !inpEmp) return;
+      let timerRuc = null;
+
+      function buscarRucEnCatalogoMemoria(rucVal) {
+        for (const nomEmp of Object.keys(EMPRESAS_CAT || {})) {
+          const item = EMPRESAS_CAT[nomEmp];
+          if (item && String(item.ruc || '').trim() === rucVal) {
+            return nomEmp;
+          }
+        }
+        return '';
+      }
+
+      function ejecutarBusquedaRuc(forzarAviso) {
+        const empDet = document.getElementById('empresaDetails');
+        if (marcarRadioFactura && empDet) empDet.open = true;
+        const rucVal = inpRuc.value.replace(/\D/g, '').trim();
+        if (inpRuc.value !== rucVal) inpRuc.value = rucVal;
+        if (rucVal.length > 0 && marcarRadioFactura) {
+          const radFact = document.querySelector('input[name="tipoC"][value="Factura"]');
+          if (radFact) radFact.checked = true;
+        }
+        if (rucVal.length !== 11 || !/^(10|15|17|20)\d{9}$/.test(rucVal)) {
+          if (forzarAviso && hintEl) {
+            hintEl.textContent = '⚠️ Ingresa un RUC válido de 11 dígitos (10 o 20).';
+            hintEl.classList.add('visible');
+          }
+          return;
+        }
+        const empMem = buscarRucEnCatalogoMemoria(rucVal);
+        if (empMem && !forzarAviso) {
+          inpEmp.value = empMem;
+          if (hintEl) {
+            hintEl.textContent = `✓ Padrón Empresas: ${empMem}`;
+            hintEl.classList.add('visible');
+          }
+          return;
+        }
+        if (hintEl) {
+          hintEl.textContent = '🔍 Consultando RUC en SUNAT...';
+          hintEl.classList.add('visible');
+        }
+        if (btnRuc) btnRuc.disabled = true;
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          google.script.run
+            .withSuccessHandler((res) => {
+              if (btnRuc) btnRuc.disabled = false;
+              if (marcarRadioFactura && empDet) empDet.open = true;
+              if (inpRuc.value.trim() !== rucVal) return;
+              const razon = res && (res.razonSocial || res.empresa || res.nombre);
+              if (res && res.ok && razon) {
+                inpEmp.value = razon;
+                EMPRESAS_CAT[String(razon).toUpperCase()] = { ruc: rucVal, proyectos: [] };
+                const estadoExtra = (res.estado && String(res.estado).toUpperCase() !== 'ACTIVO') ? ` (${res.estado})` : '';
+                if (hintEl) {
+                  hintEl.textContent = `✓ SUNAT: ${razon}${estadoExtra}`;
+                  hintEl.classList.add('visible');
+                }
+              } else if (hintEl) {
+                hintEl.textContent = res && res.error ? `⚠️ ${res.error}` : '⚠️ RUC no encontrado en SUNAT (escribe la empresa manualmente).';
+                hintEl.classList.add('visible');
+              }
+            })
+            .withFailureHandler(() => {
+              if (btnRuc) btnRuc.disabled = false;
+              if (hintEl) {
+                hintEl.textContent = '⚠️ Error al consultar SUNAT.';
+                hintEl.classList.add('visible');
+              }
+            })
+            .consultarRucSunat(rucVal);
+        }
+      }
+
+      inpRuc.addEventListener('input', () => {
+        clearTimeout(timerRuc);
+        const rucVal = inpRuc.value.replace(/\D/g, '').trim();
+        if (inpRuc.value !== rucVal) inpRuc.value = rucVal;
+        if (rucVal.length > 0 && marcarRadioFactura) {
+          const radFact = document.querySelector('input[name="tipoC"][value="Factura"]');
+          if (radFact) radFact.checked = true;
+        }
+        if (!rucVal) {
+          if (hintEl) hintEl.classList.remove('visible');
+          return;
+        }
+        const empMem = buscarRucEnCatalogoMemoria(rucVal);
+        if (empMem) {
+          inpEmp.value = empMem;
+          if (hintEl) {
+            hintEl.textContent = `✓ Padrón Empresas: ${empMem}`;
+            hintEl.classList.add('visible');
+          }
+        } else if (rucVal.length === 11) {
+          timerRuc = setTimeout(() => ejecutarBusquedaRuc(false), 300);
+        } else if (hintEl) {
+          hintEl.classList.remove('visible');
+        }
+      });
+
+      inpRuc.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.isComposing) {
+          e.preventDefault();
+          e.stopPropagation();
+          ejecutarBusquedaRuc(true);
+        }
+      });
+
+      if (btnRuc) {
+        btnRuc.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          ejecutarBusquedaRuc(true);
+        });
+      }
+
+      inpEmp.addEventListener('input', () => {
+        const key = String(inpEmp.value || '').trim().toUpperCase();
+        const cat = EMPRESAS_CAT && EMPRESAS_CAT[key];
+        if (cat && cat.ruc && !inpRuc.value.trim()) {
+          inpRuc.value = cat.ruc;
+          if (marcarRadioFactura) {
+            const radFact = document.querySelector('input[name="tipoC"][value="Factura"]');
+            if (radFact) radFact.checked = true;
+          }
+          if (hintEl) {
+            hintEl.textContent = `✓ RUC autocompletado: ${cat.ruc}`;
+            hintEl.classList.add('visible');
+          }
+        }
+      });
+    }
+
+    configurarBuscadorRuc(rucInput, empresaInput, btnBuscarRucCheckIn, hintRucCheckIn, true);
 
     // Elementos Continuar Estancia
     const continuarForm = document.getElementById('continuarForm');
@@ -1233,6 +1507,9 @@
     const panelGrupal = document.getElementById('panelGrupal');
     const grEmpresa = document.getElementById('grEmpresa');
     const grRuc = document.getElementById('grRuc');
+    const btnBuscarRucGrupal = document.getElementById('btnBuscarRucGrupal');
+    const hintRucGrupal = document.getElementById('hintRucGrupal');
+    configurarBuscadorRuc(grRuc, grEmpresa, btnBuscarRucGrupal, hintRucGrupal, false);
     const grProyecto = document.getElementById('grProyecto');
     const grFechaIn = document.getElementById('grFechaIn');
     const grFechaOut = document.getElementById('grFechaOut');
@@ -1487,6 +1764,7 @@
       empresaInput.value = '';
       mFactInput.value = '';
       if (adicCompInput) adicCompInput.value = '';
+      if (hintRucCheckIn) hintRucCheckIn.classList.remove('visible');
       const empDet = document.getElementById('empresaDetails');
       if (empDet) empDet.open = false;
       const radioSinComp = document.querySelector('input[name="tipoC"][value=""]');
@@ -1762,6 +2040,9 @@
       document.querySelector('input[name="tipoC"][value=""]').checked = true;
       document.getElementById('acompDetails').open = false;
       document.getElementById('empresaDetails').open = false;
+      if (hintAcomp2) hintAcomp2.classList.remove('visible');
+      if (hintAcomp3) hintAcomp3.classList.remove('visible');
+      if (hintRucCheckIn) hintRucCheckIn.classList.remove('visible');
       servAdicMontoInput.value = '';
       servAdicMetodoSelect.value = 'Cargar a Habitación';
       if (FECHA_HOY) fechaInInput.value = FECHA_HOY;
@@ -2158,6 +2439,14 @@
       }
     });
     poner(); // segunda pasada: pisa cualquier autocompletado disparado por los eventos
+    try {
+      if (data.nAcomp || data.dniAcomp || data.triple1 || data.triple2) {
+        var acD = document.getElementById('acompDetails'); if (acD) acD.open = true;
+      }
+      if (data.ruc || data.empresa || data.mFact) {
+        var emD = document.getElementById('empresaDetails'); if (emD) emD.open = true;
+      }
+    } catch (e) {}
     try { if (typeof calcularTotalesCheckIn === 'function') calcularTotalesCheckIn(); } catch (e) {}
     try { if (typeof actualizarEstadoYapeCheckIn === 'function') actualizarEstadoYapeCheckIn(); } catch (e) {}
     setTimeout(function () { restaurando = false; }, 300);
