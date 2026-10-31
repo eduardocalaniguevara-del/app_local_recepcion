@@ -772,25 +772,34 @@
           <!-- Cabecera de Compra -->
           <div id="gtCabeceraCompraNueva" class="shrink-0 p-2 bg-[#FAF6F3] border-b border-[#E6DCD2] space-y-1.5">
             <div class="grid grid-cols-12 gap-1.5 items-end">
-              <div class="col-span-3">
-                <label class="block text-[10px] font-extrabold text-slate-700 mb-0.5">💰 Monto Total S/</label>
-                <input type="number" step="0.01" min="0" id="gtMontoTotal" oninput="recalcularCuadreCompraUI()" placeholder="Ej. 100.00"
+              <div class="col-span-3 sm:col-span-2">
+                <label class="block text-[10px] font-extrabold text-slate-700 mb-0.5" title="Monto total pagado que ir? a Registro_Gastos">💰 Total Gasto S/</label>
+                <input type="number" step="0.01" min="0" id="gtMontoTotal" oninput="recalcularCuadreCompraUI()" placeholder="Ej. 162.50"
                        class="w-full px-2 py-1 rounded border border-amber-400 bg-white font-black text-slate-900 text-xs focus:outline-hidden focus:ring-2 focus:ring-amber-500">
               </div>
-              <div class="col-span-3">
-                <label class="block text-[10px] font-bold text-slate-600 mb-0.5">💳 Método Pago</label>
-                <select id="gtMetodoPago" class="w-full px-1.5 py-1 rounded border border-slate-300 bg-white font-bold text-slate-800 text-[11px]">
+              <div class="col-span-4 sm:col-span-3">
+                <label class="block text-[10px] font-extrabold text-indigo-900 mb-0.5" title="IGV + Percepci?n o variaci?n del comprobante que no suma al costo por unidad">🧾 IGV / Percep. / Comp. S/</label>
+                <div class="flex items-stretch gap-1">
+                  <input type="number" step="0.01" min="0" id="gtAdicComp" oninput="recalcularCuadreCompraUI()" placeholder="Ej. 27.46"
+                         class="w-full min-w-0 flex-1 px-1.5 py-1 rounded border border-indigo-300 bg-white font-black text-indigo-950 text-xs focus:outline-hidden focus:ring-2 focus:ring-indigo-500">
+                  <button type="button" onclick="aplicarDiferenciaAdicCompUI()" title="Calcular autom?tico: Total Gasto menos Suma Desglosada"
+                          class="shrink-0 px-1.5 py-0.5 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-900 border border-indigo-300 font-extrabold text-[10px] cursor-pointer">⚡ Dif.</button>
+                </div>
+              </div>
+              <div class="col-span-2">
+                <label class="block text-[10px] font-bold text-slate-600 mb-0.5">💳 Pago</label>
+                <select id="gtMetodoPago" class="w-full px-1 py-1 rounded border border-slate-300 bg-white font-bold text-slate-800 text-[11px]">
                   <option value="Efectivo">Efectivo</option>
                   <option value="Yape">Yape</option>
                   <option value="BCP">BCP</option>
                 </select>
               </div>
-              <div class="col-span-3">
-                <label class="block text-[10px] font-bold text-slate-600 mb-0.5">📅 Fecha Compra</label>
-                <input type="date" id="gtFechaCompra" class="w-full px-1.5 py-1 rounded border border-slate-300 bg-white font-bold text-slate-800 text-[11px]">
+              <div class="col-span-3 sm:col-span-2">
+                <label class="block text-[10px] font-bold text-slate-600 mb-0.5">📅 Fecha</label>
+                <input type="date" id="gtFechaCompra" class="w-full px-1 py-1 rounded border border-slate-300 bg-white font-bold text-slate-800 text-[11px]">
               </div>
-              <div class="col-span-3">
-                <label class="block text-[10px] font-bold text-slate-600 mb-0.5">🧾 Nota / Proveedor</label>
+              <div class="col-span-12 sm:col-span-3">
+                <label class="block text-[10px] font-bold text-slate-600 mb-0.5">📝 Nota / Proveedor</label>
                 <input type="text" id="gtNotaCompra" placeholder="Opcional..."
                        class="w-full px-2 py-1 rounded border border-slate-300 bg-white text-[11px] text-slate-800">
               </div>
@@ -802,7 +811,7 @@
                   <input type="checkbox" id="gtEnviarGastos" checked onchange="recalcularCuadreCompraUI()" class="accent-emerald-700 w-3.5 h-3.5">
                   <span>Enviar Total a <strong>Registro_Gastos</strong></span>
                 </label>
-                <label class="inline-flex items-center gap-1 font-bold text-purple-900 cursor-pointer select-none" title="Si lo marcas, además de ingresar la compra la pasa automáticamente a la Vitrina de Recepción">
+                <label class="inline-flex items-center gap-1 font-bold text-purple-900 cursor-pointer select-none" title="Si lo marcas, adem?s de ingresar la compra la pasa autom?ticamente a la Vitrina de Recepci?n">
                   <input type="checkbox" id="gtDirectoVitrina" class="accent-purple-700 w-3.5 h-3.5">
                   <span>⚡ Directo a Vitrina</span>
                 </label>
@@ -6776,6 +6785,27 @@
     recalcularCuadreCompraUI();
   };
 
+  window.aplicarDiferenciaAdicCompUI = function () {
+    var sumaPartes = 0;
+    Object.keys(gtCompraBorrador).forEach(function (prod) {
+      sumaPartes += Number((gtCompraBorrador[prod] || {}).costo) || 0;
+    });
+    sumaPartes = Math.round(sumaPartes * 100) / 100;
+    var inpTot = document.getElementById('gtMontoTotal');
+    var inpAdic = document.getElementById('gtAdicComp');
+    if (!inpAdic) return;
+    var montoInput = inpTot ? (Number(inpTot.value) || 0) : 0;
+    var totalRef = gtCompraPendienteActiva ? gtCompraPendienteActiva.montoTotal : montoInput;
+    var basePrev = gtCompraPendienteActiva ? gtCompraPendienteActiva.montoDesglosado : 0;
+    var dif = Math.round((totalRef - (basePrev + sumaPartes)) * 100) / 100;
+    if (dif > 0) {
+      inpAdic.value = dif.toFixed(2);
+    } else {
+      inpAdic.value = '';
+    }
+    recalcularCuadreCompraUI();
+  };
+
   window.recalcularCuadreCompraUI = function () {
     var sumaPartes = 0;
     var valorVenta = 0;
@@ -6796,22 +6826,32 @@
     valorVenta = Math.round(valorVenta * 100) / 100;
 
     var inpTot = document.getElementById('gtMontoTotal');
+    var inpAdic = document.getElementById('gtAdicComp');
     var montoInput = inpTot ? (Number(inpTot.value) || 0) : 0;
+    var adicComp = inpAdic ? Math.max(0, Math.round((Number(inpAdic.value) || 0) * 100) / 100) : 0;
+    var sumaConAdic = Math.round((sumaPartes + adicComp) * 100) / 100;
+
     var totalRef = gtCompraPendienteActiva
       ? gtCompraPendienteActiva.montoTotal
-      : (montoInput > 0 ? montoInput : sumaPartes);
+      : (montoInput > 0 ? montoInput : sumaConAdic);
     var basePrev = gtCompraPendienteActiva ? gtCompraPendienteActiva.montoDesglosado : 0;
-    var desglosadoAcum = Math.round((basePrev + sumaPartes) * 100) / 100;
+    var desglosadoAcum = Math.round((basePrev + sumaConAdic) * 100) / 100;
     var falta = Math.round((totalRef - desglosadoAcum) * 100) / 100;
-    var ganancia = (valorVenta > 0 && sumaPartes > 0) ? Math.round((valorVenta - sumaPartes) * 100) / 100 : null;
+    var faltaSinAdic = Math.round((totalRef - (basePrev + sumaPartes)) * 100) / 100;
+
+    var gananciaDesglose = (valorVenta > 0 && sumaPartes > 0) ? Math.round((valorVenta - sumaPartes) * 100) / 100 : null;
+    var gananciaNeta = (valorVenta > 0 && sumaConAdic > 0 && adicComp > 0) ? Math.round((valorVenta - sumaConAdic) * 100) / 100 : null;
 
     var estadoBadge = '';
-    if (totalRef <= 0 && sumaPartes <= 0) {
-      estadoBadge = '<span class="px-2 py-0.5 rounded bg-slate-700 text-slate-300">Pon el Monto Total y desglosa abajo</span>';
+    if (totalRef <= 0 && sumaConAdic <= 0) {
+      estadoBadge = '<span class="px-2 py-0.5 rounded bg-slate-700 text-slate-300">Pon el Total Gasto y desglosa abajo</span>';
     } else if (Math.abs(falta) <= 0.02) {
       estadoBadge = '<span class="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-black">✅ ¡Cuadrado! S/ 0.00 pend.</span>';
     } else if (falta > 0.02) {
-      estadoBadge = '<span class="px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-black">⏳ Falta desglosar: S/ ' + falta.toFixed(2) + '</span>';
+      estadoBadge = '<span class="px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-black">⏳ Falta: S/ ' + falta.toFixed(2) + '</span>' +
+        (faltaSinAdic > 0.02
+          ? ' <button type="button" onclick="aplicarDiferenciaAdicCompUI()" class="px-1.5 py-0.5 rounded bg-indigo-500 hover:bg-indigo-400 text-white font-extrabold text-[10px] cursor-pointer" title="Usar esta diferencia como IGV / Percepci?n del comprobante">⚡ Pasar S/ ' + faltaSinAdic.toFixed(2) + ' a IGV/Percep.</button>'
+          : '');
     } else {
       estadoBadge = '<span class="px-2 py-0.5 rounded bg-red-500 text-white font-black">⚠️ Excede por S/ ' + Math.abs(falta).toFixed(2) + '</span>';
     }
@@ -6820,13 +6860,15 @@
     if (barra) {
       barra.innerHTML =
         '<div class="flex flex-wrap items-center gap-2">' +
-          '<span>Total: <strong class="text-amber-300">S/ ' + totalRef.toFixed(2) + '</strong></span>' +
-          '<span>· Desglosado: <strong class="text-emerald-300">S/ ' + desglosadoAcum.toFixed(2) + '</strong></span>' +
+          '<span>Total Gasto: <strong class="text-amber-300">S/ ' + totalRef.toFixed(2) + '</strong></span>' +
+          '<span>· Desglosado (Venta): <strong class="text-emerald-300">S/ ' + (basePrev + sumaPartes).toFixed(2) + '</strong></span>' +
+          (adicComp > 0 ? '<span>· IGV/Percep: <strong class="text-indigo-300">S/ ' + adicComp.toFixed(2) + '</strong></span>' : '') +
           estadoBadge +
         '</div>' +
         '<div class="text-[10.5px] text-slate-300 font-bold">' +
           'Venta: S/ ' + valorVenta.toFixed(2) +
-          (ganancia !== null ? ' · Ganancia: <span class="' + (ganancia >= 0 ? 'text-emerald-300' : 'text-red-300') + '">S/ ' + ganancia.toFixed(2) + '</span>' : '') +
+          (gananciaDesglose !== null ? ' · Ganancia s/ Desglose: <span class="' + (gananciaDesglose >= 0 ? 'text-emerald-300' : 'text-red-300') + '">S/ ' + gananciaDesglose.toFixed(2) + '</span>' : '') +
+          (gananciaNeta !== null ? ' <span class="text-slate-400">(Neta c/ IGV: S/ ' + gananciaNeta.toFixed(2) + ')</span>' : '') +
         '</div>';
     }
 
@@ -6835,13 +6877,15 @@
     var vaAGasto = chkGas && chkGas.checked;
     if (btn && !btn.disabled) {
       if (gtCompraPendienteActiva) {
-        btn.textContent = '💾 Guardar Avance (+S/ ' + sumaPartes.toFixed(2) + ')';
+        btn.textContent = '💾 Guardar Avance (+S/ ' + sumaConAdic.toFixed(2) + ')';
       } else if (totalRef > 0 && falta > 0.02) {
         btn.textContent = vaAGasto
           ? ('💾 Guardar (Gasto S/ ' + totalRef.toFixed(2) + ' + Pend. S/ ' + falta.toFixed(2) + ')')
           : ('💾 Guardar Parcial (Pend. S/ ' + falta.toFixed(2) + ')');
       } else if (totalRef > 0) {
-        btn.textContent = '💾 Guardar Compra (S/ ' + totalRef.toFixed(2) + ')';
+        btn.textContent = adicComp > 0
+          ? ('💾 Guardar (Gasto S/ ' + totalRef.toFixed(2) + ' · Desglose S/ ' + sumaPartes.toFixed(2) + ')')
+          : ('💾 Guardar Compra (S/ ' + totalRef.toFixed(2) + ')');
       } else {
         btn.textContent = '💾 Guardar Compra';
       }
@@ -6850,6 +6894,8 @@
 
   window.limpiarBorradorCompraUI = function () {
     gtCompraBorrador = {};
+    var inpAdic = document.getElementById('gtAdicComp');
+    if (inpAdic) inpAdic.value = '';
     if (!gtCompraPendienteActiva) {
       var inpTot = document.getElementById('gtMontoTotal');
       var inpNot = document.getElementById('gtNotaCompra');
@@ -6869,6 +6915,7 @@
       }
     });
     var inpTot = document.getElementById('gtMontoTotal');
+    var inpAdic = document.getElementById('gtAdicComp');
     var selMet = document.getElementById('gtMetodoPago');
     var inpFec = document.getElementById('gtFechaCompra');
     var inpNot = document.getElementById('gtNotaCompra');
@@ -6880,6 +6927,7 @@
       clave: gestionTiendaClave,
       compraUuidExistente: gtCompraPendienteActiva ? gtCompraPendienteActiva.compraUuid : '',
       montoTotal: inpTot ? inpTot.value : 0,
+      adicComp: inpAdic ? inpAdic.value : 0,
       metodoPago: selMet ? selMet.value : 'Efectivo',
       fecha: inpFec ? inpFec.value : '',
       nota: inpNot ? inpNot.value : '',
@@ -6895,6 +6943,7 @@
     runGas('registrarCompraTienda', [payload], function (res) {
       if (btn) btn.disabled = false;
       gtCompraBorrador = {};
+      if (inpAdic) inpAdic.value = '';
       if (!gtCompraPendienteActiva) {
         if (inpTot) inpTot.value = '';
         if (inpNot) inpNot.value = '';

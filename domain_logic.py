@@ -3790,6 +3790,7 @@ def registrar_compra_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     tipo_comp = str(datos.get("tipoComp") or "Boleta").strip() or "Boleta"
     nro_comp = str(datos.get("nroComp") or "").strip()
     nota = str(datos.get("nota") or "").strip()
+    adic_comp = round(max(0.0, parse_moneda(datos.get("adicComp"))), 2)
     enviar_a_gastos = bool(datos.get("enviarAGastos", True))
     directo_vitrina = bool(datos.get("directoAVitrina", False))
 
@@ -3815,6 +3816,8 @@ def registrar_compra_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
             "costoUnitario": costo_u,
         })
 
+    total_sustentado = round(suma_costos + adic_comp, 2)
+
     ahora = datetime.now()
     ahora_iso = ahora.isoformat()
     id_tx_str = ahora.strftime("%d/%m/%Y %H:%M:%S")
@@ -3825,28 +3828,28 @@ def registrar_compra_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         detalles_hist: List[Dict[str, str]] = []
 
         if compra_uuid_exist:
-            # --- CONTINUACIÓN DE DESGLOSE DE UNA COMPRA PENDIENTE ---
+            # --- CONTINUACION DE DESGLOSE DE UNA COMPRA PENDIENTE ---
             lote_row = conn.execute(
                 "SELECT * FROM compras_tienda_lotes WHERE compra_uuid = ?",
                 (compra_uuid_exist,),
             ).fetchone()
             if not lote_row:
-                raise ValueError("No se encontró la compra pendiente seleccionada.")
-            if not items_limpios:
-                raise ValueError("Escribe al menos un producto con su cantidad y costo parcial para avanzar el desglose.")
+                raise ValueError("No se encontr\u00f3 la compra pendiente seleccionada.")
+            if not items_limpios and adic_comp <= 0:
+                raise ValueError("Escribe al menos un producto o el Adicional por Comprobante (IGV/Percepci\u00f3n) para avanzar el desglose.")
 
             m_tot_lote = round(float(lote_row["monto_total"] or 0), 2)
             m_des_prev = round(float(lote_row["monto_desglosado"] or 0), 2)
             disponible = round(max(0.0, m_tot_lote - m_des_prev), 2)
-            if m_tot_lote > 0 and suma_costos > disponible + 0.05:
+            if m_tot_lote > 0 and total_sustentado > disponible + 0.05:
                 raise ValueError(
-                    f"El desglose ingresado (S/ {suma_costos:.2f}) supera el saldo pendiente por desglosar (S/ {disponible:.2f})."
+                    f"El desglose + IGV/Percepci\u00f3n (S/ {total_sustentado:.2f}) supera el saldo pendiente por desglosar (S/ {disponible:.2f})."
                 )
 
             compra_uuid = compra_uuid_exist
             fecha_dmy = str(lote_row["fecha_dmy"] or fecha_dmy)
             metodo_pago = str(lote_row["metodo_pago"] or metodo_pago)
-            nuevo_desg = round(m_des_prev + suma_costos, 2)
+            nuevo_desg = round(m_des_prev + total_sustentado, 2)
             nuevo_estado = "COMPLETADO" if (m_tot_lote <= 0 or nuevo_desg >= m_tot_lote - 0.02) else "PENDIENTE"
 
             conn.execute(
@@ -3858,23 +3861,24 @@ def registrar_compra_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 (nuevo_desg, nuevo_estado, ahora_iso, compra_uuid),
             )
             falta_final = round(max(0.0, m_tot_lote - nuevo_desg), 2)
+            extra_adic_txt = f" (incl. S/ {adic_comp:.2f} IGV/Percep.)" if adic_comp > 0 else ""
             msg_gasto = (
-                f"Desglose completado al 100% (S/ {m_tot_lote:.2f})."
+                f"Desglose completado al 100% (S/ {m_tot_lote:.2f}){extra_adic_txt}."
                 if nuevo_estado == "COMPLETADO"
-                else f"Avance guardado. Falta desglosar S/ {falta_final:.2f} de S/ {m_tot_lote:.2f}."
+                else f"Avance guardado{extra_adic_txt}. Falta desglosar S/ {falta_final:.2f} de S/ {m_tot_lote:.2f}."
             )
         else:
             # --- COMPRA NUEVA ---
             monto_total_in = round(parse_moneda(datos.get("montoTotal")), 2)
-            if monto_total_in <= 0 and suma_costos > 0:
-                monto_total_in = suma_costos
+            if monto_total_in <= 0 and total_sustentado > 0:
+                monto_total_in = total_sustentado
 
             if monto_total_in <= 0 and not items_limpios:
                 raise ValueError("Ingresa el Monto Total de la compra o al menos un producto con cantidad.")
 
-            if monto_total_in > 0 and suma_costos > monto_total_in + 0.05:
+            if monto_total_in > 0 and total_sustentado > monto_total_in + 0.05:
                 raise ValueError(
-                    f"La suma de las partes desglosadas (S/ {suma_costos:.2f}) excede el Monto Total (S/ {monto_total_in:.2f})."
+                    f"La suma de productos (S/ {suma_costos:.2f}) + Adic. Comprobante (S/ {adic_comp:.2f}) = S/ {total_sustentado:.2f} excede el Monto Total (S/ {monto_total_in:.2f})."
                 )
 
             compra_uuid = str(uuid.uuid4())
@@ -3887,11 +3891,13 @@ def registrar_compra_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                     for x in items_limpios[:8]
                 )
                 if len(items_limpios) > 8:
-                    resumen_prods += f" (+{len(items_limpios) - 8} más)"
+                    resumen_prods += f" (+{len(items_limpios) - 8} m\u00e1s)"
+                if adic_comp > 0:
+                    resumen_prods = (resumen_prods + f" + IGV/Percep. S/{adic_comp:g}").strip(" +")
                 if not resumen_prods:
                     desc_gasto = f"Compra Tienda (Pendiente desglose){' - ' + nota if nota else ''}"
-                elif suma_costos < monto_total_in - 0.02:
-                    desc_gasto = f"Compra Tienda (Parcial S/{suma_costos:g} de S/{monto_total_in:g}): {resumen_prods}"
+                elif total_sustentado < monto_total_in - 0.02:
+                    desc_gasto = f"Compra Tienda (Parcial S/{total_sustentado:g} de S/{monto_total_in:g}): {resumen_prods}"
                 else:
                     desc_gasto = f"Compra Tienda: {resumen_prods}"
                 if nota and nota not in desc_gasto:
@@ -3945,9 +3951,10 @@ def registrar_compra_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
 
             estado_lote = (
                 "PENDIENTE"
-                if (monto_total_in > 0 and suma_costos < monto_total_in - 0.02)
+                if (monto_total_in > 0 and total_sustentado < monto_total_in - 0.02)
                 else "COMPLETADO"
             )
+            nota_lote = f"{nota} [IGV/Percep: S/ {adic_comp:.2f}]".strip() if adic_comp > 0 else nota
             conn.execute(
                 """
                 INSERT INTO compras_tienda_lotes (
@@ -3959,20 +3966,20 @@ def registrar_compra_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                     compra_uuid,
                     fecha_dmy,
                     monto_total_in,
-                    suma_costos,
+                    total_sustentado,
                     metodo_pago,
                     responsable,
                     tipo_comp,
                     nro_comp,
-                    nota,
+                    nota_lote,
                     gasto_uuid,
                     estado_lote,
                     ahora_iso,
                     ahora_iso,
                 ),
             )
-            falta_final = round(max(0.0, monto_total_in - suma_costos), 2)
-            txt_g = f" Gasto S/ {monto_total_in:.2f} enviado a Registro_Gastos." if gasto_uuid else ""
+            falta_final = round(max(0.0, monto_total_in - total_sustentado), 2)
+            txt_g = f" Gasto Total S/ {monto_total_in:.2f} enviado a Registro_Gastos" + (f" (Desglose Venta S/ {suma_costos:.2f} + IGV/Percep S/ {adic_comp:.2f})." if adic_comp > 0 else ".") if gasto_uuid else ""
             if estado_lote == "PENDIENTE":
                 msg_gasto = f"Compra registrada.{txt_g} Queda pendiente desglosar S/ {falta_final:.2f}."
             else:
@@ -4064,6 +4071,12 @@ def registrar_compra_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 ),
             )
 
+        if adic_comp > 0:
+            detalles_hist.append({
+                "campo": "IGV / Percepción (Comprobante)",
+                "antes": f"Subtotal Prod: S/ {suma_costos:.2f}",
+                "despues": f"+S/ {adic_comp:.2f} -> Total Gasto: S/ {total_sustentado:.2f}",
+            })
         _registrar_movimiento(
             conn,
             accion="Compra Tienda",
@@ -4071,7 +4084,7 @@ def registrar_compra_tienda_local(datos: Dict[str, Any]) -> Dict[str, Any]:
             huesped=responsable,
             resumen=msg_gasto,
             detalle=detalles_hist[:25],
-            monto=suma_costos,
+            monto=total_sustentado,
         )
 
     res = obtener_datos_vitrina_local()
