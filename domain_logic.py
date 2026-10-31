@@ -2437,6 +2437,24 @@ def actualizar_comprobante_desde_panel_local(datos: Dict[str, Any]) -> Dict[str,
         cel_final = nuevo_celular if (nuevo_celular is not None and nuevo_celular != "") else st["celular"]
         nro_final = nuevo_nro if datos.get("nroComp") is not None else st["nro_comp"]
 
+        if nro_final and not datos.get("forzarNroComp"):
+            otra_hab = conn.execute(
+                """
+                SELECT hab, huesped, sheet_row FROM estancias
+                WHERE UPPER(TRIM(nro_comp)) = UPPER(TRIM(?))
+                  AND TRIM(hab) != TRIM(?)
+                  AND TRIM(dni) != TRIM(?)
+                LIMIT 1
+                """,
+                (nro_final, str(st["hab"] or ""), str(st["dni"] or "")),
+            ).fetchone()
+            if otra_hab:
+                raise ValueError(
+                    f"El comprobante {nro_final} ya pertenece a la Hab. {otra_hab['hab']} "
+                    f"({otra_hab['huesped']}, fila #{otra_hab['sheet_row']}). "
+                    f"Verifica que no est?s confundiendo de habitaci?n."
+                )
+
         conn.execute(
             """
             UPDATE estancias SET

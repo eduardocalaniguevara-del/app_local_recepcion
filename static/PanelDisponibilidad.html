@@ -3559,9 +3559,20 @@
           return;
         }
         if (!(nuevoMonto > 0)) {
-          alert("⚠️ Indica el monto por el cual se hará la Factura.");
+          alert("⚠️ Indica el monto por el cual se har? la Factura.");
           if (inpMonto) inpMonto.focus();
           return;
+        }
+        const empPrevia = String(f.empresa || h.empresa || "").trim().toUpperCase();
+        if (empPrevia && nuevaEmpresa && empPrevia !== nuevaEmpresa) {
+          const confirmarCambio = confirm(
+            `⚠️ ATENCI?N ? CAMBIO DE EMPRESA EN HAB. ${h.hab}\n\n` +
+            `Hu?sped: ${h.huesped || "Sin nombre"}\n` +
+            `Empresa actual: ${empPrevia}\n` +
+            `Nueva empresa: ${nuevaEmpresa} (RUC ${nuevoRuc})\n\n` +
+            `?Est?s seguro de reemplazar la empresa de esta habitaci?n?`
+          );
+          if (!confirmarCambio) return;
         }
       }
 

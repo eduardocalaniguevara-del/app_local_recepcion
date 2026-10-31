@@ -1479,9 +1479,25 @@
       resumenContinuarBox.style.display = 'none';
     }
 
-    // Autocompletar campos cuando se encuentra cliente por DNI o por Nombre (sin cartel de visitas)
+    let ultimoDniAutocompletado = '';
+
+    function limpiarCamposAutocompletadosCliente() {
+      celularInput.value = '';
+      rucInput.value = '';
+      empresaInput.value = '';
+      mFactInput.value = '';
+      if (adicCompInput) adicCompInput.value = '';
+      const empDet = document.getElementById('empresaDetails');
+      if (empDet) empDet.open = false;
+      const radioSinComp = document.querySelector('input[name="tipoC"][value=""]');
+      if (radioSinComp) radioSinComp.checked = true;
+    }
+
+    // Autocompletar campos cuando se encuentra cliente por DNI o por Nombre (sin contaminar empresa/RUC ocultos)
     function rellenarDatosCliente(dniVal, h) {
       if (!h) return;
+      limpiarCamposAutocompletadosCliente();
+      ultimoDniAutocompletado = String(dniVal || '').trim();
       if (dniInput.value.trim() !== dniVal) {
         dniInput.value = dniVal;
         dniInput.classList.remove('campo-invalido');
@@ -1498,20 +1514,39 @@
       if (h.nac) nacSelect.value = h.nac;
       if (h.reg) regSelect.value = h.reg;
       if (h.mot) motSelect.value = h.mot;
-      if (h.celular) celularInput.value = h.celular;
-      if (h.ruc) rucInput.value = h.ruc;
-      if (h.empresa) empresaInput.value = h.empresa;
+      celularInput.value = h.celular || '';
       if (h.tarifa && !tarifaInput.value) {
         tarifaInput.value = h.tarifa;
         tarifaInput.classList.remove('campo-invalido');
         calcularTotalesCheckIn();
       }
-      // Mostrar referencia discreta de tarifa/habitación anterior igual que "Buscar Cliente Registrado"
+      // Mostrar referencia discreta de tarifa/habitaci?n anterior + bot?n expl?cito si tuvo empresa antes
       const partesInfo = [];
-      if (h.hab) partesInfo.push(`Última Hab: ${h.hab}`);
+      if (h.hab) partesInfo.push(`?ltima Hab: ${h.hab}`);
       if (h.tarifa) partesInfo.push(`Tarifa anterior: S/ ${h.tarifa}`);
-      if (partesInfo.length > 0) {
-        prevStayHint.textContent = '📋 ' + partesInfo.join(' • ');
+      prevStayHint.innerHTML = '';
+      if (partesInfo.length > 0 || h.empresa || h.ruc) {
+        const spanTxt = document.createElement('span');
+        spanTxt.textContent = partesInfo.length > 0 ? ('📋 ' + partesInfo.join(' • ')) : '📋 Cliente frecuente';
+        prevStayHint.appendChild(spanTxt);
+        if (h.empresa || h.ruc) {
+          const btnEmp = document.createElement('button');
+          btnEmp.type = 'button';
+          btnEmp.style.cssText = 'margin-left:8px;padding:2px 7px;border-radius:5px;border:1px solid #0284c7;background:#e0f2fe;color:#0369a1;font-weight:700;font-size:11px;cursor:pointer;';
+          const empLabel = h.empresa ? h.empresa : `RUC ${h.ruc}`;
+          btnEmp.textContent = `🏢 Usar empresa: ${empLabel}`;
+          btnEmp.addEventListener('click', () => {
+            rucInput.value = h.ruc || '';
+            empresaInput.value = h.empresa || '';
+            const empDet = document.getElementById('empresaDetails');
+            if (empDet) empDet.open = true;
+            btnEmp.textContent = `✓ Empresa aplicada (${empLabel})`;
+            btnEmp.style.background = '#dcfce7';
+            btnEmp.style.borderColor = '#16a34a';
+            btnEmp.style.color = '#15803d';
+          });
+          prevStayHint.appendChild(btnEmp);
+        }
         prevStayHint.classList.add('visible');
       } else {
         prevStayHint.classList.remove('visible');
@@ -1523,6 +1558,7 @@
       if (val.length !== 8 || isNaN(val)) return;
       if (DB_HUESPEDES[val]) return;
 
+      limpiarCamposAutocompletadosCliente();
       prevStayHint.textContent = '🔍 Consultando APIsPERU / RENIEC...';
       prevStayHint.classList.add('visible');
       if (btnBuscarDni) btnBuscarDni.disabled = true;
@@ -1533,6 +1569,8 @@
             if (btnBuscarDni) btnBuscarDni.disabled = false;
             if (dniInput.value.trim() !== val) return;
             if (res && res.ok && res.nombre) {
+              limpiarCamposAutocompletadosCliente();
+              ultimoDniAutocompletado = val;
               nombreInput.value = res.nombre;
               if (nacSelect) nacSelect.value = 'Perú';
               nombreInput.classList.remove('campo-invalido');
@@ -1556,6 +1594,11 @@
     dniInput.addEventListener('input', () => {
       const val = dniInput.value.trim();
       clearTimeout(timerDniReniec);
+      if (ultimoDniAutocompletado && val !== ultimoDniAutocompletado) {
+        limpiarCamposAutocompletadosCliente();
+        nombreInput.value = '';
+        ultimoDniAutocompletado = '';
+      }
       if (!val) {
         prevStayHint.classList.remove('visible');
         return;
@@ -1709,6 +1752,7 @@
     }
 
     function limpiarFormularioCheckIn() {
+      ultimoDniAutocompletado = '';
       checkInForm.reset();
       mostrarSelectorHabitacion();
       nacSelect.value = 'Perú';
@@ -2013,6 +2057,9 @@
         tabBtnCheckIn.click();
         const hab = String(ctx.hab || '').trim();
         if (hab && HABITACIONES && HABITACIONES.length > 0 && habSelect) {
+          if (String(habSelect.value || '').trim() !== hab) {
+            limpiarFormularioCheckIn();
+          }
           habSelect.value = hab;
           habSelect.dispatchEvent(new Event('change', { bubbles: true }));
         }
