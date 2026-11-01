@@ -574,12 +574,9 @@ def _ejecutar_trabajo_sunat_wsp(
         }
 
         directo_local = es_laptop_recepcion_directa() or _whatsapp_local_activo()
-        usar_remoto_completo = (
-            accion == "EMITIR_Y_WSP"
-            and emitir_en_firme
-            and not directo_local
-            and EJECUTAR_REMOTO_SCRIPT.exists()
-        )
+        # SIEMPRE emitir en SUNAT localmente (máxima velocidad, igual que emitir_boleta_sunat.py),
+        # y en Etapa 2 (_despachar_wsp_pdf) enviar el PDF por WhatsApp (local o delegado a Laptop 2).
+        usar_remoto_completo = False
 
         if usar_remoto_completo:
             # Si se ordenó desde Laptop 1 y el WhatsApp está en Laptop 2, Laptop 2 emite y envía directo

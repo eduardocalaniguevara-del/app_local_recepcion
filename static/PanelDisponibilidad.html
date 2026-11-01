@@ -2829,6 +2829,7 @@
           .cancelarEstanciaDesdeApp({
             fila: habData.filaNum,
             id: habData.id,
+            estanciaUuid: habData.estanciaUuid || "",
             hab: hab,
             motivo: motivoInp || "Cancelación de reserva/estancia",
             devolverPago: devolverPago
@@ -5605,7 +5606,7 @@
         : '<td class="px-0.5 w-[24px] max-w-[24px] text-center border-r border-[#E6DCD2] text-slate-300 text-[9px]">' + ((f.triple1 || f.triple2) ? '●' : '') + '</td>';
 
       return '<tr class="h-8 ' + rowCls + '">' +
-        (admin ? '<td class="px-1 text-center border-r border-[#E6DCD2]"><button type="button" onclick="bdAbrirModalEditar(' + idx + ')" class="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-[10.5px] border border-amber-300 cursor-pointer" title="Editar fila #' + f.fila + '">✏️</button></td>' : '') +
+        (admin ? '<td class="px-1 text-center border-r border-[#E6DCD2] whitespace-nowrap"><button type="button" onclick="bdAbrirModalEditar(' + idx + ')" class="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-[10.5px] border border-amber-300 cursor-pointer mr-0.5" title="Editar fila #' + f.fila + '">✏️</button>' + (!canc ? '<button type="button" onclick="bdEliminarRegistroUI(' + idx + ')" class="px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-900 font-black text-[10.5px] border border-red-300 cursor-pointer" title="Anular estancia duplicada #' + f.fila + '">🗑️</button>' : '') + '</td>' : '') +
         '<td class="px-1.5 py-1 border-r border-[#E6DCD2] whitespace-nowrap"><div class="font-bold text-slate-800 text-[10.5px]">' + esc(f.id) + '</div><div class="text-[9.5px] text-slate-400">Fila #' + f.fila + (f.dirty ? ' • ⏳' : '') + '</div></td>' +
         '<td class="px-1.5 text-center font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + esc(f.fechaIn) + '</td>' +
         '<td class="px-1.5 text-center font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + esc(f.fechaOut) + '</td>' +
@@ -6182,6 +6183,24 @@
   window.bdEliminarRegistroUI = function (idx) {
     var f = BDE.filas[idx];
     if (!f) return;
+    if (BDE.subtab === 'ESTANCIAS') {
+      if (!confirm('¿Anular/eliminar esta estancia duplicada (Hab. ' + f.hab + ' — ' + (f.huesped || '') + ' • Fila #' + f.fila + ')?\n\n• Pasará a estado Cancelado con tarifa S/ 0.00 en la Base Local y en Google Sheets.')) return;
+      runGas('cancelarEstanciaDesdeApp', [{
+        fila: f.fila,
+        id: f.id,
+        estanciaUuid: f.estanciaUuid || '',
+        hab: f.hab,
+        motivo: 'Anulada desde Base de Datos (duplicado/corrección)',
+        devolverPago: false
+      }], function () {
+        bdBanner('ok', '🚫 Estancia #' + f.fila + ' (Hab. ' + f.hab + ') anulada en la Base Interna y sincronizada con Google Sheets.');
+        cargarVistaEstanciasBD();
+        if (typeof recargarDatos === 'function') recargarDatos();
+      }, function (err) {
+        bdBanner('error', '❌ ' + errorMsg(err));
+      });
+      return;
+    }
     if (BDE.subtab === 'PAGOS') {
       if (!confirm('¿Eliminar este pago (Hab. ' + f.hab + ' — ' + f.medioPago + ' S/ ' + Number(f.monto || 0).toFixed(2) + ') de Registro_Pagos y descontarlo de la estancia vinculada?')) return;
       runGas('eliminarPagoBDAdmin', [{ clave: BDE.clave, pagoId: f.pagoId }], function () {

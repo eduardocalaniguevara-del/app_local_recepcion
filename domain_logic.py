@@ -1796,6 +1796,17 @@ def continuar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
             hab=str(datos.get("habAnterior") or datos.get("habNueva") or ""),
         )
 
+        est_ant_low = str(old["estado_estancia"] or "").strip().lower()
+        if "contin" in est_ant_low or "cancel" in est_ant_low:
+            raise ValueError(f"La estancia de Hab. {old['hab']} ({old['huesped']}) ya fue continuada o anulada anteriormente.")
+
+        ymd_ayer_min = int((datetime.now() - timedelta(days=1)).strftime("%Y%m%d"))
+        ymd_hoy_min = int(datetime.now().strftime("%Y%m%d"))
+        ymd_in_old = int(old["ymd_in"] or 0)
+        ymd_out_old = int(old["ymd_out"] or 0)
+        if ymd_in_old > 0 and ymd_in_old < ymd_ayer_min and ymd_out_old < ymd_hoy_min:
+            raise ValueError(f"Por seguridad, Continuar Estancia solo permite estancias de 1 día hacia atrás (la estancia de Hab. {old['hab']} ingresó el {old['fecha_in_dmy']}).")
+
         noches_ant = max(1, int(old["noches"] or 1))
         sub_aloj_ant = round(noches_ant * float(old["tarifa"] or 0), 2)
         cargos_ant = (
@@ -2651,14 +2662,33 @@ def obtener_datos_iniciales_checkin_local() -> Dict[str, Any]:
                 "visitas": int(p["visitas"] or 1),
             }
 
+        # Blindaje estricto Continuar Estancia:
+        # 1) Solo evaluar la estancia MÁS RECIENTE de cada habitación (si ya fue Finalizada o Continuada, NO retroceder a filas viejas).
+        # 2) Solo permitir estancias de máximo 1 día hacia atrás respecto a la fecha de referencia.
+        try:
+            ymd_hoy_ref = int(dt_ref.strftime("%Y%m%d"))
+            ymd_ayer_ref = int((dt_ref - timedelta(days=1)).strftime("%Y%m%d"))
+        except Exception:
+            ymd_hoy_ref = int(datetime.now().strftime("%Y%m%d"))
+            ymd_ayer_ref = int((datetime.now() - timedelta(days=1)).strftime("%Y%m%d"))
+
         estancias_activas = []
-        habs_ya_incluidas = set()
+        habs_ya_evaluadas = set()
         for st in panel["estanciasCache"]:
-            if not st.get("esInactiva") and not st.get("esContinuacionCerrada"):
-                hab_key = str(st.get("hab") or "").strip()
-                if not hab_key or hab_key in habs_ya_incluidas:
-                    continue
-                habs_ya_incluidas.add(hab_key)
+            if st.get("esCancelada"):
+                continue
+            hab_key = str(st.get("hab") or "").strip()
+            if not hab_key or hab_key in habs_ya_evaluadas:
+                continue
+            # Bloquear la habitación en su estancia más reciente (aunque esté Finalizada o Continúa, jamás retroceder a días anteriores)
+            habs_ya_evaluadas.add(hab_key)
+            if st.get("esInactiva") or st.get("esContinuacionCerrada"):
+                continue
+            ymd_in_st = fecha_dmy_a_ymd(st.get("checkIn", ""))
+            ymd_out_st = fecha_dmy_a_ymd(st.get("checkOut", ""))
+            if ymd_in_st > 0 and ymd_in_st < ymd_ayer_ref and ymd_out_st < ymd_hoy_ref:
+                continue
+            if True:
                 sub_aloj = float(st.get("subtotalAloj") or st.get("tarifa") or 0)
                 t_cuenta = round(
                     sub_aloj
