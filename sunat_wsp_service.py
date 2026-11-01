@@ -590,7 +590,7 @@ def _ejecutar_trabajo_sunat_wsp(
                 "emitir_comprobante_sunat.py",
                 "--payload-json",
                 json.dumps(payload_sunat, ensure_ascii=False),
-                "--timeout-remoto", "180",
+                "--timeout-remoto", "260",
             ]
         else:
             cmd = [
@@ -606,7 +606,7 @@ def _ejecutar_trabajo_sunat_wsp(
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=200,
+            timeout=300,
             creationflags=CREATE_NO_WINDOW,
         )
         stdout_all = proc.stdout or ""
