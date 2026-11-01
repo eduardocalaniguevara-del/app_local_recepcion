@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Servicio Local de Integración con SUNAT (IGV 10.5% Multi-Ítem), WhatsApp y Padrón DNI/RUC
+Servicio Local Asíncrono de Integración con SUNAT (IGV 10.5% Multi-Ítem + Notas de Crédito),
+WhatsApp Desktop / Edge y Padrón DNI/RUC.
 Reutiliza los motores probados de C:\\Hostal_Sistema:
 - scripts/emitir_comprobante_sunat.py
+- scripts/emitir_nota_credito_sunat.py
 - scripts/brazo_wsp.py
-- ejecutar_remoto.py (cuando se opera desde Laptop 1 hacia Laptop 2)
-- reglas_auditoria.json (de emitir_y_enviar.py)
+- ejecutar_remoto.py (fallback remoto hacia Laptop 2)
 """
 
 import glob
@@ -15,8 +16,12 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import time
+import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -33,9 +38,16 @@ from config import (
     SCRIPTS_HOSTAL_DIR,
 )
 from database import db_transaction, get_connection
-from domain_logic import actualizar_comprobante_desde_panel_local, normalizar_dni
+from domain_logic import _registrar_movimiento, actualizar_comprobante_desde_panel_local
 
 FACTOR_IGV_HOTEL = 1.105
+EMITIR_NC_SCRIPT = SCRIPTS_HOSTAL_DIR / "emitir_nota_credito_sunat.py"
+CAPTURAS_SUNAT_DIR = HOSTAL_SISTEMA_DIR / "capturas"
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if os.name == "nt" else 0
+
+_sunat_emission_lock = threading.Lock()
+_jobs_lock = threading.Lock()
+_SUNAT_JOBS: Dict[str, Dict[str, Any]] = {}
 
 
 def calcular_valor_unitario_105(precio_con_igv: float) -> float:
@@ -53,15 +65,30 @@ def _python_cli_bin() -> str:
 
 
 def es_laptop_recepcion_directa() -> bool:
-    """
-    Detecta si el servidor está corriendo directamente en Laptop 2 (Recepción)
-    o en Laptop 1 (Controlador).
-    """
+    """Detecta si el servidor está corriendo directamente en Laptop 2 (Recepción)."""
     if os.environ.get("HOSTAL_EJECUCION_DIRECTA") == "1":
         return True
     if os.path.exists(r"C:\Users\ovalo mariategui"):
         return True
     return False
+
+
+def _whatsapp_local_activo() -> bool:
+    """Detecta si WhatsApp Desktop está corriendo en esta misma PC."""
+    try:
+        res = subprocess.run(
+            ["tasklist", "/NH", "/FI", "IMAGENAME eq WhatsApp*"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=CREATE_NO_WINDOW,
+            timeout=3,
+        )
+        out = (res.stdout or "").lower()
+        return "whatsapp.exe" in out or "whatsapp.root.exe" in out
+    except Exception:
+        return False
 
 
 # ==============================================================================
@@ -75,7 +102,6 @@ def consultar_dni_local_o_reniec(dni_buscado: str) -> Dict[str, Any]:
     if len(dni) < 8:
         return {"ok": False, "error": "DNI debe tener 8 dígitos."}
 
-    # 1) Buscar primero en padrón local SQLite (0 ms, funciona 100% sin internet)
     conn = get_connection()
     try:
         pad = conn.execute("SELECT * FROM huespedes_padron WHERE dni = ?", (dni,)).fetchone()
@@ -87,7 +113,7 @@ def consultar_dni_local_o_reniec(dni_buscado: str) -> Dict[str, Any]:
                 "nombreCompleto": pad["nombre"],
                 "sexo": pad["sexo"] or "M",
                 "nac": pad["nac"] or "Perú",
-                "reg": pad["reg"] or "Lima",
+                "reg": pad["reg"] or "",
                 "mot": pad["mot"] or "Vacaciones, recreo u ocio",
                 "celular": pad["celular"] or "",
                 "ruc": pad["ruc"] or "",
@@ -98,7 +124,6 @@ def consultar_dni_local_o_reniec(dni_buscado: str) -> Dict[str, Any]:
     finally:
         conn.close()
 
-    # 2) Si no está en padrón local y hay internet, consultar APIsPERU (RENIEC)
     try:
         url = f"{APISPERU_DNI_URL}/{dni}?token={APISPERU_TOKEN}"
         with httpx.Client(timeout=4.5) as client:
@@ -130,18 +155,17 @@ def consultar_dni_local_o_reniec(dni_buscado: str) -> Dict[str, Any]:
     except Exception:
         pass
 
-    return {"ok": False, "dni": dni, "error": "Sin conexión a RENIEC o DNI no encontrado (ingrese nombre manualmente)."}
+    return {"ok": False, "dni": dni, "error": "Sin conexión o DNI no encontrado (ingrese nombre manualmente)."}
 
 
 def consultar_ruc_local_o_sunat(ruc_buscado: str) -> Dict[str, Any]:
     ruc = re.sub(r"\D", "", str(ruc_buscado or "").strip())
     if len(ruc) != 11 or not re.match(r"^(10|15|17|20)", ruc):
-        return {"ok": False, "error": "RUC inválido (11 dígitos, inicia con 10 o 20)."}
+        return {"ok": False, "error": "RUC inválido (debe tener 11 dígitos e iniciar con 10 o 20)."}
 
-    # 1) Buscar primero en padrón local SQLite (0 ms, funciona 100% sin internet)
     conn = get_connection()
     try:
-        emp = conn.execute("SELECT razon_social FROM empresas_padron WHERE ruc = ?", (ruc,)).fetchone()
+        emp = conn.execute("SELECT * FROM empresas_padron WHERE ruc = ?", (ruc,)).fetchone()
         if emp and emp["razon_social"]:
             return {
                 "ok": True,
@@ -149,30 +173,37 @@ def consultar_ruc_local_o_sunat(ruc_buscado: str) -> Dict[str, Any]:
                 "razonSocial": emp["razon_social"],
                 "empresa": emp["razon_social"],
                 "nombre": emp["razon_social"],
-                "estado": "ACTIVO",
-                "condicion": "HABIDO",
-                "fuente": "HISTORIAL_LOCAL",
+                "estado": emp["estado"] or "ACTIVO",
+                "condicion": emp["condicion"] or "HABIDO",
+                "direccion": emp["direccion"] or "",
+                "fuente": "PADRON_LOCAL",
             }
     finally:
         conn.close()
 
-    # 2) Consultar APIsPERU (SUNAT) si hay internet
     try:
         url = f"{APISPERU_RUC_URL}/{ruc}?token={APISPERU_TOKEN}"
         with httpx.Client(timeout=5.0) as client:
             resp = client.get(url)
             if resp.status_code == 200:
                 data = resp.json()
-                razon = str(data.get("razonSocial") or "").strip().upper()
+                razon = str(data.get("razonSocial") or data.get("nombre") or "").strip().upper()
                 if razon:
+                    estado = str(data.get("estado") or "ACTIVO").strip().upper()
+                    condicion = str(data.get("condicion") or "HABIDO").strip().upper()
+                    direccion = str(data.get("direccion") or "").strip()
                     with db_transaction() as c_save:
                         c_save.execute(
                             """
-                            INSERT INTO empresas_padron (ruc, razon_social, updated_at)
-                            VALUES (?, ?, ?)
-                            ON CONFLICT(ruc) DO UPDATE SET razon_social = excluded.razon_social, updated_at = excluded.updated_at
+                            INSERT INTO empresas_padron (ruc, razon_social, estado, condicion, direccion, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(ruc) DO UPDATE SET
+                                razon_social = excluded.razon_social,
+                                estado = excluded.estado,
+                                condicion = excluded.condicion,
+                                updated_at = excluded.updated_at
                             """,
-                            (ruc, razon, datetime.now().isoformat()),
+                            (ruc, razon, estado, condicion, direccion, datetime.now().isoformat()),
                         )
                     return {
                         "ok": True,
@@ -180,8 +211,9 @@ def consultar_ruc_local_o_sunat(ruc_buscado: str) -> Dict[str, Any]:
                         "razonSocial": razon,
                         "empresa": razon,
                         "nombre": razon,
-                        "estado": str(data.get("estado") or "ACTIVO"),
-                        "condicion": str(data.get("condicion") or "HABIDO"),
+                        "estado": estado,
+                        "condicion": condicion,
+                        "direccion": direccion,
                         "fuente": "SUNAT",
                     }
     except Exception:
@@ -191,7 +223,7 @@ def consultar_ruc_local_o_sunat(ruc_buscado: str) -> Dict[str, Any]:
 
 
 # ==============================================================================
-# 2. AUDITORÍA PREVENTIVA Y BÚSQUEDA DE PDF (REUTILIZA emitir_y_enviar.py)
+# 2. AUDITORÍA PREVENTIVA Y BÚSQUEDA DE PDF
 # ==============================================================================
 
 def cargar_reglas_auditoria() -> Dict[str, Any]:
@@ -251,7 +283,7 @@ def buscar_pdf_comprobante(nro_cp: str = "", ruc_dni: str = "", cliente: str = "
         if palabras:
             terminos.append(palabras[0])
 
-    for ruta in archivos[:40]:
+    for ruta in archivos[:50]:
         nom = os.path.basename(ruta).lower()
         if any(t in nom for t in terminos if t):
             return ruta
@@ -259,137 +291,61 @@ def buscar_pdf_comprobante(nro_cp: str = "", ruc_dni: str = "", cliente: str = "
 
 
 # ==============================================================================
-# 3. ORQUESTADOR DE EMISIÓN SUNAT (10.5% IGV MULTI-ÍTEM) Y DESPACHO WHATSAPP
+# 3. GESTOR DE TAREAS EN SEGUNDO PLANO (NO BLOQUEA LA WEBAPP)
 # ==============================================================================
 
-def ejecutar_orden_sunat_wsp(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Maneja las órdenes desde el Modal de Facturación:
-    - accion = 'EMITIR'       -> Emite en SUNAT (EB01 / E001) con IGV 10.5%, guarda en SQLite y Sheets (CERO envío WSP).
-    - accion = 'EMITIR_Y_WSP' -> Emite en SUNAT y despacha el PDF por WhatsApp al teléfono indicado.
-    - accion = 'SOLO_WSP'     -> Envía o reenvía un comprobante ya emitido al WhatsApp indicado.
-    """
-    accion = str(data.get("accion") or "").upper().strip()
-    hab = str(data.get("hab") or "").strip()
-    estancia_uuid = str(data.get("estanciaUuid") or "").strip()
-    id_estancia = data.get("id_estancia") or data.get("fila") or 0
-    fila_calzado = data.get("fila_calzado")
-    directo_local = es_laptop_recepcion_directa()
+def _prune_old_jobs() -> None:
+    now_ts = time.time()
+    to_del = [
+        jid for jid, j in _SUNAT_JOBS.items()
+        if j.get("state") in ("DONE", "ERROR") and (now_ts - float(j.get("finished_ts") or now_ts)) > 180
+    ]
+    for jid in to_del:
+        _SUNAT_JOBS.pop(jid, None)
 
-    if accion == "SOLO_WSP":
-        tel = re.sub(r"\D", "", str(data.get("telefono") or "").strip())
-        if not tel:
-            return {"status": "ERROR", "error": "Ingrese un número de celular válido para enviar por WhatsApp."}
-        nro_cp = str(data.get("nro_comprobante") or "").strip()
-        doc = str(data.get("documento") or "").strip()
-        cli = str(data.get("cliente") or "").strip()
-        pdf_path = str(data.get("archivo") or "").strip()
-        if not pdf_path or not os.path.isfile(pdf_path):
-            pdf_path = buscar_pdf_comprobante(nro_cp=nro_cp, ruc_dni=doc, cliente=cli) or ""
-        msg = str(
-            data.get("mensaje")
-            or f"Estimado(a) {cli or 'cliente'}, adjuntamos su comprobante electrónico {nro_cp} del Hostal El Óvalo Mariátegui. ¡Gracias por su preferencia!"
-        ).strip()
 
-        py_bin = _python_cli_bin()
-        if directo_local and BRAZO_WSP_SCRIPT.exists():
-            cmd = [py_bin, str(BRAZO_WSP_SCRIPT), "--telefono", tel, "--archivo", pdf_path, "--mensaje", msg]
-        else:
-            cmd = [
-                py_bin,
-                str(EJECUTAR_REMOTO_SCRIPT),
-                "brazo_wsp.py",
-                "--telefono", tel,
-                "--archivo", pdf_path,
-                "--mensaje", msg,
-                "--timeout-remoto", "120",
-            ]
+def _update_job(job_id: str, **kwargs: Any) -> None:
+    with _jobs_lock:
+        if job_id in _SUNAT_JOBS:
+            _SUNAT_JOBS[job_id].update(kwargs)
+            _SUNAT_JOBS[job_id]["updated_ts"] = time.time()
 
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=140)
-        return {
-            "status": "OK" if proc.returncode == 0 else "ERROR",
-            "wsp_status": "ENVIADO" if proc.returncode == 0 else "ERROR_WSP",
-            "archivo_pdf": pdf_path,
-            "stdout": (proc.stdout or "").strip(),
-            "error": (proc.stderr or proc.stdout or "").strip() if proc.returncode != 0 else "",
-        }
 
-    if accion not in ("EMITIR", "EMITIR_Y_WSP"):
-        return {"status": "ERROR", "error": f"Acción '{accion}' no soportada."}
+def obtener_estado_job_sunat(job_id: str) -> Optional[Dict[str, Any]]:
+    with _jobs_lock:
+        _prune_old_jobs()
+        j = _SUNAT_JOBS.get(job_id)
+        return dict(j) if j else None
 
-    tipo = str(data.get("tipo") or "BOLETA").upper().strip()
-    doc_num = re.sub(r"\D", "", str(data.get("documento") or "").strip())
-    cliente = str(data.get("cliente") or "CLIENTES VARIOS").strip().upper()
-    telefono = re.sub(r"\D", "", str(data.get("telefono") or "").strip())
-    forzar = bool(data.get("forzar", False))
-    raw_items = data.get("items") or []
 
-    if tipo == "FACTURA" and (len(doc_num) != 11 or not re.match(r"^(10|15|17|20)", doc_num)):
-        return {"status": "ERROR", "error": "Para emitir FACTURA se requiere un RUC válido de 11 dígitos (10 o 20)."}
-    if not raw_items:
-        return {"status": "ERROR", "error": "Debe incluir al menos un ítem para emitir en SUNAT."}
-    if accion == "EMITIR_Y_WSP" and not telefono:
-        return {"status": "ERROR", "error": "Para 'Emitir y Enviar a WSP' debe ingresar el número de WhatsApp del cliente."}
+def listar_jobs_sunat_recientes() -> List[Dict[str, Any]]:
+    with _jobs_lock:
+        _prune_old_jobs()
+        jobs = [dict(j) for j in _SUNAT_JOBS.values()]
+    jobs.sort(key=lambda x: float(x.get("created_ts") or 0), reverse=True)
+    return jobs
 
-    # Normalizar ítems con fórmula Ley MYPE Hotelería IGV 10.5%
-    items_normalizados = []
-    total_monto = 0.0
-    for it in raw_items:
-        cant = max(1, int(it.get("cantidad") or 1))
-        precio_u = round(float(it.get("precio_unitario") or it.get("monto") or 0), 2)
-        if precio_u <= 0:
-            return {"status": "ERROR", "error": "Todos los ítems deben tener Precio Unitario mayor a S/ 0.00."}
-        valor_u = calcular_valor_unitario_105(precio_u)
-        desc = str(it.get("descripcion") or f"DIA DE ALOJAMIENTO HAB N {hab}").strip().upper()
-        items_normalizados.append({
-            "cantidad": cant,
-            "descripcion": desc,
-            "precio_unitario": precio_u,
-            "valor_unitario": valor_u,
-        })
-        total_monto = round(total_monto + (cant * precio_u), 2)
 
-    # Validación de auditoría preventiva (regla de cero extra y umbral de monto)
-    ok_audit, msg_audit = validar_monto_preventivo(total_monto, forzar=forzar)
-    if not ok_audit:
-        return {
-            "status": "CONFIRM_REQUIRED",
-            "requiereConfirmacion": True,
-            "monto": total_monto,
-            "mensajeAuditoria": msg_audit,
-        }
-
-    payload_sunat = {
-        "accion": accion,
-        "tipo": tipo,
-        "documento": doc_num,
-        "cliente": cliente,
-        "items": items_normalizados,
-        "telefono": telefono,
-        "enviar_wsp": (accion == "EMITIR_Y_WSP"),
-        "emitir": True,
-        "id_estancia": id_estancia,
-        "fila_calzado": fila_calzado,
-    }
-
+def _despachar_wsp_pdf(telefono: str, pdf_path: str, mensaje: str) -> Tuple[bool, str, str]:
+    """Despacha mensaje + PDF usando WhatsApp Desktop local o delegación a Laptop 2."""
     py_bin = _python_cli_bin()
-    if directo_local and EMITIR_COMPROBANTE_SCRIPT.exists():
-        cmd = [
-            py_bin,
-            str(EMITIR_COMPROBANTE_SCRIPT),
-            "--payload-json",
-            json.dumps(payload_sunat, ensure_ascii=False),
-        ]
+    directo_local = es_laptop_recepcion_directa() or _whatsapp_local_activo()
+
+    if directo_local and BRAZO_WSP_SCRIPT.exists():
+        cmd = [py_bin, str(BRAZO_WSP_SCRIPT), "--telefono", telefono, "--mensaje", mensaje]
+        if pdf_path:
+            cmd.extend(["--archivo", pdf_path])
     else:
         cmd = [
             py_bin,
             str(EJECUTAR_REMOTO_SCRIPT),
-            "emitir_comprobante_sunat.py",
-            "--payload-json",
-            json.dumps(payload_sunat, ensure_ascii=False),
-            "--timeout-remoto",
-            "240",
+            "brazo_wsp.py",
+            "--telefono", telefono,
+            "--mensaje", mensaje,
         ]
+        if pdf_path:
+            cmd.extend(["--archivo", os.path.basename(pdf_path)])
+        cmd.extend(["--timeout-remoto", "120"])
 
     proc = subprocess.run(
         cmd,
@@ -397,65 +353,573 @@ def ejecutar_orden_sunat_wsp(data: Dict[str, Any]) -> Dict[str, Any]:
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=260,
+        timeout=150,
+        creationflags=CREATE_NO_WINDOW,
     )
-    out = proc.stdout or ""
-    err = proc.stderr or ""
+    ok = proc.returncode == 0
+    out_txt = (proc.stdout or "").strip()
+    err_txt = (proc.stderr or proc.stdout or "").strip() if not ok else ""
+    return ok, out_txt, err_txt
 
-    if "JSON_RESULT_START" in out and "JSON_RESULT_END" in out:
-        bloque = out.split("JSON_RESULT_START")[1].split("JSON_RESULT_END")[0].strip()
-        payload_resp = json.loads(bloque)
-    else:
-        try:
-            payload_resp = json.loads(out.strip())
-        except Exception:
-            payload_resp = {
-                "status": "OK" if proc.returncode == 0 else "ERROR",
-                "returncode": proc.returncode,
-                "stdout": out.strip(),
-                "error": (err or out).strip(),
+
+def _ejecutar_trabajo_sunat_wsp(
+    job_id: Optional[str],
+    data_norm: Dict[str, Any],
+    wakeup_cb: Optional[Callable[[], None]] = None,
+) -> Dict[str, Any]:
+    """Ejecuta en serie segura (con lock SUNAT) la orden solicitada y actualiza SQLite recién al concluir."""
+    if job_id:
+        _update_job(job_id, etapa="⏳ En cola esperando turno del motor SUNAT...")
+
+    with _sunat_emission_lock:
+        accion = data_norm["accion"]
+        hab = data_norm["hab"]
+        estancia_uuid = data_norm["estanciaUuid"]
+        id_estancia = data_norm["id_estancia"]
+        fila_calzado = data_norm["fila_calzado"]
+        modo_borrador = data_norm["modoBorrador"]
+        tipo = data_norm["tipo"]
+        py_bin = _python_cli_bin()
+        CAPTURAS_SUNAT_DIR.mkdir(parents=True, exist_ok=True)
+
+        # ------------------------------------------------------------------
+        # CASO A: REENVÍO SOLO WHATSAPP
+        # ------------------------------------------------------------------
+        if accion == "SOLO_WSP":
+            tel = data_norm["telefono"]
+            nro_cp = data_norm["nro_comprobante"]
+            doc = data_norm["documento"]
+            cli = data_norm["cliente"]
+            pdf_path = data_norm["archivo"]
+            if not pdf_path or not os.path.isfile(pdf_path):
+                pdf_path = buscar_pdf_comprobante(nro_cp=nro_cp, ruc_dni=doc, cliente=cli) or ""
+            msg = (
+                data_norm.get("mensaje")
+                or f"Estimado(a) {cli or 'cliente'}, adjuntamos su comprobante electrónico {nro_cp} del Hostal El Óvalo Mariátegui. ¡Gracias por su preferencia!"
+            )
+            if job_id:
+                _update_job(job_id, state="RUNNING", etapa=f"📲 Enviando {nro_cp or 'comprobante'} por WhatsApp a {tel}...")
+            ok_wsp, out_wsp, err_wsp = _despachar_wsp_pdf(tel, pdf_path, msg)
+            return {
+                "status": "OK" if ok_wsp else "ERROR",
+                "accion": "SOLO_WSP",
+                "hab": hab,
+                "wsp_status": "ENVIADO" if ok_wsp else "ERROR_WSP",
+                "archivo_pdf": pdf_path,
+                "mensaje": f"Comprobante enviado por WhatsApp al {tel}." if ok_wsp else f"Falló envío WhatsApp: {err_wsp}",
+                "error": err_wsp,
+                "stdout": out_wsp,
             }
 
-    # Si la emisión fue exitosa, actualizar SQLite en 0 ms y encolar respaldo hacia Google Sheets
-    if payload_resp.get("status") == "OK":
-        nro_cp = str(payload_resp.get("nro_comprobante") or "").strip()
-        tipo_label = "Factura" if tipo == "FACTURA" else "Boleta"
-        try:
-            actualizar_comprobante_desde_panel_local({
-                "hab": hab,
-                "estanciaUuid": estancia_uuid,
-                "fila": id_estancia if str(id_estancia).isdigit() else 0,
-                "estadoComp": "Emitido",
-                "tipoComp": tipo_label,
-                "nroComp": nro_cp,
-                "montoFact": total_monto,
-                "celular": telefono,
-                "ruc": doc_num if tipo == "FACTURA" else "",
-                "empresa": cliente if tipo == "FACTURA" else "",
-            })
-            # Insertar en sunat_lineas_cache local para que aparezca de inmediato en la tarjeta verde
-            with db_transaction() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO sunat_lineas_cache (
-                        nro_cp, tipo, noche_dmy, hab, monto_linea, total_cp,
-                        cliente, doc, fecha_emision, estado, descripcion
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'VIGENTE', ?)
-                    """,
-                    (
-                        nro_cp,
-                        tipo,
-                        datetime.now().strftime("%d/%m/%Y"),
-                        hab,
-                        total_monto,
-                        total_monto,
-                        cliente,
-                        doc_num,
-                        datetime.now().strftime("%d/%m/%Y"),
-                        items_normalizados[0]["descripcion"],
+        # ------------------------------------------------------------------
+        # CASO B: NOTA DE CRÉDITO ELECTRÓNICA (ANULACIÓN EN SUNAT)
+        # ------------------------------------------------------------------
+        if accion == "NOTA_CREDITO":
+            nro_origen = data_norm["nro_comprobante"]
+            motivo = data_norm["motivo"]
+            cap_name = f"nc_{'borrador' if modo_borrador else 'emitida'}_{tipo.lower()}_{int(time.time())}.png"
+            cap_path = CAPTURAS_SUNAT_DIR / cap_name
+
+            if job_id:
+                _update_job(
+                    job_id,
+                    state="RUNNING",
+                    etapa=(
+                        f"🧪 Generando Vista Preliminar de Nota de Crédito ({nro_origen})..."
+                        if modo_borrador
+                        else f"🧾↩️ Emitiendo Nota de Crédito en SUNAT para anular {nro_origen}..."
                     ),
                 )
-        except Exception as e_loc:
-            payload_resp["local_update_warn"] = str(e_loc)
 
-    return payload_resp
+            cmd_nc = [
+                py_bin,
+                str(EMITIR_NC_SCRIPT),
+                "--tipo", tipo,
+                "--numero", nro_origen,
+                "--motivo", motivo,
+                "--headless",
+                "--captura", str(cap_path),
+            ]
+            if not modo_borrador:
+                cmd_nc.append("--emitir")
+
+            proc_nc = subprocess.run(
+                cmd_nc,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=180,
+                creationflags=CREATE_NO_WINDOW,
+            )
+            stdout_nc = proc_nc.stdout or ""
+            res_nc: Dict[str, Any] = {}
+            idx_res = stdout_nc.find("--- RESUMEN FINAL ---")
+            if idx_res != -1:
+                bloque = stdout_nc[idx_res + len("--- RESUMEN FINAL ---"):].strip()
+                try:
+                    res_nc = json.loads(bloque)
+                except Exception:
+                    pass
+
+            st_nc = str(res_nc.get("status") or "").upper()
+            if modo_borrador and st_nc == "BORRADOR_GENERADO":
+                return {
+                    "status": "OK",
+                    "modo": "borrador",
+                    "accion": "NOTA_CREDITO",
+                    "hab": hab,
+                    "tipo": tipo,
+                    "cp_origen": nro_origen,
+                    "captura": str(cap_path),
+                    "nombre_captura": cap_name if cap_path.exists() else "",
+                    "datos_cp_origen": res_nc.get("datos_cp_origen") or {},
+                    "mensaje": f"Vista Preliminar de Nota de Crédito para {nro_origen} lista (sin emitir).",
+                }
+
+            if not modo_borrador and st_nc == "EMITIDO":
+                nro_nc = str(res_nc.get("nro_nota_credito") or f"NC-{nro_origen}").strip()
+                # Revertir habitación a Pendiente y limpiar el comprobante anulado para permitir re-emitir
+                try:
+                    actualizar_comprobante_desde_panel_local({
+                        "hab": hab,
+                        "estanciaUuid": estancia_uuid,
+                        "fila": id_estancia,
+                        "estadoComp": "Pendiente",
+                        "tipoComp": "Factura" if tipo == "FACTURA" else "Boleta",
+                        "nroComp": "",
+                        "forzarNroComp": True,
+                    })
+                    with db_transaction() as conn_m:
+                        _registrar_movimiento(
+                            conn_m,
+                            "Nota de Crédito SUNAT",
+                            hab=hab,
+                            huesped=data_norm.get("cliente", ""),
+                            resumen=f"Hab. {hab} · {nro_nc} anuló {nro_origen} ({motivo}) · Estado vuelve a Pendiente",
+                            detalle=[
+                                {"campo": "Comprobante Anulado", "antes": nro_origen, "despues": "Anulado"},
+                                {"campo": "Nota de Crédito", "antes": "-", "despues": nro_nc},
+                                {"campo": "Motivo", "antes": "-", "despues": motivo},
+                            ],
+                            monto=float((res_nc.get("datos_cp_origen") or {}).get("monto") or 0),
+                        )
+                    if wakeup_cb:
+                        wakeup_cb()
+                except Exception as exc_db:
+                    return {
+                        "status": "OK",
+                        "accion": "NOTA_CREDITO",
+                        "hab": hab,
+                        "nro_nota_credito": nro_nc,
+                        "cp_origen": nro_origen,
+                        "warn_sqlite": str(exc_db),
+                        "mensaje": f"Nota de Crédito {nro_nc} emitida en SUNAT, pero revise actualización local: {exc_db}",
+                    }
+
+                return {
+                    "status": "OK",
+                    "accion": "NOTA_CREDITO",
+                    "hab": hab,
+                    "tipo": tipo,
+                    "cp_origen": nro_origen,
+                    "nro_nota_credito": nro_nc,
+                    "archivo_pdf": res_nc.get("pdf_descargado") or "",
+                    "captura": str(cap_path) if cap_path.exists() else "",
+                    "nombre_captura": cap_name if cap_path.exists() else "",
+                    "mensaje": f"Nota de Crédito {nro_nc} emitida en SUNAT (anuló {nro_origen}). Hab. {hab} volvió a Pendiente.",
+                }
+
+            return {
+                "status": "ERROR",
+                "accion": "NOTA_CREDITO",
+                "hab": hab,
+                "error": res_nc.get("error") or (proc_nc.stderr or stdout_nc)[-500:] or "No se pudo emitir la Nota de Crédito en SUNAT.",
+            }
+
+        # ------------------------------------------------------------------
+        # CASO C: EMISIÓN DE BOLETA / FACTURA (MODO BORRADOR O OFICIAL + WSP)
+        # ------------------------------------------------------------------
+        emitir_en_firme = not modo_borrador
+        items_normalizados = data_norm["items"]
+        total_monto = data_norm["total_monto"]
+        doc_num = data_norm["documento"]
+        cliente = data_norm["cliente"]
+        telefono = data_norm["telefono"]
+
+        if job_id:
+            _update_job(
+                job_id,
+                state="RUNNING",
+                etapa=(
+                    f"🧪 Abriendo Vista Preliminar de {tipo.title()} en SUNAT SEE-SOL..."
+                    if modo_borrador
+                    else f"⚡ Emitiendo {tipo.title()} S/ {total_monto:.2f} en SUNAT SEE-SOL (IGV 10.5%)..."
+                ),
+            )
+
+        payload_sunat = {
+            "accion": accion,
+            "tipo": tipo,
+            "documento": doc_num,
+            "cliente": cliente,
+            "items": items_normalizados,
+            "telefono": telefono,
+            "enviar_wsp": False,  # El paso WSP se ejecuta como Etapa 2 controlada aquí mismo
+            "emitir": emitir_en_firme,
+            "omitir_sheets": True,
+            "headless": True,
+            "id_estancia": id_estancia,
+            "fila_calzado": fila_calzado,
+        }
+
+        directo_local = es_laptop_recepcion_directa() or _whatsapp_local_activo()
+        usar_remoto_completo = (
+            accion == "EMITIR_Y_WSP"
+            and emitir_en_firme
+            and not directo_local
+            and EJECUTAR_REMOTO_SCRIPT.exists()
+        )
+
+        if usar_remoto_completo:
+            # Si se ordenó desde Laptop 1 y el WhatsApp está en Laptop 2, Laptop 2 emite y envía directo
+            payload_sunat["enviar_wsp"] = True
+            cmd = [
+                py_bin,
+                str(EJECUTAR_REMOTO_SCRIPT),
+                "emitir_comprobante_sunat.py",
+                "--payload-json",
+                json.dumps(payload_sunat, ensure_ascii=False),
+                "--timeout-remoto", "180",
+            ]
+        else:
+            cmd = [
+                py_bin,
+                str(EMITIR_COMPROBANTE_SCRIPT),
+                "--payload-json",
+                json.dumps(payload_sunat, ensure_ascii=False),
+            ]
+
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=200,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        stdout_all = proc.stdout or ""
+        res_json: Dict[str, Any] = {}
+        m = re.search(r"JSON_RESULT_START\s*(\{.*?\})\s*JSON_RESULT_END", stdout_all, re.DOTALL)
+        if m:
+            try:
+                res_json = json.loads(m.group(1))
+            except Exception:
+                pass
+
+        if res_json.get("status") != "OK":
+            return {
+                "status": "ERROR",
+                "accion": accion,
+                "hab": hab,
+                "error": res_json.get("error") or (proc.stderr or stdout_all)[-500:] or "Error desconocido en emisión SUNAT.",
+            }
+
+        # Si fue Modo Borrador, devolver captura sin alterar estado Pendiente
+        if modo_borrador:
+            return {
+                "status": "OK",
+                "modo": "borrador",
+                "accion": accion,
+                "hab": hab,
+                "tipo": tipo,
+                "nro_comprobante": "BORRADOR-PRELIMINAR",
+                "captura": res_json.get("captura", ""),
+                "nombre_captura": res_json.get("nombre_captura", ""),
+                "monto": total_monto,
+                "mensaje": f"Vista Preliminar de {tipo.title()} generada en SUNAT (sin emitir).",
+            }
+
+        nro_cp = str(res_json.get("nro_comprobante") or "").strip()
+        archivo_pdf = str(res_json.get("archivo_pdf") or "").strip()
+        wsp_status = res_json.get("wsp_status", "NO_SOLICITADO")
+        wsp_err = ""
+
+        # Etapa 2: Enviar por WhatsApp (si fue EMITIR_Y_WSP local) ANTES de cambiar a Emitido en el Panel
+        if accion == "EMITIR_Y_WSP" and not usar_remoto_completo and telefono:
+            if job_id:
+                _update_job(
+                    job_id,
+                    etapa=f"📲 {nro_cp} generada · Enviando PDF por WhatsApp al {telefono}...",
+                )
+            tipo_lbl = "Factura" if tipo == "FACTURA" else "Boleta"
+            msg_wsp = (
+                f"Estimado(a) {cliente}, le adjuntamos su {tipo_lbl} Electrónica {nro_cp}. "
+                f"¡Muchas gracias por su preferencia en Hostal El Óvalo Mariátegui!"
+            )
+            ok_wsp, _, err_wsp = _despachar_wsp_pdf(telefono, archivo_pdf, msg_wsp)
+            wsp_status = "ENVIADO" if ok_wsp else "ERROR_WSP"
+            wsp_err = err_wsp
+
+        # Etapa 3: Recién al finalizar TODO el proceso (SUNAT + WSP), cambiar estado a Emitido (✅) en SQLite y Sheets
+        if hab or estancia_uuid or id_estancia:
+            try:
+                actualizar_comprobante_desde_panel_local({
+                    "hab": hab,
+                    "estanciaUuid": estancia_uuid,
+                    "fila": id_estancia,
+                    "estadoComp": "Emitido",
+                    "tipoComp": "Factura" if tipo == "FACTURA" else "Boleta",
+                    "nroComp": nro_cp,
+                    "montoFact": total_monto,
+                    "celular": telefono,
+                    "ruc": doc_num if tipo == "FACTURA" else "",
+                    "empresa": cliente if tipo == "FACTURA" else "",
+                    "forzarNroComp": True,
+                })
+                if wakeup_cb:
+                    wakeup_cb()
+            except Exception as exc_upd:
+                res_json["warn_sqlite"] = str(exc_upd)
+
+        msg_final = f"{'Factura' if tipo == 'FACTURA' else 'Boleta'} {nro_cp} emitida exitosamente."
+        if accion == "EMITIR_Y_WSP":
+            if wsp_status == "ENVIADO":
+                msg_final = f"✅ {nro_cp} emitida en SUNAT y enviada por WhatsApp al {telefono}."
+            else:
+                msg_final = f"⚠️ {nro_cp} emitida en SUNAT, pero WhatsApp reportó: {wsp_err or wsp_status}. Puede usar 'Reenviar WSP'."
+
+        return {
+            "status": "OK",
+            "accion": accion,
+            "hab": hab,
+            "tipo": tipo,
+            "nro_comprobante": nro_cp,
+            "monto": total_monto,
+            "archivo_pdf": archivo_pdf,
+            "wsp_status": wsp_status,
+            "wsp_error": wsp_err,
+            "mensaje": msg_final,
+        }
+
+
+def _thread_runner(
+    job_id: str,
+    data_norm: Dict[str, Any],
+    wakeup_cb: Optional[Callable[[], None]] = None,
+) -> None:
+    try:
+        res = _ejecutar_trabajo_sunat_wsp(job_id, data_norm, wakeup_cb=wakeup_cb)
+        st = "DONE" if res.get("status") == "OK" else "ERROR"
+        _update_job(
+            job_id,
+            state=st,
+            etapa=res.get("mensaje") or (res.get("error") if st == "ERROR" else "Completado"),
+            result=res,
+            finished_ts=time.time(),
+        )
+    except Exception as exc:
+        _update_job(
+            job_id,
+            state="ERROR",
+            etapa=f"Error: {exc}",
+            result={"status": "ERROR", "error": str(exc), "hab": data_norm.get("hab", "")},
+            finished_ts=time.time(),
+        )
+
+
+def ejecutar_orden_sunat_wsp(
+    data: Dict[str, Any],
+    wakeup_cb: Optional[Callable[[], None]] = None,
+) -> Dict[str, Any]:
+    """
+    Valida instantáneamente (<5 ms) los datos de la orden:
+    - Si hay error de validación o requiere confirmación de auditoría, responde de inmediato.
+    - Por defecto lanza la ejecución en segundo plano (async=True) y devuelve job_id en 0 ms
+      para que Recepción pueda cerrar el modal y seguir operando sin esperar.
+    - Si data['sincrono'] == True, espera y devuelve el resultado directo.
+    """
+    accion_raw = str(data.get("accion") or "").upper().strip()
+    modo_borrador = bool(data.get("modoBorrador", False))
+    if accion_raw == "BORRADOR":
+        accion = "EMITIR"
+        modo_borrador = True
+    else:
+        accion = accion_raw
+
+    hab = str(data.get("hab") or data.get("habNum") or "").strip()
+    estancia_uuid = str(data.get("estanciaUuid") or "").strip()
+    id_estancia = data.get("id_estancia") or data.get("fila") or 0
+    fila_calzado = data.get("fila_calzado")
+    sincrono = bool(data.get("sincrono", False))
+
+    if accion not in ("EMITIR", "EMITIR_Y_WSP", "SOLO_WSP", "NOTA_CREDITO"):
+        return {"status": "ERROR", "error": f"Acción '{accion_raw}' no soportada."}
+
+    # 1. Validación rápida SOLO_WSP
+    if accion == "SOLO_WSP":
+        tel = re.sub(r"\D", "", str(data.get("telefono") or "").strip())
+        if not tel:
+            return {"status": "ERROR", "error": "Ingrese un número de celular válido para enviar por WhatsApp."}
+        data_norm = {
+            "accion": "SOLO_WSP",
+            "hab": hab,
+            "estanciaUuid": estancia_uuid,
+            "id_estancia": id_estancia,
+            "fila_calzado": fila_calzado,
+            "modoBorrador": False,
+            "tipo": str(data.get("tipo") or "BOLETA").upper().strip(),
+            "telefono": tel,
+            "nro_comprobante": str(data.get("nro_comprobante") or "").strip(),
+            "documento": str(data.get("documento") or "").strip(),
+            "cliente": str(data.get("cliente") or "").strip(),
+            "archivo": str(data.get("archivo") or "").strip(),
+            "mensaje": str(data.get("mensaje") or "").strip(),
+        }
+
+    # 2. Validación rápida NOTA_CREDITO
+    elif accion == "NOTA_CREDITO":
+        nro_cp = str(data.get("nro_comprobante") or "").strip().upper()
+        if not re.search(r"(\d+)$", nro_cp):
+            return {
+                "status": "ERROR",
+                "error": "Para emitir Nota de Crédito debe figurar el N° de comprobante emitido (ej. EB01-2069 o E001-355).",
+            }
+        tipo_nc = str(data.get("tipo") or "").upper().strip()
+        if nro_cp.startswith("E001") or nro_cp.startswith("F"):
+            tipo_nc = "FACTURA"
+        elif nro_cp.startswith("EB01") or nro_cp.startswith("B"):
+            tipo_nc = "BOLETA"
+        elif tipo_nc not in ("BOLETA", "FACTURA"):
+            tipo_nc = "BOLETA"
+
+        motivo = str(data.get("motivo") or "ANULACION DE LA OPERACION").strip().upper()
+        if len(motivo) < 5:
+            return {"status": "ERROR", "error": "Ingrese un motivo válido para la Nota de Crédito (mínimo 5 caracteres)."}
+
+        data_norm = {
+            "accion": "NOTA_CREDITO",
+            "hab": hab,
+            "estanciaUuid": estancia_uuid,
+            "id_estancia": id_estancia,
+            "fila_calzado": fila_calzado,
+            "modoBorrador": modo_borrador,
+            "tipo": tipo_nc,
+            "nro_comprobante": nro_cp,
+            "motivo": motivo,
+            "cliente": str(data.get("cliente") or "").strip().upper(),
+        }
+
+    # 3. Validación rápida EMITIR / EMITIR_Y_WSP
+    else:
+        tipo = str(data.get("tipo") or data.get("tipoDoc") or "BOLETA").upper().strip()
+        doc_num = re.sub(r"\D", "", str(data.get("documento") or data.get("docReceptor") or "").strip())
+        cliente = str(data.get("cliente") or data.get("nombreReceptor") or "CLIENTES VARIOS").strip().upper()
+        telefono = re.sub(r"\D", "", str(data.get("telefono") or "").strip())
+        forzar = bool(data.get("forzar", False))
+        raw_items = data.get("items") or []
+
+        if tipo == "FACTURA" and (len(doc_num) != 11 or not re.match(r"^(10|15|17|20)", doc_num)):
+            return {"status": "ERROR", "error": "Para emitir FACTURA se requiere un RUC válido de 11 dígitos (10 o 20)."}
+        if not raw_items:
+            return {"status": "ERROR", "error": "Debe incluir al menos un ítem para emitir en SUNAT."}
+        if accion == "EMITIR_Y_WSP" and not modo_borrador and not telefono:
+            return {"status": "ERROR", "error": "Para 'Emitir y Enviar WSP' debe ingresar el número de WhatsApp del cliente."}
+
+        items_normalizados = []
+        total_monto = 0.0
+        for it in raw_items:
+            cant = max(1, int(it.get("cantidad") or 1))
+            precio_u = round(float(it.get("precio_unitario") or it.get("precioUnitario") or it.get("monto") or 0), 2)
+            if precio_u <= 0:
+                return {"status": "ERROR", "error": "Todos los ítems deben tener Precio Unitario mayor a S/ 0.00."}
+            valor_u = calcular_valor_unitario_105(precio_u)
+            desc = str(it.get("descripcion") or f"DIA DE ALOJAMIENTO HAB N {hab}").strip().upper()
+            items_normalizados.append({
+                "cantidad": cant,
+                "descripcion": desc,
+                "precio_unitario": precio_u,
+                "valor_unitario": valor_u,
+            })
+            total_monto = round(total_monto + (cant * precio_u), 2)
+
+        if not modo_borrador:
+            ok_audit, msg_audit = validar_monto_preventivo(total_monto, forzar=forzar)
+            if not ok_audit:
+                return {
+                    "status": "CONFIRM_REQUIRED",
+                    "requiereConfirmacion": True,
+                    "monto": total_monto,
+                    "mensajeAuditoria": msg_audit,
+                }
+
+        data_norm = {
+            "accion": accion,
+            "hab": hab,
+            "estanciaUuid": estancia_uuid,
+            "id_estancia": id_estancia,
+            "fila_calzado": fila_calzado,
+            "modoBorrador": modo_borrador,
+            "tipo": tipo,
+            "documento": doc_num,
+            "cliente": cliente,
+            "telefono": telefono,
+            "items": items_normalizados,
+            "total_monto": total_monto,
+        }
+
+    # Modo síncrono opcional para pruebas por script
+    if sincrono:
+        return _ejecutar_trabajo_sunat_wsp(None, data_norm, wakeup_cb=wakeup_cb)
+
+    # Modo asíncrono por defecto: responde en 0 ms y corre en segundo plano
+    job_id = f"sunat_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+    etapa_ini = (
+        "🧪 Iniciando captura de Vista Preliminar en SUNAT..."
+        if modo_borrador
+        else (
+            f"📲 Preparando envío WhatsApp (Hab. {hab})..."
+            if accion == "SOLO_WSP"
+            else (
+                f"🧾↩️ Iniciando Nota de Crédito en SUNAT (Hab. {hab})..."
+                if accion == "NOTA_CREDITO"
+                else f"⚡ Iniciando emisión en SUNAT{' + WSP' if accion == 'EMITIR_Y_WSP' else ''} (Hab. {hab})..."
+            )
+        )
+    )
+    job_info = {
+        "job_id": job_id,
+        "hab": hab,
+        "estanciaUuid": estancia_uuid,
+        "accion": accion,
+        "tipo": data_norm["tipo"],
+        "modoBorrador": modo_borrador,
+        "state": "QUEUED",
+        "etapa": etapa_ini,
+        "created_ts": time.time(),
+        "updated_ts": time.time(),
+        "finished_ts": None,
+        "result": None,
+    }
+    with _jobs_lock:
+        _prune_old_jobs()
+        _SUNAT_JOBS[job_id] = job_info
+
+    th = threading.Thread(
+        target=_thread_runner,
+        args=(job_id, data_norm, wakeup_cb),
+        daemon=True,
+    )
+    th.start()
+
+    return {
+        "status": "PROCESSING",
+        "async": True,
+        "job_id": job_id,
+        "hab": hab,
+        "accion": accion,
+        "tipo": data_norm["tipo"],
+        "modoBorrador": modo_borrador,
+        "etapa": etapa_ini,
+    }

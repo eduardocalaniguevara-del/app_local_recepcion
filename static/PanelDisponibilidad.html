@@ -81,6 +81,27 @@
     #vistaVitrina.split-gestion-activo .col-hist-extra {
       display: none;
     }
+    dialog:modal {
+      overscroll-behavior: contain;
+    }
+    dialog::backdrop {
+      overflow: hidden;
+      overscroll-behavior: contain;
+      background-color: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(2px);
+    }
+    table.tabla-sunat-grande {
+      table-layout: auto !important;
+    }
+    table.tabla-sunat-grande th,
+    table.tabla-sunat-grande td {
+      white-space: normal !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      padding: 6px 8px !important;
+      font-size: 11.5px;
+      line-height: 1.35;
+    }
   </style>
 </head>
 <body class="h-screen flex flex-col text-slate-800 p-1.5 sm:p-2 text-xs overflow-hidden" style="background-color: #F7EFEA;">
@@ -1783,6 +1804,8 @@
           })
         };
       });
+      window.habitacionesData = habitacionesData;
+      window.habitaciones = habitacionesData;
 
       return true;
     }
@@ -1928,6 +1951,8 @@
             if (miReqId !== reqFechaCounter) return; // Ignorar respuestas de clics anteriores
             if (res && res.habitaciones && res.habitaciones.length > 0) {
               habitacionesData = res.habitaciones;
+              window.habitacionesData = habitacionesData;
+              window.habitaciones = habitacionesData;
               cargarColoresDesdeRespuesta(res);
               if (res.plantillaHabs) plantillaHabsRAM = res.plantillaHabs;
               if (res.estanciasCache) estanciasCacheRAM = res.estanciasCache;
@@ -1988,6 +2013,7 @@
     }
 
     function renderTabla() {
+      window.renderTabla = renderTabla;
       tablaBody.innerHTML = "";
       let ultimoTipo = null;
 
@@ -2266,7 +2292,22 @@
             fact.ruc ||
             fact.empresa
           );
-          if (fact.estado === "Emitido") {
+          const jobSunatVivo = window.sunatJobsPorHab && window.sunatJobsPorHab[String(h.hab)];
+          if (jobSunatVivo) {
+            const lblVivo = jobSunatVivo.accion === "NOTA_CREDITO"
+              ? "🧾↩️ Anulando NC..."
+              : (jobSunatVivo.modoBorrador ? "🧪 Borrador..." : "⏳⚙️ Emitiendo...");
+            estadoFactHtml = `
+              <span class="detail-pill bg-indigo-600 text-white border border-indigo-700 shadow-2xs animate-pulse"
+                    onclick="verDetalleFacturacion(event, '${h.hab}')"
+                    title="${(jobSunatVivo.etapa || 'Procesando en segundo plano...').replace(/"/g, '&quot;')}">
+                ${lblVivo}
+              </span>`;
+            const mVivo = Number(fact.montoSolicitadoFact) || Number(fact.montoFacturado) || Number(fact.montoPorFacturar) || 0;
+            montoFactHtml = mVivo > 0
+              ? `<span class="font-black text-indigo-800">S/ ${mVivo.toFixed(2)}</span>`
+              : `<span class="text-slate-400">-</span>`;
+          } else if (fact.estado === "Emitido") {
             const cpLabel = fact.comprobantesStr ? ` (${fact.comprobantesStr})` : "";
             const tipoLbl = esFact ? "Factura" : "Boleta";
             estadoFactHtml = `
@@ -3036,6 +3077,7 @@
      * - Si el servidor ya lo resolvió desde CALZADO_OCT / SUNAT_OCT / Registro_Estancias, usa h.facturacion.
      * - Si no tiene h.facturacion pero tiene pago con Yape (> 0), por defecto aparece "Pendiente" (Boleta).
      */
+    window.obtenerFacturacionEfectiva = obtenerFacturacionEfectiva;
     function obtenerFacturacionEfectiva(h) {
       if (!h || h.estado === "libre") return null;
       if (h.facturacion && h.facturacion.estado) {
@@ -3378,37 +3420,61 @@
             </div>
 
             <!-- CONSTRUCTOR MULTI-ÍTEM SUNAT (IGV 10.5% LEY N° 31556) -->
-            <div class="bg-white border border-slate-300 rounded-lg p-2 space-y-1.5 shadow-2xs">
-              <div class="flex items-center justify-between">
+            <div class="bg-white border border-slate-300 rounded-lg p-2 space-y-2 shadow-2xs">
+              <div class="flex flex-wrap items-center justify-between gap-1.5">
                 <div>
-                  <span class="text-[10px] font-black text-slate-800 uppercase tracking-tight">🧾 Ítems SUNAT (IGV 10.5% Ley 31556)</span>
-                  <span class="block text-[9px] text-slate-500">V. Unit = P. Unit ÷ 1.105 (automático a 4 decimales)</span>
+                  <span class="text-[10px] font-black text-slate-800 uppercase tracking-tight">🧾 Ítems SUNAT (IGV 10.5%)</span>
+                  <span class="block text-[9px] text-slate-500">Usa 🔍 para ver grande estilo SUNAT</span>
                 </div>
-                <button type="button"
-                        onclick="agregarFilaItemSunat(1, 'DIA DE ALOJAMIENTO HAB N ' + '${h.hab}', ${tarifaNoche > 0 ? tarifaNoche : 60})"
-                        class="px-2 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] shadow-2xs cursor-pointer flex items-center gap-1 transition-colors">
-                  ➕ Adicionar Hab/Día
-                </button>
+                <div class="flex flex-wrap items-center gap-1">
+                  <button type="button"
+                          onclick="abrirVistaGrandeFormatoSunat('${h.hab}')"
+                          title="Agrandar vista previa editable con formato completo estilo SUNAT"
+                          class="px-2 py-1 rounded-md bg-indigo-900 hover:bg-indigo-950 text-white font-black text-[10px] shadow-2xs cursor-pointer flex items-center gap-1 transition-colors">
+                    🔍 Ampliar
+                  </button>
+                  <button type="button"
+                          onclick="adicionarIdentidadHuespedItem('${h.hab}')"
+                          title="Agrega 'IDENTIFICADO CON DNI ... Y NOMBRE ...' a la descripción del ítem"
+                          class="px-2 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] shadow-2xs cursor-pointer flex items-center gap-1 transition-colors">
+                    🪪 + Identidad
+                  </button>
+                  <button type="button"
+                          onclick="agregarFilaItemSunat(1, 'DIA DE ALOJAMIENTO HAB N ' + '${h.hab}', ${tarifaNoche > 0 ? tarifaNoche : 60})"
+                          class="px-2 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] shadow-2xs cursor-pointer flex items-center gap-1 transition-colors">
+                    ➕ Adicionar
+                  </button>
+                </div>
               </div>
               <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                   <thead>
                     <tr class="border-b border-slate-200 text-[9px] font-black text-slate-500 uppercase">
-                      <th class="p-1 w-12 text-center">Cant.</th>
+                      <th class="p-1 w-11 text-center">Cant.</th>
                       <th class="p-1">Descripción SUNAT</th>
-                      <th class="p-1 w-16 text-right">P.Unit (S/)</th>
+                      <th class="p-1 w-16 text-right">P.Unit</th>
                       <th class="p-1 w-14 text-right" title="Valor Unitario sin IGV 10.5%">V.Unit</th>
                       <th class="p-1 w-16 text-right">Subtotal</th>
-                      <th class="p-1 w-6"></th>
+                      <th class="p-1 w-5"></th>
                     </tr>
                   </thead>
                   <tbody id="tbodyItemsFacturacion" class="divide-y divide-slate-100"></tbody>
                 </table>
               </div>
-              <div class="flex items-center justify-between pt-1 border-t border-slate-200 text-[10px] font-mono">
-                <span class="text-slate-600">Op. Gravada: <strong id="lblTotalValorGravado" class="text-slate-900">S/ 0.00</strong></span>
-                <span class="text-slate-600">IGV (10.5%): <strong id="lblTotalIgv105" class="text-slate-900">S/ 0.00</strong></span>
-                <span class="text-slate-900 font-black">Total: <strong id="lblTotalItemsSunat" class="text-emerald-700">S/ 0.00</strong></span>
+              <!-- 3 TOTALES EXPLÍCITOS SUNAT: OP. GRAVADA, IGV (10.5%) E IMPORTE TOTAL -->
+              <div class="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-slate-200 font-mono">
+                <div class="bg-slate-50 border border-slate-200 rounded-md px-2 py-1 text-right">
+                  <div class="text-[8.5px] font-sans font-extrabold text-slate-500 uppercase">Op. Gravada</div>
+                  <strong id="lblTotalValorGravado" class="text-[11px] font-black text-slate-900">S/ 0.00</strong>
+                </div>
+                <div class="bg-slate-50 border border-slate-200 rounded-md px-2 py-1 text-right">
+                  <div class="text-[8.5px] font-sans font-extrabold text-slate-500 uppercase">IGV (10.5%)</div>
+                  <strong id="lblTotalIgv105" class="text-[11px] font-black text-slate-900">S/ 0.00</strong>
+                </div>
+                <div class="bg-emerald-50 border border-emerald-300 rounded-md px-2 py-1 text-right">
+                  <div class="text-[8.5px] font-sans font-black text-emerald-800 uppercase">Importe Total</div>
+                  <strong id="lblTotalItemsSunat" class="text-xs font-black text-emerald-800">S/ 0.00</strong>
+                </div>
               </div>
             </div>
 
@@ -3427,24 +3493,64 @@
               </button>` : ''}
             </div>
 
-            <!-- BOTONES DE EMISIÓN AUTOMÁTICA SUNAT Y ENVÍO POR WHATSAPP -->
-            <div class="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-200/80">
-              <button type="button" id="btnOrdenEmitirSunat"
-                      onclick="ejecutarOrdenSunatModal('${h.hab}', 'EMITIR')"
-                      class="bg-indigo-700 hover:bg-indigo-800 text-white font-black py-2 px-2.5 rounded-lg text-[11px] shadow-xs cursor-pointer flex items-center justify-center gap-1 transition-colors">
-                ⚡ Emitir en SUNAT
+            <!-- BOTONES DE BORRADOR, EMISIÓN EN SEGUNDO PLANO SUNAT + WSP Y NOTA DE CRÉDITO -->
+            <div class="space-y-1.5 pt-1 border-t border-slate-200/80">
+              <button type="button" id="btnOrdenBorradorSunat"
+                      onclick="ejecutarOrdenSunatModal('${h.hab}', 'BORRADOR')"
+                      class="w-full bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-400 font-black py-1.5 px-2.5 rounded-lg text-[10.5px] cursor-pointer flex items-center justify-center gap-1.5 transition-colors"
+                      title="Entra a SUNAT, llena los ítems y te muestra la captura oficial de la Vista Preliminar sin emitir">
+                🧪 Ver Captura Borrador SUNAT (Antes de emitir)
               </button>
-              <button type="button" id="btnOrdenEmitirWsp"
-                      onclick="ejecutarOrdenSunatModal('${h.hab}', 'EMITIR_Y_WSP')"
-                      class="bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 px-2.5 rounded-lg text-[11px] shadow-xs cursor-pointer flex items-center justify-center gap-1 transition-colors">
-                ⚡📲 Emitir y Enviar WSP
-              </button>
+              <div class="grid grid-cols-2 gap-1.5">
+                <button type="button" id="btnOrdenEmitirSunat"
+                        onclick="ejecutarOrdenSunatModal('${h.hab}', 'EMITIR')"
+                        class="bg-indigo-700 hover:bg-indigo-800 text-white font-black py-2 px-2.5 rounded-lg text-[11px] shadow-xs cursor-pointer flex items-center justify-center gap-1 transition-colors">
+                  ⚡ Emitir en SUNAT
+                </button>
+                <button type="button" id="btnOrdenEmitirWsp"
+                        onclick="ejecutarOrdenSunatModal('${h.hab}', 'EMITIR_Y_WSP')"
+                        class="bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2 px-2.5 rounded-lg text-[11px] shadow-xs cursor-pointer flex items-center justify-center gap-1 transition-colors">
+                  ⚡📲 Emitir y Enviar WSP
+                </button>
+              </div>
               ${f.estado === 'Emitido' ? `
-              <button type="button" id="btnOrdenSoloWsp"
-                      onclick="ejecutarOrdenSunatModal('${h.hab}', 'SOLO_WSP')"
-                      class="col-span-2 bg-teal-700 hover:bg-teal-800 text-white font-black py-1.5 px-3 rounded-lg text-[11px] shadow-2xs cursor-pointer flex items-center justify-center gap-1.5 transition-colors">
-                📲 Reenviar Comprobante por WhatsApp
-              </button>` : ''}
+              <div class="grid grid-cols-2 gap-1.5 pt-0.5">
+                <button type="button" id="btnOrdenSoloWsp"
+                        onclick="ejecutarOrdenSunatModal('${h.hab}', 'SOLO_WSP')"
+                        class="bg-teal-700 hover:bg-teal-800 text-white font-black py-1.5 px-2.5 rounded-lg text-[10.5px] shadow-2xs cursor-pointer flex items-center justify-center gap-1 transition-colors">
+                  📲 Reenviar WSP
+                </button>
+                <button type="button" id="btnToggleNotaCredito"
+                        onclick="togglePanelNotaCreditoModal('${h.hab}')"
+                        class="bg-rose-700 hover:bg-rose-800 text-white font-black py-1.5 px-2.5 rounded-lg text-[10.5px] shadow-2xs cursor-pointer flex items-center justify-center gap-1 transition-colors">
+                  🧾↩️ Emitir Nota de Crédito
+                </button>
+              </div>
+              <div id="boxNotaCreditoModal" class="hidden bg-rose-50 border border-rose-300 rounded-lg p-2 space-y-1.5 text-[10.5px]">
+                <div class="font-black text-rose-900 uppercase text-[10px]">⚠️ Anular Comprobante con Nota de Crédito (SUNAT)</div>
+                <div class="grid grid-cols-12 gap-1.5">
+                  <div class="col-span-5">
+                    <label class="block text-[9px] font-bold text-rose-900 mb-0.5">N° Comp. a anular *</label>
+                    <input type="text" id="nc_nroOrigen" value="${nroActual}" placeholder="EB01-2069"
+                           class="w-full border border-rose-300 rounded px-1.5 py-1 bg-white font-mono font-black text-slate-900 text-[10.5px] uppercase" />
+                  </div>
+                  <div class="col-span-7">
+                    <label class="block text-[9px] font-bold text-rose-900 mb-0.5">Motivo SUNAT *</label>
+                    <input type="text" id="nc_motivo" value="ANULACION DE LA OPERACION"
+                           class="w-full border border-rose-300 rounded px-1.5 py-1 bg-white font-bold text-slate-900 text-[10.5px] uppercase" />
+                  </div>
+                </div>
+                <div class="grid grid-cols-2 gap-1.5 pt-0.5">
+                  <button type="button" onclick="ejecutarNotaCreditoModal('${h.hab}', true)"
+                          class="bg-amber-200 hover:bg-amber-300 text-amber-950 font-black py-1.5 px-2 rounded text-[10px] cursor-pointer">
+                    🧪 Captura Borrador NC
+                  </button>
+                  <button type="button" onclick="ejecutarNotaCreditoModal('${h.hab}', false)"
+                          class="bg-rose-700 hover:bg-rose-800 text-white font-black py-1.5 px-2 rounded text-[10px] cursor-pointer">
+                    🧾↩️ Confirmar y Anular
+                  </button>
+                </div>
+              </div>` : ''}
             </div>
           </div>
 
@@ -4258,6 +4364,7 @@
     // - En la primera carga (al abrir la Web App), mantiene la tarjeta de presentación hasta pasar a "🟢 En vivo".
     // - Al cerrar el Drawer lateral o refrescar, sincroniza en silencio sin mostrar la pantalla de carga,
     //   y solo activa la tarjeta si la conexión se cuelga o demora más de 6 segundos (watchdog).
+    window.recargarDatos = recargarDatos;
     function recargarDatos(e) {
       if (e) {
         e.preventDefault();

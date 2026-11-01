@@ -56,6 +56,8 @@ from sunat_wsp_service import (
     consultar_dni_local_o_reniec,
     consultar_ruc_local_o_sunat,
     ejecutar_orden_sunat_wsp,
+    listar_jobs_sunat_recientes,
+    obtener_estado_job_sunat,
 )
 from sync_engine import process_sync_queue, pull_from_sheets
 from auto_updater import (
@@ -313,8 +315,9 @@ def _obtener_vista_formulario_local(nombre_vista: str) -> str:
 @app.get("/", response_class=HTMLResponse)
 def index():
     panel_path = STATIC_DIR / "PanelDisponibilidad.html"
+    js_sunat_path = STATIC_DIR / "js" / "facturacion_sunat.js"
     html = panel_path.read_text(encoding="utf-8")
-    mtime_ui = int(panel_path.stat().st_mtime)
+    mtime_ui = int(max(panel_path.stat().st_mtime, js_sunat_path.stat().st_mtime if js_sunat_path.exists() else 0))
     html = html.replace("{{NOMBRE_HOTEL}}", NOMBRE_HOTEL)
     html = html.replace('/static/js/api_bridge.js"', f'/static/js/api_bridge.js?v={mtime_ui}"')
     html = html.replace('/static/js/facturacion_sunat.js"', f'/static/js/facturacion_sunat.js?v={mtime_ui}"')
@@ -353,18 +356,43 @@ def api_sync_trigger():
     return {"status": "TRIGGERED", "syncStatus": obtener_estado_red_cola()}
 
 
+@app.get("/api/sunat/captura/{filename}")
+def api_sunat_captura(filename: str):
+    safe_name = Path(filename).name
+    cap_path = Path(r"C:\Hostal_Sistema\capturas") / safe_name
+    if not cap_path.is_file():
+        raise HTTPException(status_code=404, detail="Captura no encontrada")
+    return FileResponse(str(cap_path), media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/sunat/jobs")
+def api_sunat_jobs():
+    return JSONResponse(
+        content={"jobs": listar_jobs_sunat_recientes()},
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@app.get("/api/sunat/orden/{job_id}")
+def api_sunat_job_status(job_id: str):
+    j = obtener_estado_job_sunat(job_id)
+    if not j:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    return JSONResponse(content=j, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
 @app.post("/api/sunat/orden")
 def api_sunat_orden(payload: Dict[str, Any]):
     try:
-        res = ejecutar_orden_sunat_wsp(payload)
-        if res.get("exito"):
+        res = ejecutar_orden_sunat_wsp(payload, wakeup_cb=lambda: _sync_wakeup_event.set())
+        if res.get("exito") or res.get("status") == "OK":
             _sync_wakeup_event.set()
         res["syncStatus"] = obtener_estado_red_cola()
         return JSONResponse(content=res)
     except Exception as exc:
         return JSONResponse(
             status_code=400,
-            content={"exito": False, "mensaje": str(exc), "syncStatus": obtener_estado_red_cola()},
+            content={"status": "ERROR", "exito": False, "error": str(exc), "mensaje": str(exc), "syncStatus": obtener_estado_red_cola()},
         )
 
 
