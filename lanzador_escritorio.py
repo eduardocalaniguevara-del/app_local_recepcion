@@ -22,9 +22,10 @@ if str(APP_DIR) not in sys.path:
 
 from config import APP_HOST, APP_PORT, NOMBRE_HOTEL
 
-HOST = APP_HOST
+BIND_HOST = APP_HOST
+LOCAL_HOST = "127.0.0.1"
 PORT = APP_PORT
-URL = f"http://{HOST}:{PORT}"
+URL = f"http://{LOCAL_HOST}:{PORT}"
 
 CHROME_PATHS = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -35,7 +36,7 @@ CHROME_PATHS = [
 
 def servidor_activo() -> bool:
     try:
-        with socket.create_connection((HOST, PORT), timeout=0.5):
+        with socket.create_connection((LOCAL_HOST, PORT), timeout=0.5):
             return True
     except OSError:
         return False
@@ -89,7 +90,7 @@ def main() -> None:
     import uvicorn
     from main import app
 
-    uvicorn.run(app, host=HOST, port=PORT, log_config=None)
+    uvicorn.run(app, host=BIND_HOST, port=PORT, log_config=None)
 
 
 if __name__ == "__main__":
