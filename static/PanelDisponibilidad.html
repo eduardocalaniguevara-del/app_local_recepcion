@@ -6409,8 +6409,13 @@
         '<td class="px-2 border-r border-[#E6DCD2] whitespace-nowrap ' + (d.esHoy ? 'font-black' : 'font-bold') + '">' + esc(d.dowNombre) + ' ' + esc(d.fecha.slice(0, 5)) + badges + '</td>' +
         celdas +
         '<td class="px-0.5 text-center border-r border-[#E6DCD2]"><select data-f="' + esc(d.fecha) + '" data-c="estado" onchange="horEditar(this)" class="w-full text-[11px] rounded border border-transparent hover:border-slate-400 bg-transparent focus:bg-white cursor-pointer" style="' + estCss + '">' + optsEst + '</select></td>' +
-        '<td class="px-0.5 text-center border-r border-[#E6DCD2] whitespace-nowrap"><input type="text" maxlength="7" placeholder="Ej. 4/8" value="' + esc(d.extras) + '" data-f="' + esc(d.fecha) + '" data-c="extras" data-v="' + esc(d.extras) + '" onchange="horEditar(this)" onfocus="this.select()" class="w-[68px] text-center font-bold rounded border border-transparent hover:border-slate-400 focus:border-blue-600 bg-transparent focus:bg-white text-slate-900 text-[11.5px] py-0.5 outline-hidden"></td>' +
-        '<td class="px-1 text-center text-slate-600 font-bold">' + (d.horas ? d.horas : '') + '</td></tr>';
+        '<td class="px-0.5 text-center border-r border-[#E6DCD2] whitespace-nowrap"><input type="text" maxlength="7" placeholder="Ej. 4/8" value="' + esc(d.extras) + '" data-f="' + esc(d.fecha) + '" data-c="extras" data-v="' + esc(d.extras) + '" onchange="horEditar(this)" onfocus="this.select()" class="w-[54px] text-center font-bold rounded border border-transparent hover:border-slate-400 focus:border-blue-600 bg-transparent focus:bg-white text-slate-900 text-[11.5px] py-0.5 outline-hidden">' +
+          ((d.extras && Number(d.extrasMult) > 1) ? '<span class="ml-0.5 px-1 rounded text-[9px] font-black bg-green-700 text-white" title="Hora extra en feriado se multiplica 2× (' + d.extrasBase + 'h × 2 = ' + d.extrasEfectivas + 'h)">2×=' + d.extrasEfectivas + 'h</span>' : '') + '</td>' +
+        '<td class="px-1 text-center text-slate-700 font-bold whitespace-nowrap">' + (d.horas ? d.horas : '') +
+          (d.tipoObs === 'CORTE' ? '<span class="ml-1 px-1 rounded text-[9px] font-black bg-red-100 text-red-800 border border-red-300" title="⚠️ Corte de hora: trabajó ' + d.horas + 'h de ' + d.esperado + 'h (' + esc(d.tramos) + (d.detalleMotivo ? ' · ' + esc(d.detalleMotivo) : '') + ')">−' + Math.abs(d.diffHoras).toFixed(1) + 'h</span>' :
+           (d.tipoObs === 'EXTRA_ANOTADA' && d.diffHoras >= 0.75 ? '<span class="ml-1 px-1 rounded text-[9px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300" title="✅ +' + d.diffHoras.toFixed(1) + 'h sobre ' + d.esperado + 'h (' + esc(d.tramos) + (d.detalleMotivo ? ' · ' + esc(d.detalleMotivo) : '') + ')">+' + d.diffHoras.toFixed(1) + 'h</span>' :
+            (d.tipoObs === 'EXTRA_SIN_ANOTAR' ? '<span class="ml-1 px-1 rounded text-[9px] font-black bg-amber-100 text-amber-900 border border-amber-300" title="🔎 Trabajó ' + d.horas + 'h de ' + d.esperado + 'h (+' + d.diffHoras.toFixed(1) + 'h: ' + esc(d.tramos) + (d.detalleMotivo ? ' · ' + esc(d.detalleMotivo) : '') + ') sin H. Extras en col. G">+' + d.diffHoras.toFixed(1) + 'h?</span>' : ''))) +
+        '</td></tr>';
     }).join('');
     if (contIzq && HOR.scrollHecho) contIzq.scrollTop = prevScroll;
 
@@ -6570,12 +6575,46 @@
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Faltas (' + L.faltas + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.faltasDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqFaltas"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-purple-800">+ Descansos trabajados (' + L.descansos + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.descansosDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-purple-800" id="liqDesc"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-green-800">+ Feriados trabajados (2×: ' + L.feriados + ' × S/ ' + L.valorDia.toFixed(2) + ' × ' + multFer + ')' + cuLista('días', L.feriadosDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-green-800" id="liqFer"></td></tr>' +
-        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">+ Horas extras (' + L.horasExtraM + ' h = ' + L.horasExtraM + '/8 × S/ ' + L.diarioManana.toFixed(2) + ')' + cuLista('días con extras', L.extrasDetalle, function (x) { return esc(x.fecha) + ': ' + esc(x.raw || (x.horas + ' h')) + ' (' + x.horas + ' h)'; }) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-emerald-800" id="liqExM"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">+ Horas extras (' + L.horasExtraM + ' h = ' + L.horasExtraM + '/8 × S/ ' + L.diarioManana.toFixed(2) + ')' + cuLista('días con extras', L.extrasDetalle, function (x) {
+          var badgeF = x.esFeriado ? ' <span class="px-1 rounded bg-green-700 text-white text-[9px] font-black">FERIADO 2×</span>' : '';
+          var calcF = x.esFeriado ? ('<b>' + esc(x.raw) + ' → ' + x.horas + ' h</b> (' + x.horasBase + ' h × 2)') : ('<b>' + esc(x.raw || (x.horas + ' h')) + '</b> (' + x.horas + ' h)');
+          var tram = x.tramos ? ' · <span class="text-slate-500">' + esc(x.tramos) + ' (' + x.horasDia + ' h)</span>' : '';
+          return esc(x.fecha) + badgeF + ': ' + calcF + tram;
+        }) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-emerald-800" id="liqExM"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− AFP / planilla (monto fijo, editable)</td><td class="py-1 text-right">S/ <input id="liqAfp" type="text" value="' + L.afp + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqAfpTot"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Adelantos de sueldo (Gastos: Adelanto / Sueldos y Salarios)' + cuLista('detalle', L.adelantos, function (a) { return esc(a.fecha) + ' · ' + esc(a.descripcion) + ': ' + soles(a.monto) + (a.via === 'descripcion' ? ' <i>(por descripción)</i>' : ''); }) + '</td><td class="py-1 text-right">S/ <input id="liqAdel" type="text" value="' + L.adelantosTotal + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqAdelTot"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Consumo tienda (Cargar a la Cuenta)' + cuLista('detalle', L.tienda, function (t) { return esc(t.fecha) + ' · ' + t.cantidad + ' × ' + esc(t.producto) + ': ' + soles(t.subtotal); }) + '</td><td class="py-1 text-right">S/ <input id="liqTienda" type="text" value="' + L.tiendaTotal + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqTiendaTot"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">± Ajuste manual (opcional)</td><td class="py-1 text-right">S/ <input id="liqOtros" type="text" value="0" oninput="cuCalc()" class="' + inpC + '" title="Positivo suma, negativo resta"></td><td class="py-1 pl-2 text-right font-black" id="liqOtrosTot"></td></tr>' +
       '</tbody></table>' +
+      ((L.observacionesHoras && L.observacionesHoras.length) ? (
+        '<details open class="mt-2 rounded-lg border border-slate-300 bg-slate-50 p-2">' +
+          '<summary class="cursor-pointer text-[11px] font-black text-slate-800 select-none">🔎 Observación de Horas: Extras y Cortes de Hora (' + L.observacionesHoras.length + ' días detectados)</summary>' +
+          '<div class="mt-1.5 overflow-x-auto"><table class="w-full text-[10.5px] border-collapse">' +
+            '<thead><tr class="bg-slate-200 text-slate-700 font-black text-left">' +
+              '<th class="px-1.5 py-1">Fecha</th><th class="px-1.5 py-1">Entrada / Salida</th><th class="px-1.5 py-1 text-center">Horas</th><th class="px-1.5 py-1">Observación</th>' +
+            '</tr></thead><tbody>' +
+            L.observacionesHoras.map(function (ob) {
+              var bg = ob.tipoObs === 'CORTE' ? 'bg-red-50/80 text-red-950' : (ob.tipoObs === 'EXTRA_SIN_ANOTAR' ? 'bg-amber-50/80 text-amber-950' : 'bg-emerald-50/60 text-slate-800');
+              var tagDia = ob.esFeriado ? ' <span class="px-1 rounded bg-green-700 text-white text-[8.5px] font-black">FERIADO</span>' : (ob.esDescanso ? ' <span class="px-1 rounded bg-purple-700 text-white text-[8.5px] font-black">DESCANSO</span>' : '');
+              var difTxt = ob.diffHoras !== 0 ? (' (' + (ob.diffHoras > 0 ? '+' : '−') + Math.abs(ob.diffHoras).toFixed(1) + ' h)') : '';
+              var obsTxt = '';
+              if (ob.tipoObs === 'CORTE') {
+                obsTxt = '<span class="font-black text-red-700">⚠️ Corte de ~' + Math.abs(ob.diffHoras).toFixed(1) + ' h</span>' + (ob.detalleMotivo ? ' (' + esc(ob.detalleMotivo) + ')' : '');
+              } else if (ob.tipoObs === 'EXTRA_ANOTADA') {
+                obsTxt = '<span class="font-black text-emerald-800">✅ Extra ' + esc(ob.extrasRaw) + (ob.extrasMult > 1 ? (' × 2 = ' + ob.extrasEfectivas + ' h (Feriado)') : (' (' + ob.extrasEfectivas + ' h)')) + '</span>' + (ob.detalleMotivo ? ' · ' + esc(ob.detalleMotivo) : '');
+              } else {
+                obsTxt = '<span class="font-black text-amber-800">🔎 +' + ob.diffHoras.toFixed(1) + ' h sobre su jornada (sin extra en col. G)</span>' + (ob.detalleMotivo ? ' · ' + esc(ob.detalleMotivo) : '');
+              }
+              return '<tr class="border-b border-slate-200 ' + bg + '">' +
+                '<td class="px-1.5 py-1 font-black whitespace-nowrap">' + esc(ob.dow) + ' ' + esc(ob.fecha.slice(0, 5)) + tagDia + '</td>' +
+                '<td class="px-1.5 py-1 font-bold whitespace-nowrap">' + esc(ob.tramos || '—') + '</td>' +
+                '<td class="px-1.5 py-1 text-center font-black whitespace-nowrap">' + ob.horas + ' / ' + ob.esperado + ' h' + difTxt + '</td>' +
+                '<td class="px-1.5 py-1">' + obsTxt + '</td>' +
+              '</tr>';
+            }).join('') +
+            '</tbody></table></div>' +
+        '</details>'
+      ) : '') +
       '<div class="mt-2 flex items-center justify-between rounded-lg bg-slate-900 text-white px-3 py-2"><span class="font-black text-xs tracking-wide">TOTAL NETO A PAGAR</span><span class="font-black text-xl text-emerald-300" id="liqNeto">S/ 0.00</span></div>' +
       '<div class="mt-2 grid grid-cols-3 gap-2">' +
         '<div class="rounded-lg border border-[#D8C7B8] bg-white p-2"><label class="block text-[10px] font-black text-slate-500">📱 YAPE / TRANSF. (S/)</label><input id="liqYape" type="text" value="0" oninput="cuPago(\'yape\')" class="w-full px-2 py-1 text-right font-black rounded border border-slate-300 text-sm"></div>' +

@@ -88,7 +88,101 @@ def _horas_pares(r: Dict[str, Any]) -> float:
             if d <= 0:
                 d += 24 * 60  # turno que cruza medianoche
             total += d
+    # Si marcó entrada en E1 y salida final en S2 (turno corrido sin S1/E2 intermedios)
+    if total == 0 and r.get("e1") and r.get("s2") and not r.get("s1") and not r.get("e2"):
+        d = _minutos(r["s2"]) - _minutos(r["e1"])
+        if d <= 0:
+            d += 24 * 60
+        total = d
     return round(total / 60.0, 2)
+
+
+def _analizar_jornada_dia(r: Dict[str, Any], cfg: Dict[str, Any], fer_nom: str = "") -> Dict[str, Any]:
+    """Detecta excesos de horas (horas extras) y cortes de hora (horas de menos) explicando los tramos marcados."""
+    h_dia = _horas_pares(r)
+    es_noche = str(cfg.get("turno") or "").upper() == "NOCHE"
+    jornada_base = 12.0 if es_noche else 8.0
+    est = str(r.get("estado") or "").strip().upper()
+    if est in ("MEDIO TIEMPO", "MEDIA FALTA", "MEDIO DESCANSO"):
+        esperado = round(jornada_base / 2.0, 2)
+    elif est in ("FALTÓ", "LIBRE"):
+        esperado = 0.0
+    else:
+        esperado = jornada_base
+
+    e1, s1, e2, s2 = str(r.get("e1") or ""), str(r.get("s1") or ""), str(r.get("e2") or ""), str(r.get("s2") or "")
+    tramos = []
+    if e1 and s1:
+        tramos.append(f"{e1}–{s1}")
+    if e2 and s2:
+        tramos.append(f"{e2}–{s2}")
+    if not tramos and e1 and s2 and not s1 and not e2:
+        tramos.append(f"{e1}–{s2} (corrido)")
+    elif (e1 and not s1 and not s2) or (e2 and not s2):
+        marcadas = [f"{k.upper()}={v}" for k, v in (("e1", e1), ("s1", s1), ("e2", e2), ("s2", s2)) if v]
+        tramos.append(" ".join(marcadas) + " (incompleto)")
+    tramos_str = " y ".join(tramos)
+
+    hx_raw = str(r.get("extras") or "").strip()
+    hx_val = parse_extras(hx_raw) if hx_raw else 0.0
+    es_fer = bool(fer_nom) or (est == "FERIADO")
+    mult_hx = 2 if es_fer else 1
+    hx_efec = round(hx_val * mult_hx, 2)
+
+    diff = round(h_dia - esperado, 2) if (h_dia > 0 and esperado > 0) else 0.0
+    detalle_corte = ""
+    if diff <= -0.75:
+        # Identificar en qué bloque estuvo el corte de hora
+        notas_c = []
+        if not es_noche:
+            if e1 and _minutos(e1) >= 9 * 60:
+                notas_c.append(f"entró T1 a las {e1}")
+            if e1 and s1:
+                h_t1 = round((_minutos(s1) - _minutos(e1)) / 60.0, 1)
+                if h_t1 < 3.5 and not e2:
+                    notas_c.append(f"solo hizo {h_t1}h en T1")
+            if e2 and _minutos(e2) >= 16 * 60 + 45:
+                notas_c.append(f"entró T2 a las {e2}")
+            if e2 and s2 and _minutos(s2) <= 19 * 60 + 15:
+                notas_c.append(f"salió T2 a las {s2}")
+            if e1 and s1 and not e2 and not s2 and esperado >= 8.0 and h_dia <= 5.5:
+                notas_c.append("solo marcó 1 turno sin estado de medio tiempo")
+        detalle_corte = ", ".join(notas_c) if notas_c else f"faltaron {abs(diff):.1f} h para completar {esperado:g} h"
+    elif diff >= 0.75:
+        notas_e = []
+        if not es_noche:
+            if e1 and s1 and not e2 and _minutos(s1) >= 17 * 60:
+                notas_e.append(f"salió {s1}")
+            elif e2 and s2 and _minutos(s2) >= 20 * 60 + 45:
+                notas_e.append(f"salió {s2}")
+            elif e1 and s2 and not s1 and not e2:
+                notas_e.append("turno corrido completo")
+            elif e1 and s1 and _minutos(s1) >= 13 * 60:
+                notas_e.append(f"salió T1 {s1}")
+        else:
+            if e1 and 12 * 60 <= _minutos(e1) <= 19 * 60:
+                notas_e.append(f"entró {e1}")
+        detalle_corte = ", ".join(notas_e)
+
+    tipo_obs = ""
+    if diff <= -0.75:
+        tipo_obs = "CORTE"
+    elif hx_val > 0:
+        tipo_obs = "EXTRA_ANOTADA"
+    elif diff >= 0.85:
+        tipo_obs = "EXTRA_SIN_ANOTAR"
+
+    return {
+        "horas": h_dia,
+        "esperado": esperado,
+        "diffHoras": diff,
+        "tramos": tramos_str,
+        "detalleMotivo": detalle_corte,
+        "tipoObs": tipo_obs,
+        "extrasBase": hx_val,
+        "extrasEfectivas": hx_efec,
+        "extrasMult": mult_hx,
+    }
 
 
 def parse_extras(txt: Any) -> float:
@@ -231,6 +325,7 @@ def _auditar(conn, emp: str, fecha_dmy: str, campo: str, antes: str, nuevo: str)
 def _fila_publica(r: Dict[str, Any], cfg: Dict[str, Any], hoy: date, feriados: Dict[str, str]) -> Dict[str, Any]:
     d = _fecha(r["fecha_dmy"])
     fer_nom = feriados.get(r["fecha_dmy"], "")
+    info_j = _analizar_jornada_dia(r, cfg, fer_nom)
     # El feriado manda sobre el descanso: si el día es feriado, no se marca como descanso
     return {
         "fecha": r["fecha_dmy"], "fechaIso": d.isoformat(), "dia": d.day, "dow": d.weekday(), "dowNombre": DOW_ES[d.weekday()],
@@ -238,7 +333,10 @@ def _fila_publica(r: Dict[str, Any], cfg: Dict[str, Any], hoy: date, feriados: D
         "feriado": fer_nom,
         "e1": r["e1"], "s1": r["s1"], "e2": r["e2"], "s2": r["s2"],
         "estado": r["estado"], "extras": r["extras"], "extraNoche": int(r["extra_noche"] or 0), "nota": r["nota"],
-        "horas": _horas_pares(r), "esHoy": d == hoy, "futuro": d > hoy,
+        "horas": info_j["horas"], "esperado": info_j["esperado"], "diffHoras": info_j["diffHoras"],
+        "tramos": info_j["tramos"], "detalleMotivo": info_j["detalleMotivo"], "tipoObs": info_j["tipoObs"],
+        "extrasBase": info_j["extrasBase"], "extrasEfectivas": info_j["extrasEfectivas"], "extrasMult": info_j["extrasMult"],
+        "esHoy": d == hoy, "futuro": d > hoy,
     }
 
 
@@ -395,6 +493,7 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
     d_fer: List[str] = []
     h_m = h_n = 0.0
     extras_det: List[Dict[str, Any]] = []
+    observaciones_horas: List[Dict[str, Any]] = []
     sin_marcar: List[str] = []
     horas_totales = 0.0
     cur = desde
@@ -402,9 +501,11 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
         f = _dmy(cur)
         r = reg.get(f) or _fila_vacia(cfg["empleado"], f)
         trabajo = any(r[c] for c in CAMPOS_HORA)
-        h_dia = _horas_pares(r)
+        nom_fer_dia = feriados.get(f, "")
+        info_j = _analizar_jornada_dia(r, cfg, nom_fer_dia)
+        h_dia = info_j["horas"]
         horas_totales += h_dia
-        es_desc = cur.weekday() == int(cfg["descanso_dow"])
+        es_desc = (cur.weekday() == int(cfg["descanso_dow"])) and not bool(nom_fer_dia)
         est = r["estado"]
         if est == "FALTÓ":
             faltas += 1
@@ -414,10 +515,10 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
             d_falta.append(f + " (½ medio tiempo)")
 
         # El feriado manda sobre el descanso: si coincide con feriado, cuenta como feriado x2 y nunca como descanso
-        es_fer_trab = (f in feriados and (trabajo or est in ("FERIADO", "DESCANSO"))) or (est == "FERIADO")
+        es_fer_trab = (bool(nom_fer_dia) and (trabajo or est in ("FERIADO", "DESCANSO"))) or (est == "FERIADO")
         if es_fer_trab:
             feriados_trab += 1
-            nom_fer = feriados.get(f) or "Feriado"
+            nom_fer = nom_fer_dia or "Feriado"
             d_fer.append(f"{f} {nom_fer}".strip())
         else:
             if est in ("MEDIO DESCANSO",) or (est == "MEDIO TIEMPO" and es_desc):
@@ -434,11 +535,42 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
                 else:
                     descansos += 1
                     d_desc.append(f)
-        hx = parse_extras(r["extras"]) if r["extras"] else 0.0
+        hx = info_j["extrasBase"]
         if hx:
-            # Todas las horas extras se calculan sobre la base de mañana (S/ 50 / 8h)
-            h_m += hx
-            extras_det.append({"fecha": f, "horas": hx, "raw": r["extras"]})
+            # En feriado las horas extras también se duplican (2x); todas se calculan sobre la base de mañana (S/ 50 / 8h)
+            hx_efec = info_j["extrasEfectivas"]
+            mult_hx = info_j["extrasMult"]
+            h_m += hx_efec
+            extras_det.append({
+                "fecha": f,
+                "horas": hx_efec,
+                "horasBase": hx,
+                "multiplicador": mult_hx,
+                "esFeriado": mult_hx == 2,
+                "feriadoNombre": nom_fer_dia or ("Feriado" if mult_hx == 2 else ""),
+                "raw": r["extras"],
+                "tramos": info_j["tramos"],
+                "horasDia": h_dia,
+            })
+        if info_j["tipoObs"]:
+            observaciones_horas.append({
+                "fecha": f,
+                "dow": DOW_ES[cur.weekday()],
+                "tramos": info_j["tramos"],
+                "horas": h_dia,
+                "esperado": info_j["esperado"],
+                "diffHoras": info_j["diffHoras"],
+                "detalleMotivo": info_j["detalleMotivo"],
+                "tipoObs": info_j["tipoObs"],
+                "esFeriado": bool(nom_fer_dia) or (est == "FERIADO"),
+                "feriadoNombre": nom_fer_dia,
+                "esDescanso": es_desc,
+                "estado": est,
+                "extrasRaw": r["extras"],
+                "extrasBase": hx,
+                "extrasEfectivas": info_j["extrasEfectivas"],
+                "extrasMult": info_j["extrasMult"],
+            })
         if cur < hoy and not trabajo and not est and not es_desc and f not in feriados:
             sin_marcar.append(f)
         cur += timedelta(days=1)
@@ -504,6 +636,7 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
         "faltas": faltas, "faltasDias": d_falta, "descansos": descansos, "descansosDias": d_desc,
         "feriados": feriados_trab, "feriadosDias": d_fer, "feriadoMultiplicador": 2,
         "horasExtraM": round(h_m, 2), "horasExtraN": round(h_n, 2), "extrasDetalle": extras_det,
+        "observacionesHoras": observaciones_horas,
         "adelantos": adelantos, "adelantosTotal": round(sum(a["monto"] for a in adelantos), 2),
         "adelantosSinAsignar": sin_asignar,
         "tienda": tienda, "tiendaTotal": round(sum(t["subtotal"] for t in tienda), 2),
