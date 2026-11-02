@@ -17,14 +17,15 @@ _APP_DIR = str(Path(__file__).resolve().parent)
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from config import APP_HOST, APP_PORT, STATIC_DIR, SYNC_INTERVAL_SECONDS, NOMBRE_HOTEL
 from database import get_connection, init_db
+import tablet_manager as tm
 from domain_logic import (
     actualizar_comprobante_desde_panel_local,
     cancelar_estancia_local,
@@ -118,6 +119,7 @@ def _background_sync_worker() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    tm.init_tablet_tables()
     worker = threading.Thread(target=_background_sync_worker, name="OvaloSyncWorker", daemon=True)
     worker.start()
     iniciar_hilo_auto_actualizacion(intervalo_segundos=20)
@@ -131,6 +133,29 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def candado_seguridad_red_tablet(request: Request, call_next):
+    """Bloquea cualquier acceso desde Wi-Fi a rutas de Caja/Recepción; los dispositivos externos solo ven /tablet."""
+    client_host = (request.client.host if request.client else "") or ""
+    es_localhost = client_host in ("127.0.0.1", "::1", "localhost")
+    if not es_localhost:
+        path = request.url.path or "/"
+        if path == "/" or path == "/index.html":
+            return RedirectResponse(url="/tablet", status_code=302)
+        rutas_permitidas_tablet = (
+            path == "/tablet"
+            or path.startswith("/api/tablet/")
+            or path == "/static/js/tailwind_local.js"
+            or path == "/favicon.ico"
+        )
+        if not rutas_permitidas_tablet:
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Acceso restringido exclusivamente a la Laptop de Recepción."},
+            )
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,
@@ -329,6 +354,87 @@ def index():
     )
 
 
+@app.get("/tablet", response_class=HTMLResponse)
+def vista_tablet_kiosco(request: Request):
+    tablet_path = STATIC_DIR / "TabletKiosco.html"
+    if not tablet_path.exists():
+        raise HTTPException(status_code=404, detail="Vista TabletKiosco.html no encontrada")
+    client_ip = (request.client.host if request.client else "") or ""
+    ua = request.headers.get("user-agent", "")
+    tm.registrar_latido_tablet(client_ip, ua)
+    html = tablet_path.read_text(encoding="utf-8").replace("{{NOMBRE_HOTEL}}", NOMBRE_HOTEL)
+    return HTMLResponse(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@app.get("/api/tablet/estado")
+def api_tablet_estado(request: Request, from_tablet: int = 0):
+    client_ip = (request.client.host if request.client else "") or ""
+    ua = request.headers.get("user-agent", "")
+    data = tm.obtener_datos_tablet_publico(client_ip if from_tablet else "", ua if from_tablet else "")
+    return JSONResponse(content=data, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.get("/api/tablet/foto/{filename}")
+def api_tablet_foto(filename: str):
+    safe_name = Path(filename).name
+    fpath = tm.FOTOS_HABS_DIR / safe_name
+    if not fpath.is_file():
+        raise HTTPException(status_code=404, detail="Foto no encontrada")
+    return FileResponse(str(fpath), headers={"Cache-Control": "max-age=300"})
+
+
+@app.post("/api/tablet/seleccionar-hab")
+def api_tablet_seleccionar_hab(payload: Dict[str, Any]):
+    return JSONResponse(content=tm.seleccionar_habitacion_desde_tablet(payload))
+
+
+@app.post("/api/tablet/consultar-doc")
+def api_tablet_consultar_doc(payload: Dict[str, Any]):
+    return JSONResponse(content=tm.consultar_documento_desde_tablet(payload))
+
+
+@app.post("/api/tablet/checkin-datos")
+def api_tablet_checkin_datos(payload: Dict[str, Any]):
+    return JSONResponse(content=tm.enviar_datos_checkin_desde_tablet(payload))
+
+
+@app.post("/api/tablet/pedido-tienda")
+def api_tablet_pedido_tienda(payload: Dict[str, Any]):
+    return JSONResponse(content=tm.enviar_pedido_vitrina_desde_tablet(payload))
+
+
+@app.post("/api/tablet/limpieza")
+def api_tablet_limpieza(payload: Dict[str, Any]):
+    return JSONResponse(content=tm.cambiar_estado_limpieza_desde_tablet(payload))
+
+
+@app.post("/api/tablet/firma")
+def api_tablet_firma(payload: Dict[str, Any]):
+    return JSONResponse(content=tm.guardar_firma_conformidad_tablet(payload))
+
+
+@app.post("/api/tablet/sugerencia")
+def api_tablet_sugerencia(payload: Dict[str, Any]):
+    return JSONResponse(content=tm.guardar_sugerencia_tablet(payload))
+
+
+@app.get("/api/tablet/control")
+def api_tablet_control_get():
+    return JSONResponse(
+        content=tm.obtener_panel_control_tablet(),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@app.post("/api/tablet/control")
+def api_tablet_control_post(payload: Dict[str, Any]):
+    return JSONResponse(content=tm.actualizar_control_remoto_tablet(payload))
+
+
 @app.get("/api/sync/status")
 def api_sync_status():
     st = obtener_estado_red_cola()
@@ -525,6 +631,10 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             res = dl.obtener_estancias_pago_masivo_local(args[0] if args else {})
         elif method_name == "guardarPagoMasivo":
             res = dl.guardar_pago_masivo_local(args[0] if args else {})
+        elif method_name == "obtenerPanelControlTablet":
+            res = tm.obtener_panel_control_tablet()
+        elif method_name == "actualizarControlRemotoTablet":
+            res = tm.actualizar_control_remoto_tablet(args[0] if args else {})
         else:
             raise HTTPException(status_code=404, detail=f"Método RPC no soportado: {method_name}")
 

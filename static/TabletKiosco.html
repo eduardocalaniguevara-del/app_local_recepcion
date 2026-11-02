@@ -1,0 +1,1512 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#060911">
+  <title>{{NOMBRE_HOTEL}} — Kiosco Interactivo S8+</title>
+  <script src="/static/js/tailwind_local.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      background-color: #060911;
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.45;
+      margin: 0;
+      overflow-x: hidden;
+    }
+    /* Formularios accesibles y optimizados para pantallas táctiles (Tab S8+ 12.4") */
+    .form-group {
+      margin-block-end: 1.25rem;
+    }
+    .form-group label {
+      display: block;
+      font-weight: 800;
+      font-size: 0.95rem;
+      color: #cbd5e1;
+      margin-block-end: 0.35rem;
+      padding: 6px 0;
+    }
+    .kiosk-input {
+      width: 100%;
+      font-size: 1.125rem;
+      font-weight: 700;
+      padding: 0.85rem 1rem;
+      min-height: 52px;
+      background-color: #0f172a;
+      border: 2px solid #334155;
+      border-radius: 0.85rem;
+      color: #ffffff;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    @media (pointer: coarse) {
+      .kiosk-input, .kiosk-btn {
+        min-height: 54px;
+      }
+    }
+    .kiosk-input:focus-visible, .kiosk-btn:focus-visible, button:focus-visible {
+      outline: 3px solid #38bdf8;
+      outline-offset: 2px;
+      border-color: #38bdf8;
+    }
+    .kiosk-input:invalid:user-invalid {
+      border-color: #f87171;
+    }
+    dialog {
+      background-color: #0f172a;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      border-radius: 1.25rem;
+      padding: 0;
+      max-width: 92vw;
+    }
+    dialog::backdrop {
+      background-color: rgba(2, 6, 23, 0.78);
+      backdrop-filter: blur(6px);
+    }
+    /* Lienzo S Pen a 120Hz sin scroll accidental */
+    #canvasFirmaSPen {
+      touch-action: none;
+      cursor: crosshair;
+      background-color: #ffffff;
+    }
+    .visually-hidden {
+      position: absolute;
+      clip-path: inset(50%);
+      overflow: hidden;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      border: 0;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col select-none overflow-hidden">
+
+  <!-- BARRA SUPERIOR PREMIUM (AMOLED DARK) -->
+  <header class="shrink-0 bg-[#0b1120] border-b border-slate-800/90 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 shadow-lg">
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-black text-xl shadow-md">
+        🏨
+      </div>
+      <div>
+        <h1 id="lblNombreHotel" class="text-lg font-black tracking-tight text-white leading-tight">{{NOMBRE_HOTEL}}</h1>
+        <div class="flex items-center gap-2 text-xs text-slate-400 font-semibold">
+          <span class="inline-flex items-center gap-1 text-emerald-400">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            En vivo con Recepción
+          </span>
+          <span>·</span>
+          <span id="lblFechaHoy">Hoy</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PESTAÑAS PRINCIPALES DE NAVEGACIÓN TÁCTIL (48px+ Tap Targets) -->
+    <nav aria-label="Módulos de la Tablet" class="flex flex-wrap items-center gap-1.5">
+      <button type="button" id="navBtn_catalogo" onclick="cambiarModoTablet('catalogo')"
+              class="kiosk-btn px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-amber-500 text-slate-950 shadow-md transition-all cursor-pointer">
+        🛏️ Habitaciones
+      </button>
+      <button type="button" id="navBtn_checkin_express" onclick="cambiarModoTablet('checkin_express')"
+              class="kiosk-btn px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-slate-800/90 text-slate-200 hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer">
+        ✍️ Mis Datos (DNI/RUC)
+      </button>
+      <button type="button" id="navBtn_vitrina" onclick="cambiarModoTablet('vitrina')"
+              class="kiosk-btn px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-slate-800/90 text-slate-200 hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer">
+        🏪 Vitrina & Snacks
+      </button>
+      <button type="button" id="navBtn_firma_empresa" onclick="cambiarModoTablet('firma_empresa')"
+              class="kiosk-btn px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-slate-800/90 text-slate-200 hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer">
+        🏢 Firma Conformidad
+      </button>
+      <button type="button" id="navBtn_sugerencias" onclick="cambiarModoTablet('sugerencias')"
+              class="kiosk-btn px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-slate-800/90 text-slate-200 hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer">
+        ⭐ Sugerencias
+      </button>
+      <button type="button" id="navBtn_limpieza" onclick="cambiarModoTablet('limpieza')"
+              title="Acceso directo de 1 clic para el personal de Limpieza"
+              class="kiosk-btn px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-indigo-950/90 text-indigo-200 hover:bg-indigo-900 border border-indigo-700/80 transition-all cursor-pointer">
+        🧹 Limpieza
+      </button>
+      <button type="button" onclick="alternarPantallaCompleta()" title="Pantalla Completa"
+              class="kiosk-btn px-3 py-2.5 rounded-xl font-black text-xs bg-slate-900 text-slate-400 hover:text-white border border-slate-800 cursor-pointer">
+        ⛶
+      </button>
+    </nav>
+  </header>
+
+  <!-- BANNER DE CONFIRMACIÓN EN VIVO -->
+  <div id="toastTablet" role="status" aria-live="polite"
+       class="hidden fixed top-20 left-1/2 -translate-x-1/2 z-50 px-6 py-3.5 rounded-2xl font-black text-base shadow-2xl border border-emerald-400/50 bg-emerald-950/95 text-emerald-100">
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- MÓDULO 1: CATÁLOGO INTERACTIVO DE HABITACIONES EN VIVO                -->
+  <!-- ===================================================================== -->
+  <main id="sec_catalogo" class="flex-1 min-h-0 flex flex-col p-4 gap-3 overflow-hidden">
+    <!-- Barra de filtros táctiles -->
+    <div class="shrink-0 bg-[#0b1120] border border-slate-800 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2.5">
+      <div class="flex flex-wrap items-center gap-1.5" id="barraFiltrosTipo">
+        <!-- Se llena dinámicamente con Tipos de Habitación -->
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800" id="barraFiltrosPiso">
+          <!-- Se llena dinámicamente con Pisos -->
+        </div>
+
+        <button type="button" id="btnSoloDisponibles" onclick="toggleSoloDisponibles()"
+                class="px-3.5 py-2 rounded-xl font-extrabold text-xs sm:text-sm border border-emerald-500/50 bg-emerald-950/60 text-emerald-300 cursor-pointer transition-all">
+          🟢 Solo Disponibles: SÍ
+        </button>
+      </div>
+    </div>
+
+    <!-- Resumen rápido de disponibilidad -->
+    <div class="shrink-0 flex items-center justify-between px-1 text-xs sm:text-sm text-slate-400 font-bold">
+      <div id="lblResumenCatalogo">Cargando habitaciones en tiempo real...</div>
+      <div class="flex items-center gap-4">
+        <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Disponible para ingreso inmediato</span>
+        <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> En preparación</span>
+        <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Ocupada</span>
+      </div>
+    </div>
+
+    <!-- Cuadrícula de tarjetas de habitaciones (Optimizada 12.4" Super AMOLED) -->
+    <div id="gridHabitaciones" class="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 pb-6 pr-1">
+    </div>
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- MÓDULO 2: AUTO-LLENADO ELEGANTE DE HUÉSPED (DNI / CELULAR / RUC)      -->
+  <!-- ===================================================================== -->
+  <section id="sec_checkin_express" class="hidden flex-1 min-h-0 overflow-y-auto p-4 sm:p-6">
+    <div class="max-w-2xl mx-auto bg-[#0b1120] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl">
+      <div class="flex items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-6">
+        <div>
+          <span class="text-xs font-black uppercase tracking-wider text-amber-400">Registro Rápido y Privado</span>
+          <h2 class="text-2xl font-black text-white mt-0.5">✍️ Ingresa tus Datos para Recepción</h2>
+          <p class="text-sm text-slate-400 mt-1">Tus datos se envían de forma directa y segura a la pantalla del recepcionista sin dictarlos en voz alta.</p>
+        </div>
+        <div id="badgeHabSeleccionadaForm" class="hidden shrink-0 px-4 py-2.5 rounded-2xl bg-amber-500/20 border border-amber-400/50 text-amber-300 font-black text-center">
+          <div class="text-[11px] uppercase">Habitación</div>
+          <div id="txtHabSeleccionadaForm" class="text-2xl leading-none mt-0.5">201</div>
+        </div>
+      </div>
+
+      <form id="formCheckinExpress" action="/api/tablet/checkin-datos" method="POST" novalidate>
+        <div class="form-group">
+          <label for="inpDniTablet">1. Número de DNI / Carné de Extranjería / Pasaporte *</label>
+          <div class="flex gap-2">
+            <input type="text" id="inpDniTablet" name="dni" required
+                   inputmode="numeric" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next"
+                   maxlength="15" placeholder="Ej. 74118293"
+                   aria-describedby="ayudaDniTablet"
+                   class="kiosk-input flex-1">
+            <button type="button" onclick="buscarDniEnVivo()"
+                    class="kiosk-btn px-5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-black text-sm cursor-pointer shrink-0">
+              🔍 Validar DNI
+            </button>
+          </div>
+          <div id="ayudaDniTablet" class="text-xs font-bold text-slate-400 mt-1.5" aria-live="polite">
+            Al ingresar 8 dígitos de DNI peruano, validamos tu nombre automáticamente.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="inpNombreTablet">Nombre Completo del Huésped</label>
+          <input type="text" id="inpNombreTablet" name="nombre"
+                 autocomplete="name" enterkeyhint="next" maxlength="100"
+                 placeholder="Se completa automáticamente con tu DNI o escríbelo aquí"
+                 class="kiosk-input">
+        </div>
+
+        <div class="form-group">
+          <label for="inpCelularTablet">2. Número de Celular (WhatsApp para enviarte tu Boleta/Factura)</label>
+          <input type="text" id="inpCelularTablet" name="celular"
+                 inputmode="tel" autocomplete="tel" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="next"
+                 maxlength="15" placeholder="Ej. 987654321"
+                 aria-describedby="ayudaCelularTablet"
+                 class="kiosk-input">
+          <div id="ayudaCelularTablet" class="text-xs font-bold text-slate-400 mt-1.5">
+            Opcional: te enviaremos tu comprobante electrónico en PDF directo a tu WhatsApp.
+          </div>
+        </div>
+
+        <fieldset class="border border-slate-800 rounded-2xl p-4 mb-6 bg-slate-900/50">
+          <legend class="px-2 text-xs font-black uppercase tracking-wider text-sky-400">🏢 ¿Necesitas Factura para Empresa? (Opcional)</legend>
+          <div class="form-group mt-2">
+            <label for="inpRucTablet">Número de RUC (11 dígitos)</label>
+            <div class="flex gap-2">
+              <input type="text" id="inpRucTablet" name="ruc"
+                     inputmode="numeric" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"
+                     maxlength="11" placeholder="Ej. 20123456789 (Solo si deseas Factura)"
+                     aria-describedby="ayudaRucTablet"
+                     class="kiosk-input flex-1">
+              <button type="button" onclick="buscarRucEnVivo()"
+                      class="kiosk-btn px-5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm cursor-pointer shrink-0">
+                🔍 Validar RUC
+              </button>
+            </div>
+            <div id="ayudaRucTablet" class="text-xs font-bold text-slate-400 mt-1.5" aria-live="polite">
+              Si solo deseas Boleta de Venta, deja este campo vacío.
+            </div>
+          </div>
+
+          <div class="form-group mb-0">
+            <label for="inpRazonSocialTablet">Razón Social de la Empresa</label>
+            <input type="text" id="inpRazonSocialTablet" name="razonSocial"
+                   autocorrect="off" spellcheck="false" maxlength="140"
+                   placeholder="Se completa automáticamente al validar el RUC"
+                   class="kiosk-input">
+          </div>
+        </fieldset>
+
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <button type="button" onclick="limpiarFormularioCheckinTablet()"
+                  class="kiosk-btn px-5 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-sm cursor-pointer">
+            🗑️ Limpiar campos
+          </button>
+          <button type="submit" id="btnSubmitCheckinTablet"
+                  class="kiosk-btn flex-1 py-4 px-6 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-lg shadow-xl cursor-pointer">
+            ✅ Enviar mis Datos a Recepción
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <!-- MÓDULO 3: PANTALLA DE COBRO QR (YAPE / PLIN) CON MONTO EXACTO         -->
+  <!-- ===================================================================== -->
+  <section id="sec_cobro_qr" class="hidden flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 flex items-center justify-center">
+    <div class="max-w-xl w-full bg-gradient-to-b from-[#2e1065] via-[#1e1b4b] to-[#0f172a] border-2 border-purple-400/40 rounded-3xl p-6 sm:p-8 text-center shadow-2xl">
+      <span class="inline-block px-4 py-1 rounded-full bg-purple-500/30 border border-purple-400/40 text-purple-200 font-black text-xs uppercase tracking-wider">
+        📱 Pago Instantáneo Yape / Plin
+      </span>
+      <h2 class="text-2xl sm:text-3xl font-black text-white mt-2" id="qrTituloConcepto">Pago de Hospedaje</h2>
+      <div class="my-4 py-4 px-6 rounded-2xl bg-slate-950/70 border border-purple-400/30 inline-block">
+        <div class="text-xs font-bold uppercase text-purple-300">Monto exacto a pagar</div>
+        <div id="qrMontoExacto" class="text-4xl sm:text-5xl font-black text-emerald-400 mt-1">S/ 0.00</div>
+        <div id="qrHabDetalle" class="text-sm font-bold text-slate-300 mt-1">Habitación —</div>
+      </div>
+
+      <div class="bg-white text-slate-900 rounded-2xl p-5 max-w-xs mx-auto shadow-xl">
+        <div class="font-black text-sm text-purple-900 mb-2">Escanea en tu app Yape o Plin</div>
+        <div id="contenedorImagenQrYape" class="w-52 h-52 mx-auto flex items-center justify-center bg-slate-100 rounded-xl border border-slate-300 overflow-hidden">
+          <div class="text-center p-4">
+            <div class="text-4xl mb-2">📲</div>
+            <div class="text-xs font-bold text-slate-600">Coloca tu imagen QR en <code class="text-[10px]">data/fotos_habitaciones/qr_yape.png</code></div>
+          </div>
+        </div>
+        <div id="qrNumeroTitular" class="mt-3 text-xs font-black text-slate-700">{{NOMBRE_HOTEL}}</div>
+      </div>
+
+      <div class="mt-6 flex justify-center gap-3">
+        <button type="button" onclick="cambiarModoTablet('catalogo')"
+                class="kiosk-btn px-6 py-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-black text-sm cursor-pointer">
+          ⬅ Volver al Catálogo
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <!-- MÓDULO 4: VITRINA DIGITAL TIENDA (BEBIDAS, SNACKS Y ASEO EN VIVO)     -->
+  <!-- ===================================================================== -->
+  <section id="sec_vitrina" class="hidden flex-1 min-h-0 flex flex-col lg:flex-row gap-4 p-4 overflow-hidden">
+    <!-- Lista de productos con stock y precios reales -->
+    <div class="flex-1 min-h-0 flex flex-col gap-3 overflow-hidden">
+      <div class="shrink-0 bg-[#0b1120] border border-slate-800 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 class="text-lg font-black text-white">🏪 Vitrina Digital — Snacks, Bebidas y Aseo</h2>
+          <p class="text-xs text-slate-400 font-semibold">Precios y disponibilidad actualizados en tiempo real. Toca un producto para pedirlo en recepción.</p>
+        </div>
+        <div class="flex flex-wrap gap-1.5" id="barraCategoriasTienda">
+          <button type="button" onclick="filtrarCatTienda('TODAS')" id="btnCatTienda_TODAS"
+                  class="px-3 py-1.5 rounded-xl font-black text-xs bg-amber-500 text-slate-950 cursor-pointer">Todas</button>
+          <button type="button" onclick="filtrarCatTienda('Bebidas Heladas y Calientes')" id="btnCatTienda_Bebidas"
+                  class="px-3 py-1.5 rounded-xl font-black text-xs bg-slate-800 text-slate-300 cursor-pointer">🥤 Bebidas</button>
+          <button type="button" onclick="filtrarCatTienda('Snacks, Galletas y Chocolates')" id="btnCatTienda_Snacks"
+                  class="px-3 py-1.5 rounded-xl font-black text-xs bg-slate-800 text-slate-300 cursor-pointer">🍫 Snacks</button>
+          <button type="button" onclick="filtrarCatTienda('Aseo y Cuidado Personal')" id="btnCatTienda_Aseo"
+                  class="px-3 py-1.5 rounded-xl font-black text-xs bg-slate-800 text-slate-300 cursor-pointer">🧴 Aseo Personal</button>
+        </div>
+      </div>
+
+      <div id="gridProductosTienda" class="flex-1 min-h-0 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 pb-4 pr-1">
+      </div>
+    </div>
+
+    <!-- Carrito táctil de pedido rápido a Recepción -->
+    <aside class="w-full lg:w-80 shrink-0 bg-[#0b1120] border border-slate-800 rounded-2xl p-4 flex flex-col justify-between">
+      <div>
+        <h3 class="text-base font-black text-amber-400 border-b border-slate-800 pb-2">🛒 Tu Pedido Rápido</h3>
+        <div class="form-group mt-3 mb-2">
+          <label for="inpHabPedidoTienda" class="text-xs">Tu N° de Habitación (o Mostrador):</label>
+          <input type="text" id="inpHabPedidoTienda" name="habPedido"
+                 autocorrect="off" spellcheck="false" maxlength="20"
+                 placeholder="Ej. 204 o Mostrador"
+                 class="kiosk-input py-2 min-h-[44px] text-sm">
+        </div>
+        <div id="listaCarritoTienda" class="max-h-56 overflow-y-auto divide-y divide-slate-800/80 text-sm my-2">
+          <div class="text-slate-500 text-xs font-bold py-6 text-center">Toca cualquier producto de la izquierda para agregarlo.</div>
+        </div>
+      </div>
+
+      <div class="border-t border-slate-800 pt-3">
+        <div class="flex items-center justify-between text-base font-black mb-3">
+          <span class="text-slate-300">Total Pedido:</span>
+          <span id="lblTotalCarritoTienda" class="text-xl text-emerald-400">S/ 0.00</span>
+        </div>
+        <div class="flex gap-2">
+          <button type="button" onclick="vaciarCarritoTienda()"
+                  class="kiosk-btn px-3 py-3 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs cursor-pointer">
+            🗑️
+          </button>
+          <button type="button" onclick="enviarPedidoTiendaARecepcion()"
+                  class="kiosk-btn flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm shadow-lg cursor-pointer">
+            🔔 Solicitar en Recepción
+          </button>
+        </div>
+      </div>
+    </aside>
+  </section>
+
+  <!-- ===================================================================== -->
+  <!-- MÓDULO 5: FIRMA DE CONFORMIDAD CON S PEN (EMPRESAS / REGLAS HOTEL)    -->
+  <!-- ===================================================================== -->
+  <section id="sec_firma_empresa" class="hidden flex-1 min-h-0 overflow-y-auto p-4 sm:p-6">
+    <div class="max-w-3xl mx-auto bg-[#0b1120] border border-slate-800 rounded-3xl p-6 shadow-2xl">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3 mb-4">
+        <div>
+          <span class="text-xs font-black uppercase tracking-wider text-sky-400">Conformidad Digital · S Pen Ready</span>
+          <h2 class="text-xl sm:text-2xl font-black text-white">🏢 Constancia de Ingreso y Conformidad de Estadía</h2>
+        </div>
+        <span class="px-3 py-1 rounded-xl bg-sky-950 border border-sky-700 text-sky-200 text-xs font-black">
+          🖊️ Firma con el S Pen o el dedo
+        </span>
+      </div>
+
+      <form id="formFirmaConformidad" action="/api/tablet/firma" method="POST" novalidate>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          <div>
+            <label for="inpFirmaHab" class="block text-xs font-extrabold text-slate-300 mb-1">Habitación *</label>
+            <input type="text" id="inpFirmaHab" name="hab" required
+                   autocorrect="off" spellcheck="false" placeholder="Ej. 204"
+                   class="kiosk-input py-2 text-base">
+          </div>
+          <div>
+            <label for="inpFirmaDni" class="block text-xs font-extrabold text-slate-300 mb-1">DNI / Documento *</label>
+            <input type="text" id="inpFirmaDni" name="dni" required
+                   inputmode="numeric" autocorrect="off" spellcheck="false" placeholder="Ej. 74118293"
+                   onblur="autocompletarHuespedFirma()"
+                   class="kiosk-input py-2 text-base">
+          </div>
+          <div>
+            <label for="inpFirmaEmpresa" class="block text-xs font-extrabold text-slate-300 mb-1">Empresa / Institución</label>
+            <input type="text" id="inpFirmaEmpresa" name="empresa"
+                   autocorrect="off" spellcheck="false" placeholder="Opcional (Nombre Empresa)"
+                   class="kiosk-input py-2 text-base">
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label for="inpFirmaHuesped" class="block text-xs font-extrabold text-slate-300 mb-1">Apellidos y Nombres del Huésped *</label>
+          <input type="text" id="inpFirmaHuesped" name="huesped" required
+                 autocomplete="name" placeholder="Nombre completo del titular"
+                 class="kiosk-input py-2 text-base">
+        </div>
+
+        <div class="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300 mb-4 leading-relaxed">
+          <strong class="text-amber-400">Condiciones de Hospedaje:</strong>
+          <span id="txtReglasHotelFirma">
+            Declaro mi conformidad con la habitación asignada y las normas del establecimiento: Hora de Check-Out 12:00 m., prohibido fumar dentro de la habitación, y registro de consumos o estadía a cuenta personal o corporativa según corresponda.
+          </span>
+        </div>
+
+        <div class="mb-4">
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-black uppercase tracking-wider text-slate-300">Recuadro de Firma Digital (Usa el lápiz S Pen o tu dedo):</label>
+            <button type="button" onclick="limpiarLienzoFirma()"
+                    class="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs cursor-pointer">
+              🧹 Borrar y volver a firmar
+            </button>
+          </div>
+          <div class="rounded-2xl overflow-hidden border-2 border-sky-500/60 shadow-inner bg-white">
+            <canvas id="canvasFirmaSPen" width="760" height="220" class="w-full h-[200px] block"></canvas>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-3">
+          <button type="submit" id="btnGuardarFirmaSPen"
+                  class="kiosk-btn w-full sm:w-auto px-8 py-4 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-400 hover:to-indigo-400 text-white font-black text-base shadow-xl cursor-pointer">
+            ✍️ Guardar Conformidad Firmada
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <!-- MÓDULO 6: BUZÓN DE SUGERENCIAS, QUEJAS Y MEJORA CONTINUA              -->
+  <!-- ===================================================================== -->
+  <section id="sec_sugerencias" class="hidden flex-1 min-h-0 overflow-y-auto p-4 sm:p-6">
+    <div class="max-w-2xl mx-auto bg-[#0b1120] border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl">
+      <span class="text-xs font-black uppercase tracking-wider text-amber-400">Buzón Directo a Gerencia</span>
+      <h2 class="text-2xl font-black text-white mt-0.5">⭐ ¿Cómo va tu estadía con nosotros?</h2>
+      <p class="text-sm text-slate-400 mt-1 mb-5">Tu opinión llega directamente a la administración para mejorar tu comodidad en tiempo real.</p>
+
+      <form id="formSugerenciasTablet" action="/api/tablet/sugerencia" method="POST" novalidate>
+        <fieldset class="mb-5">
+          <legend class="text-sm font-extrabold text-slate-200 mb-2">1. Calificación general de tu experiencia:</legend>
+          <div class="grid grid-cols-5 gap-2" role="radiogroup" aria-label="Calificación de 1 a 5 estrellas">
+            <button type="button" onclick="seleccionarEstrellas(1)" id="starBtn_1" class="kiosk-btn py-3 rounded-2xl border border-slate-700 bg-slate-900 font-black text-sm cursor-pointer">😠 1★</button>
+            <button type="button" onclick="seleccionarEstrellas(2)" id="starBtn_2" class="kiosk-btn py-3 rounded-2xl border border-slate-700 bg-slate-900 font-black text-sm cursor-pointer">😕 2★</button>
+            <button type="button" onclick="seleccionarEstrellas(3)" id="starBtn_3" class="kiosk-btn py-3 rounded-2xl border border-slate-700 bg-slate-900 font-black text-sm cursor-pointer">😐 3★</button>
+            <button type="button" onclick="seleccionarEstrellas(4)" id="starBtn_4" class="kiosk-btn py-3 rounded-2xl border border-slate-700 bg-slate-900 font-black text-sm cursor-pointer">🙂 4★</button>
+            <button type="button" onclick="seleccionarEstrellas(5)" id="starBtn_5" class="kiosk-btn py-3 rounded-2xl border-2 border-amber-400 bg-amber-500/20 text-amber-300 font-black text-sm cursor-pointer">😍 5★</button>
+          </div>
+          <input type="hidden" id="inpCalificacionSug" name="calificacion" value="5">
+        </fieldset>
+
+        <fieldset class="mb-5">
+          <legend class="text-sm font-extrabold text-slate-200 mb-2">2. ¿Sobre qué aspecto deseas comentarnos?</legend>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" onclick="seleccionarCatSug('Limpieza y Habitación')" class="cat-sug-btn px-4 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs cursor-pointer">🛏️ Limpieza y Habitación</button>
+            <button type="button" onclick="seleccionarCatSug('Atención en Recepción')" class="cat-sug-btn px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-black text-xs cursor-pointer">💁 Atención en Recepción</button>
+            <button type="button" onclick="seleccionarCatSug('Agua Caliente / Baño')" class="cat-sug-btn px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-black text-xs cursor-pointer">🚿 Agua Caliente / Baño</button>
+            <button type="button" onclick="seleccionarCatSug('Wi-Fi / TV')" class="cat-sug-btn px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-black text-xs cursor-pointer">📶 Wi-Fi / Smart TV</button>
+            <button type="button" onclick="seleccionarCatSug('Felicitación / Mejora')" class="cat-sug-btn px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-black text-xs cursor-pointer">💡 Sugerencia o Mejora</button>
+          </div>
+          <input type="hidden" id="inpCategoriaSug" name="categoria" value="Limpieza y Habitación">
+        </fieldset>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <div>
+            <label for="inpHabSug" class="block text-xs font-extrabold text-slate-300 mb-1">N° de Habitación (Opcional)</label>
+            <input type="text" id="inpHabSug" name="hab" autocorrect="off" spellcheck="false" placeholder="Ej. 302" class="kiosk-input py-2 text-base">
+          </div>
+          <div>
+            <label for="inpNombreSug" class="block text-xs font-extrabold text-slate-300 mb-1">Tu Nombre (Opcional)</label>
+            <input type="text" id="inpNombreSug" name="huesped" autocomplete="name" placeholder="Opcional" class="kiosk-input py-2 text-base">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="inpComentarioSug">3. Cuéntanos tu sugerencia, queja o detalle a mejorar:</label>
+          <textarea id="inpComentarioSug" name="comentario" rows="3" required
+                    placeholder="Escribe aquí cualquier detalle para atenderlo de inmediato..."
+                    class="kiosk-input text-base"></textarea>
+        </div>
+
+        <button type="submit" class="kiosk-btn w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-lg shadow-xl cursor-pointer">
+          📨 Enviar Comentario a Gerencia
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <!-- MÓDULO 7: PANEL RÁPIDO 1-CLIC PARA PERSONAL DE LIMPIEZA               -->
+  <!-- ===================================================================== -->
+  <section id="sec_limpieza" class="hidden flex-1 min-h-0 flex flex-col p-4 gap-3 overflow-hidden">
+    <div class="shrink-0 bg-indigo-950/60 border border-indigo-800/80 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-black text-white">🧹 Panel Rápido de Limpieza por Pisos (1 Toque)</h2>
+        <p class="text-xs text-indigo-200 font-semibold">
+          Toca cualquier habitación que haya salido hoy o ayer para cambiarla entre <strong class="text-amber-300">🧹 FALTA LIMPIAR</strong> y <strong class="text-emerald-300">✨ LIMPIA Y LISTA</strong>.
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-2 text-xs font-black" id="resumenContadoresLimpieza">
+      </div>
+    </div>
+
+    <div id="contenedorPisosLimpieza" class="flex-1 min-h-0 overflow-y-auto space-y-4 pb-6 pr-1">
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <!-- DIÁLOGO MODAL DE DETALLE Y ELECCIÓN DE HABITACIÓN (LIGHT-DISMISS)     -->
+  <!-- ===================================================================== -->
+  <dialog id="dialogDetalleHab" closedby="any" aria-labelledby="dlgHabTitulo" class="w-full max-w-xl shadow-2xl">
+    <div class="p-6">
+      <div class="flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
+        <div>
+          <span id="dlgHabEstadoBadge" class="inline-block px-3 py-1 rounded-full text-xs font-black uppercase">🟢 Disponible</span>
+          <h2 id="dlgHabTitulo" class="text-3xl font-black text-white mt-1">Habitación 201 — Matrimonial</h2>
+          <p id="dlgHabPisoCamas" class="text-sm font-bold text-amber-400 mt-0.5">Piso 2 · 1 Cama Matrimonial</p>
+        </div>
+        <div id="dlgHabPrecioBox" class="text-right bg-slate-900 px-4 py-2.5 rounded-2xl border border-slate-800">
+          <div class="text-[11px] font-bold uppercase text-slate-400">Tarifa por Noche</div>
+          <div id="dlgHabPrecio" class="text-2xl font-black text-emerald-400">S/ 70</div>
+        </div>
+      </div>
+
+      <p id="dlgHabDescripcion" class="text-sm text-slate-300 mt-4 leading-relaxed"></p>
+
+      <div class="mt-4">
+        <div class="text-xs font-black uppercase text-slate-400 mb-2">Comodidades incluidas:</div>
+        <div id="dlgHabAmenidades" class="flex flex-wrap gap-2"></div>
+      </div>
+
+      <div id="dlgSeccionElegir" class="mt-6 pt-4 border-t border-slate-800 flex flex-col sm:flex-row gap-3">
+        <button type="button" onclick="document.getElementById('dialogDetalleHab').close()"
+                class="kiosk-btn px-5 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-sm cursor-pointer">
+          Seguir mirando
+        </button>
+        <button type="button" id="btnConfirmarEleccionHab" onclick="confirmarEleccionHabitacion()"
+                class="kiosk-btn flex-1 py-4 px-6 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-base shadow-xl cursor-pointer">
+          ✨ ¡Quiero esta Habitación! (Avisar a Recepción)
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <script>
+    // Fallback obligatorio para navegadores que aún no soporten closedby="any" en <dialog>
+    (function configurarLightDismissDialogs() {
+      var dialogs = document.querySelectorAll('dialog');
+      dialogs.forEach(function(dialog) {
+        if (!('closedBy' in HTMLDialogElement.prototype)) {
+          dialog.addEventListener('click', function(event) {
+            if (event.target !== dialog) return;
+            var rect = dialog.getBoundingClientRect();
+            var isDialogContent = (
+              rect.top <= event.clientY &&
+              event.clientY <= rect.top + rect.height &&
+              rect.left <= event.clientX &&
+              event.clientX <= rect.left + rect.width
+            );
+            if (isDialogContent) return;
+            dialog.close();
+          });
+        }
+      });
+    })();
+
+    var ESTADO_TABLET = {
+      uiVersionTablet: null,
+      modoActual: 'catalogo',
+      ultimoOrdenSeqAplicado: 0,
+      mostrarPrecios: true,
+      habDestacada: '',
+      filtroTipo: 'TODOS',
+      filtroPiso: 'TODOS',
+      soloDisponibles: true,
+      filtroCatTienda: 'TODAS',
+      habitaciones: [],
+      productosTienda: [],
+      habSeleccionadaModal: null,
+      habElegidaCliente: '',
+      carritoTienda: {}
+    };
+
+    function escHtml(str) {
+      return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function mostrarToastTablet(mensaje, esError) {
+      var el = document.getElementById('toastTablet');
+      if (!el) return;
+      el.textContent = mensaje;
+      el.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-50 px-6 py-3.5 rounded-2xl font-black text-base shadow-2xl border ' +
+        (esError
+          ? 'border-rose-400/60 bg-rose-950/95 text-rose-100'
+          : 'border-emerald-400/60 bg-emerald-950/95 text-emerald-100');
+      el.classList.remove('hidden');
+      clearTimeout(window._timerToastTablet);
+      window._timerToastTablet = setTimeout(function() {
+        el.classList.add('hidden');
+      }, 4200);
+    }
+
+    function alternarPantallaCompleta() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(function() {});
+      } else {
+        document.exitFullscreen().catch(function() {});
+      }
+    }
+
+    function cambiarModoTablet(modo) {
+      ESTADO_TABLET.modoActual = modo;
+      var modos = ['catalogo', 'checkin_express', 'cobro_qr', 'vitrina', 'firma_empresa', 'sugerencias', 'limpieza'];
+      modos.forEach(function(m) {
+        var sec = document.getElementById('sec_' + m);
+        if (sec) {
+          if (m === modo) sec.classList.remove('hidden');
+          else sec.classList.add('hidden');
+        }
+        var btn = document.getElementById('navBtn_' + m);
+        if (btn) {
+          if (m === modo) {
+            btn.className = 'kiosk-btn px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-amber-500 text-slate-950 shadow-md transition-all cursor-pointer';
+          } else if (m === 'limpieza') {
+            btn.className = 'kiosk-btn px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-indigo-950/90 text-indigo-200 hover:bg-indigo-900 border border-indigo-700/80 transition-all cursor-pointer';
+          } else {
+            btn.className = 'kiosk-btn px-3.5 py-2.5 rounded-xl font-black text-xs sm:text-sm bg-slate-800/90 text-slate-200 hover:bg-slate-700 border border-slate-700 transition-all cursor-pointer';
+          }
+        }
+      });
+      if (modo === 'firma_empresa') {
+        setTimeout(ajustarCanvasFirma, 60);
+      }
+    }
+
+    function renderizarFiltrosCatalogo(tipos, pisos) {
+      var contTipos = document.getElementById('barraFiltrosTipo');
+      var htmlTipos = '<button type="button" onclick="setFiltroTipo(\'TODOS\')" class="px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm cursor-pointer transition-all ' +
+        (ESTADO_TABLET.filtroTipo === 'TODOS' ? 'bg-amber-500 text-slate-950 shadow' : 'bg-slate-900 text-slate-300 border border-slate-800') + '">🏨 Todas</button>';
+      (tipos || []).forEach(function(t) {
+        var act = ESTADO_TABLET.filtroTipo === t;
+        htmlTipos += '<button type="button" onclick="setFiltroTipo(\'' + escHtml(t) + '\')" class="px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm cursor-pointer transition-all ' +
+          (act ? 'bg-amber-500 text-slate-950 shadow' : 'bg-slate-900 text-slate-300 border border-slate-800') + '">' + escHtml(t) + '</button>';
+      });
+      contTipos.innerHTML = htmlTipos;
+
+      var contPisos = document.getElementById('barraFiltrosPiso');
+      var htmlPisos = '<button type="button" onclick="setFiltroPiso(\'TODOS\')" class="px-2.5 py-1.5 rounded-lg font-black text-xs cursor-pointer ' +
+        (ESTADO_TABLET.filtroPiso === 'TODOS' ? 'bg-sky-500 text-slate-950' : 'text-slate-400 hover:text-white') + '">Todos los pisos</button>';
+      (pisos || []).forEach(function(p) {
+        var actP = ESTADO_TABLET.filtroPiso === String(p);
+        htmlPisos += '<button type="button" onclick="setFiltroPiso(\'' + escHtml(p) + '\')" class="px-2.5 py-1.5 rounded-lg font-black text-xs cursor-pointer ' +
+          (actP ? 'bg-sky-500 text-slate-950' : 'text-slate-400 hover:text-white') + '">Piso ' + escHtml(p) + '</button>';
+      });
+      contPisos.innerHTML = htmlPisos;
+    }
+
+    function setFiltroTipo(tipo) {
+      ESTADO_TABLET.filtroTipo = tipo;
+      sincronizarVistaDesdeEstado();
+    }
+
+    function setFiltroPiso(piso) {
+      ESTADO_TABLET.filtroPiso = String(piso);
+      sincronizarVistaDesdeEstado();
+    }
+
+    function toggleSoloDisponibles() {
+      ESTADO_TABLET.soloDisponibles = !ESTADO_TABLET.soloDisponibles;
+      var btn = document.getElementById('btnSoloDisponibles');
+      if (ESTADO_TABLET.soloDisponibles) {
+        btn.textContent = '🟢 Solo Disponibles: SÍ';
+        btn.className = 'px-3.5 py-2 rounded-xl font-extrabold text-xs sm:text-sm border border-emerald-500/50 bg-emerald-950/60 text-emerald-300 cursor-pointer transition-all';
+      } else {
+        btn.textContent = '👁️ Mostrar Todas (Incluye Ocupadas)';
+        btn.className = 'px-3.5 py-2 rounded-xl font-extrabold text-xs sm:text-sm border border-slate-700 bg-slate-900 text-slate-300 cursor-pointer transition-all';
+      }
+      renderizarGridHabitaciones();
+    }
+
+    function renderizarGridHabitaciones() {
+      var grid = document.getElementById('gridHabitaciones');
+      var habs = ESTADO_TABLET.habitaciones || [];
+      var libresTotal = habs.filter(function(h) { return h.estadoPublico === 'LIBRE'; }).length;
+
+      var filtradas = habs.filter(function(h) {
+        if (ESTADO_TABLET.filtroTipo !== 'TODOS' && h.tipo !== ESTADO_TABLET.filtroTipo) return false;
+        if (ESTADO_TABLET.filtroPiso !== 'TODOS' && String(h.piso) !== ESTADO_TABLET.filtroPiso) return false;
+        if (ESTADO_TABLET.soloDisponibles && h.estadoPublico !== 'LIBRE' && h.estadoPublico !== 'EN_PREPARACION') return false;
+        return true;
+      });
+
+      document.getElementById('lblResumenCatalogo').textContent =
+        'Mostrando ' + filtradas.length + ' habitación(es) · ' + libresTotal + ' disponible(s) ahora mismo';
+
+      if (!filtradas.length) {
+        grid.innerHTML = '<div class="col-span-full py-16 text-center text-slate-400 font-bold text-base bg-[#0b1120] rounded-2xl border border-slate-800">' +
+          'No hay habitaciones con este filtro. Toca "Mostrar Todas" o cambia de categoría.</div>';
+        return;
+      }
+
+      grid.innerHTML = filtradas.map(function(h) {
+        var esLibre = h.estadoPublico === 'LIBRE';
+        var esPrep = h.estadoPublico === 'EN_PREPARACION';
+        var esDestacada = ESTADO_TABLET.habDestacada && ESTADO_TABLET.habDestacada === h.hab;
+        var esElegida = ESTADO_TABLET.habElegidaCliente && ESTADO_TABLET.habElegidaCliente === h.hab;
+
+        var badgeEstado = esLibre
+          ? '<span class="px-2.5 py-1 rounded-full text-[11px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">🟢 DISPONIBLE</span>'
+          : (esPrep
+            ? '<span class="px-2.5 py-1 rounded-full text-[11px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40">🧹 EN PREPARACIÓN</span>'
+            : '<span class="px-2.5 py-1 rounded-full text-[11px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/40">🔴 OCUPADA</span>');
+
+        var bloquePrecio = '';
+        if (ESTADO_TABLET.mostrarPrecios && h.precioRef) {
+          var pTxt = String(h.precioRef).indexOf('S/') === 0 ? h.precioRef : ('S/ ' + h.precioRef);
+          bloquePrecio = '<div class="text-right">' +
+            '<div class="text-[10px] font-bold uppercase text-slate-400">Tarifa</div>' +
+            '<div class="text-xl font-black text-amber-400">' + escHtml(pTxt) + '</div>' +
+          '</div>';
+        }
+
+        var visualTop = '';
+        if (h.fotos && h.fotos.length > 0) {
+          visualTop = '<div class="h-36 w-full overflow-hidden rounded-xl mb-3 bg-slate-950 relative">' +
+            '<img src="' + escHtml(h.fotos[0]) + '" alt="Habitación ' + escHtml(h.hab) + '" class="w-full h-full object-cover">' +
+            '<div class="absolute top-2 left-2 px-2.5 py-1 rounded-lg bg-slate-950/80 text-white font-black text-xs">Piso ' + escHtml(h.piso) + '</div>' +
+          '</div>';
+        } else {
+          visualTop = '<div class="h-28 w-full rounded-xl mb-3 bg-gradient-to-br ' + escHtml(h.gradiente || 'from-slate-800 to-slate-950') + ' border border-slate-800/80 flex items-center justify-between px-4 relative overflow-hidden">' +
+            '<div>' +
+              '<span class="px-2 py-0.5 rounded-md bg-slate-950/70 text-slate-300 font-extrabold text-[11px]">Piso ' + escHtml(h.piso) + '</span>' +
+              '<div class="text-3xl font-black text-white mt-1">Hab. ' + escHtml(h.hab) + '</div>' +
+              '<div class="text-xs font-extrabold text-slate-300">' + escHtml(h.camas) + '</div>' +
+            '</div>' +
+            '<div class="text-4xl opacity-90">' + escHtml(h.icono || '🛏️') + '</div>' +
+          '</div>';
+        }
+
+        var chipsAmenidades = (h.amenidades || []).slice(0, 4).map(function(am) {
+          return '<span class="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-bold text-slate-300">' + escHtml(am) + '</span>';
+        }).join('');
+
+        var bordeExtra = esDestacada
+          ? 'ring-4 ring-amber-400 border-amber-400 bg-slate-900'
+          : (esElegida
+            ? 'ring-2 ring-emerald-400 border-emerald-400 bg-[#0d1829]'
+            : (esLibre ? 'border-slate-800 hover:border-amber-500/60 bg-[#0b1120]' : 'border-slate-900 bg-[#090d18] opacity-65'));
+
+        return '<article onclick="abrirDetalleHabitacion(\'' + escHtml(h.hab) + '\')" ' +
+          'class="rounded-2xl border p-3.5 flex flex-col justify-between transition-all cursor-pointer shadow-lg ' + bordeExtra + '">' +
+          '<div>' +
+            '<div class="flex items-center justify-between gap-2 mb-2.5">' +
+              badgeEstado +
+              (esDestacada ? '<span class="px-2 py-0.5 rounded bg-amber-400 text-slate-950 font-black text-[10px] animate-bounce">⭐ RECOMENDADA</span>' : '') +
+              (esElegida ? '<span class="px-2 py-0.5 rounded bg-emerald-400 text-slate-950 font-black text-[10px]">✓ TU ELECCIÓN</span>' : '') +
+            '</div>' +
+            visualTop +
+            '<div class="flex items-baseline justify-between gap-2">' +
+              '<div>' +
+                '<h3 class="text-lg font-black text-white leading-tight">' + escHtml(h.tipo) + '</h3>' +
+                '<div class="text-xs font-bold text-slate-400">' + escHtml(h.capacidad) + '</div>' +
+              '</div>' +
+              bloquePrecio +
+            '</div>' +
+            '<div class="flex flex-wrap gap-1 mt-2.5">' + chipsAmenidades + '</div>' +
+          '</div>' +
+          '<div class="mt-3.5 pt-2.5 border-t border-slate-800/80">' +
+            (esLibre
+              ? '<button type="button" class="w-full py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 hover:text-slate-950 text-amber-300 border border-amber-500/40 font-black text-xs sm:text-sm transition-colors cursor-pointer">✨ Ver y Elegir Hab. ' + escHtml(h.hab) + '</button>'
+              : '<button type="button" class="w-full py-2.5 rounded-xl bg-slate-900 text-slate-500 font-bold text-xs cursor-pointer">Ver detalles</button>') +
+          '</div>' +
+        '</article>';
+      }).join('');
+    }
+
+    function abrirDetalleHabitacion(habNum) {
+      var h = (ESTADO_TABLET.habitaciones || []).find(function(x) { return x.hab === String(habNum); });
+      if (!h) return;
+      ESTADO_TABLET.habSeleccionadaModal = h;
+
+      var dlg = document.getElementById('dialogDetalleHab');
+      document.getElementById('dlgHabTitulo').textContent = 'Habitación ' + h.hab + ' — ' + h.tipo;
+      document.getElementById('dlgHabPisoCamas').textContent = 'Piso ' + h.piso + ' · ' + h.camas + ' (' + h.capacidad + ')';
+      document.getElementById('dlgHabDescripcion').textContent = h.descripcion || '';
+
+      var badge = document.getElementById('dlgHabEstadoBadge');
+      var btnElegir = document.getElementById('btnConfirmarEleccionHab');
+      if (h.estadoPublico === 'LIBRE') {
+        badge.textContent = '🟢 Disponible para ingreso inmediato';
+        badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        btnElegir.classList.remove('hidden');
+        btnElegir.textContent = '✨ ¡Quiero la Habitación ' + h.hab + '! (Avisar a Recepción)';
+      } else if (h.estadoPublico === 'EN_PREPARACION') {
+        badge.textContent = '🧹 En preparación (Consultar en recepción)';
+        badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40';
+        btnElegir.classList.remove('hidden');
+        btnElegir.textContent = '🙋 Consultar por Hab. ' + h.hab + ' en Recepción';
+      } else {
+        badge.textContent = '🔴 Habitación Ocupada actualmente';
+        badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40';
+        btnElegir.classList.add('hidden');
+      }
+
+      var pBox = document.getElementById('dlgHabPrecioBox');
+      if (ESTADO_TABLET.mostrarPrecios && h.precioRef) {
+        pBox.classList.remove('hidden');
+        document.getElementById('dlgHabPrecio').textContent = String(h.precioRef).indexOf('S/') === 0 ? h.precioRef : ('S/ ' + h.precioRef);
+      } else {
+        pBox.classList.add('hidden');
+      }
+
+      document.getElementById('dlgHabAmenidades').innerHTML = (h.amenidades || []).map(function(am) {
+        return '<span class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold text-slate-200">✓ ' + escHtml(am) + '</span>';
+      }).join('');
+
+      dlg.showModal();
+    }
+
+    function confirmarEleccionHabitacion() {
+      var h = ESTADO_TABLET.habSeleccionadaModal;
+      if (!h) return;
+      fetch('/api/tablet/seleccionar-hab', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hab: h.hab, tipo: h.tipo, precioRef: h.precioRef, personas: 2 })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        document.getElementById('dialogDetalleHab').close();
+        ESTADO_TABLET.habElegidaCliente = h.hab;
+        document.getElementById('badgeHabSeleccionadaForm').classList.remove('hidden');
+        document.getElementById('txtHabSeleccionadaForm').textContent = h.hab;
+        document.getElementById('inpHabPedidoTienda').value = h.hab;
+        document.getElementById('inpFirmaHab').value = h.hab;
+        document.getElementById('inpHabSug').value = h.hab;
+        renderizarGridHabitaciones();
+        mostrarToastTablet('✨ ¡Excelente elección! Ya avisamos a Recepción que elegiste la Hab. ' + h.hab + '. Completa tu DNI para agilizar tu ingreso.');
+        setTimeout(function() {
+          cambiarModoTablet('checkin_express');
+          var inpDni = document.getElementById('inpDniTablet');
+          if (inpDni) inpDni.focus();
+        }, 1100);
+      })
+      .catch(function(err) {
+        mostrarToastTablet('No se pudo enviar la selección: ' + err, true);
+      });
+    }
+
+    // =====================================================================
+    // VALIDACIÓN Y AUTO-LLENADO DE DNI / RUC / CELULAR
+    // =====================================================================
+    function buscarDniEnVivo() {
+      var inp = document.getElementById('inpDniTablet');
+      var ayuda = document.getElementById('ayudaDniTablet');
+      var num = String(inp.value || '').trim();
+      if (num.length < 7) {
+        ayuda.textContent = 'Ingresa al menos 8 dígitos para buscar tu nombre.';
+        ayuda.className = 'text-xs font-bold text-amber-400 mt-1.5';
+        return;
+      }
+      ayuda.textContent = '⏳ Buscando datos del documento...';
+      ayuda.className = 'text-xs font-bold text-sky-400 mt-1.5';
+      fetch('/api/tablet/consultar-doc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo: 'DNI', numero: num })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res && res.nombre) {
+          document.getElementById('inpNombreTablet').value = res.nombre;
+          if (res.celular && !document.getElementById('inpCelularTablet').value) {
+            document.getElementById('inpCelularTablet').value = res.celular;
+          }
+          if (res.ruc && !document.getElementById('inpRucTablet').value) {
+            document.getElementById('inpRucTablet').value = res.ruc;
+          }
+          ayuda.textContent = '✅ ¡Hola, ' + res.nombre + '! Verifica o agrega tu celular.';
+          ayuda.className = 'text-xs font-black text-emerald-400 mt-1.5';
+        } else {
+          ayuda.textContent = 'Documento válido. Puedes escribir tu nombre abajo.';
+          ayuda.className = 'text-xs font-bold text-slate-400 mt-1.5';
+        }
+      })
+      .catch(function() {
+        ayuda.textContent = 'Puedes continuar e ingresar tu nombre manualmente.';
+      });
+    }
+
+    function buscarRucEnVivo() {
+      var inp = document.getElementById('inpRucTablet');
+      var ayuda = document.getElementById('ayudaRucTablet');
+      var num = String(inp.value || '').trim();
+      if (num.length !== 11) {
+        ayuda.textContent = 'El RUC debe tener exactamente 11 dígitos.';
+        ayuda.className = 'text-xs font-bold text-amber-400 mt-1.5';
+        return;
+      }
+      ayuda.textContent = '⏳ Consultando RUC en SUNAT / Padrón...';
+      ayuda.className = 'text-xs font-bold text-sky-400 mt-1.5';
+      fetch('/api/tablet/consultar-doc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo: 'RUC', numero: num })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        var rs = (res && (res.razonSocial || res.nombre)) || '';
+        if (rs) {
+          document.getElementById('inpRazonSocialTablet').value = rs;
+          ayuda.textContent = '✅ Empresa verificada: ' + rs;
+          ayuda.className = 'text-xs font-black text-emerald-400 mt-1.5';
+        } else {
+          ayuda.textContent = 'Escribe la Razón Social de la empresa abajo.';
+        }
+      })
+      .catch(function() {});
+    }
+
+    // Validación en blur y limpieza en input (según guía modern-web-guidance 'forms')
+    (function configurarEventosFormularioCheckin() {
+      var inpDni = document.getElementById('inpDniTablet');
+      var inpRuc = document.getElementById('inpRucTablet');
+      if (inpDni) {
+        inpDni.addEventListener('input', function() {
+          inpDni.setCustomValidity('');
+          if (String(inpDni.value || '').trim().length === 8) {
+            buscarDniEnVivo();
+          }
+        });
+        inpDni.addEventListener('blur', function() {
+          var v = String(inpDni.value || '').trim();
+          if (v && v.length < 6) {
+            inpDni.setCustomValidity('Ingresa un número de documento válido.');
+          }
+        });
+      }
+      if (inpRuc) {
+        inpRuc.addEventListener('input', function() {
+          inpRuc.setCustomValidity('');
+          if (String(inpRuc.value || '').trim().length === 11) {
+            buscarRucEnVivo();
+          }
+        });
+      }
+
+      var form = document.getElementById('formCheckinExpress');
+      if (form) {
+        form.addEventListener('submit', function(e) {
+          e.preventDefault();
+          var dniVal = String(document.getElementById('inpDniTablet').value || '').trim();
+          if (!dniVal) {
+            mostrarToastTablet('Por favor ingresa tu número de DNI o documento.', true);
+            document.getElementById('inpDniTablet').focus();
+            return;
+          }
+          var btn = document.getElementById('btnSubmitCheckinTablet');
+          btn.disabled = true;
+          btn.textContent = '⏳ Enviando a Recepción...';
+
+          fetch('/api/tablet/checkin-datos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              hab: ESTADO_TABLET.habElegidaCliente || '',
+              dni: dniVal,
+              nombre: document.getElementById('inpNombreTablet').value,
+              celular: document.getElementById('inpCelularTablet').value,
+              ruc: document.getElementById('inpRucTablet').value,
+              razonSocial: document.getElementById('inpRazonSocialTablet').value
+            })
+          })
+          .then(function(r) { return r.json(); })
+          .then(function(res) {
+            btn.disabled = false;
+            btn.textContent = '✅ Enviar mis Datos a Recepción';
+            if (res && res.nombreDetectado) {
+              document.getElementById('inpNombreTablet').value = res.nombreDetectado;
+            }
+            mostrarToastTablet('✅ ¡Listo! Tus datos ya están en la pantalla del recepcionista.');
+          })
+          .catch(function(err) {
+            btn.disabled = false;
+            btn.textContent = '✅ Enviar mis Datos a Recepción';
+            mostrarToastTablet('Error al enviar: ' + err, true);
+          });
+        });
+      }
+    })();
+
+    function limpiarFormularioCheckinTablet() {
+      document.getElementById('formCheckinExpress').reset();
+      document.getElementById('ayudaDniTablet').textContent = 'Al ingresar 8 dígitos de DNI peruano, validamos tu nombre automáticamente.';
+      document.getElementById('ayudaDniTablet').className = 'text-xs font-bold text-slate-400 mt-1.5';
+      document.getElementById('ayudaRucTablet').textContent = 'Si solo deseas Boleta de Venta, deja este campo vacío.';
+      document.getElementById('ayudaRucTablet').className = 'text-xs font-bold text-slate-400 mt-1.5';
+    }
+
+    // =====================================================================
+    // VITRINA DIGITAL TIENDA
+    // =====================================================================
+    function filtrarCatTienda(cat) {
+      ESTADO_TABLET.filtroCatTienda = cat;
+      renderizarVitrinaTienda();
+    }
+
+    function renderizarVitrinaTienda() {
+      var grid = document.getElementById('gridProductosTienda');
+      var prods = (ESTADO_TABLET.productosTienda || []).filter(function(p) {
+        if (!p.disponible) return false;
+        if (ESTADO_TABLET.filtroCatTienda !== 'TODAS' && p.categoria !== ESTADO_TABLET.filtroCatTienda) return false;
+        return true;
+      });
+
+      if (!prods.length) {
+        grid.innerHTML = '<div class="col-span-full py-12 text-center text-slate-400 font-bold">No hay productos disponibles en esta categoría.</div>';
+        return;
+      }
+
+      grid.innerHTML = prods.map(function(p) {
+        var cantEnCarrito = (ESTADO_TABLET.carritoTienda[p.producto] && ESTADO_TABLET.carritoTienda[p.producto].cantidad) || 0;
+        return '<div onclick="agregarProductoCarrito(\'' + escHtml(p.producto) + '\')" ' +
+          'class="rounded-2xl border ' + (cantEnCarrito > 0 ? 'border-amber-400 bg-slate-900' : 'border-slate-800 bg-[#0b1120]') + ' p-3.5 flex flex-col justify-between cursor-pointer hover:border-amber-500/60 transition-all shadow-md">' +
+          '<div>' +
+            '<div class="flex items-center justify-between">' +
+              '<span class="text-2xl">' + escHtml(p.icono || '🛒') + '</span>' +
+              '<span class="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 font-black text-xs">S/ ' + Number(p.precio || 0).toFixed(2) + '</span>' +
+            '</div>' +
+            '<h4 class="text-sm font-black text-white mt-2 capitalize">' + escHtml(p.producto.replace(/-/g, ' ')) + '</h4>' +
+            '<div class="text-[11px] font-bold text-slate-400 mt-0.5">Stock: ' + escHtml(p.stockDisponible) + ' disp.</div>' +
+          '</div>' +
+          '<div class="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between">' +
+            '<span class="text-xs font-extrabold text-amber-400">' + (cantEnCarrito > 0 ? ('En pedido: ' + cantEnCarrito) : '+ Toca para pedir') + '</span>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function agregarProductoCarrito(nombreProd) {
+      var p = (ESTADO_TABLET.productosTienda || []).find(function(x) { return x.producto === nombreProd; });
+      if (!p) return;
+      if (!ESTADO_TABLET.carritoTienda[nombreProd]) {
+        ESTADO_TABLET.carritoTienda[nombreProd] = { producto: p.producto, precio: p.precio, cantidad: 1 };
+      } else {
+        ESTADO_TABLET.carritoTienda[nombreProd].cantidad += 1;
+      }
+      renderizarCarritoTienda();
+      renderizarVitrinaTienda();
+    }
+
+    function cambiarCantCarrito(nombreProd, delta) {
+      var item = ESTADO_TABLET.carritoTienda[nombreProd];
+      if (!item) return;
+      item.cantidad += delta;
+      if (item.cantidad <= 0) delete ESTADO_TABLET.carritoTienda[nombreProd];
+      renderizarCarritoTienda();
+      renderizarVitrinaTienda();
+    }
+
+    function vaciarCarritoTienda() {
+      ESTADO_TABLET.carritoTienda = {};
+      renderizarCarritoTienda();
+      renderizarVitrinaTienda();
+    }
+
+    function renderizarCarritoTienda() {
+      var cont = document.getElementById('listaCarritoTienda');
+      var claves = Object.keys(ESTADO_TABLET.carritoTienda);
+      if (!claves.length) {
+        cont.innerHTML = '<div class="text-slate-500 text-xs font-bold py-6 text-center">Toca cualquier producto de la izquierda para agregarlo.</div>';
+        document.getElementById('lblTotalCarritoTienda').textContent = 'S/ 0.00';
+        return;
+      }
+      var total = 0;
+      cont.innerHTML = claves.map(function(k) {
+        var it = ESTADO_TABLET.carritoTienda[k];
+        var sub = it.cantidad * it.precio;
+        total += sub;
+        return '<div class="py-2 flex items-center justify-between gap-2">' +
+          '<div class="min-w-0 flex-1">' +
+            '<div class="font-bold text-xs text-white truncate capitalize">' + escHtml(it.producto.replace(/-/g, ' ')) + '</div>' +
+            '<div class="text-[11px] text-emerald-400 font-black">S/ ' + sub.toFixed(2) + '</div>' +
+          '</div>' +
+          '<div class="flex items-center gap-1.5">' +
+            '<button type="button" onclick="cambiarCantCarrito(\'' + escHtml(it.producto) + '\', -1)" class="w-7 h-7 rounded-lg bg-slate-800 text-white font-black cursor-pointer">-</button>' +
+            '<span class="w-5 text-center font-black text-xs">' + it.cantidad + '</span>' +
+            '<button type="button" onclick="cambiarCantCarrito(\'' + escHtml(it.producto) + '\', 1)" class="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 font-black cursor-pointer">+</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+      document.getElementById('lblTotalCarritoTienda').textContent = 'S/ ' + total.toFixed(2);
+    }
+
+    function enviarPedidoTiendaARecepcion() {
+      var items = Object.values(ESTADO_TABLET.carritoTienda);
+      if (!items.length) {
+        mostrarToastTablet('Agrega al menos un producto de la Vitrina.', true);
+        return;
+      }
+      var hab = document.getElementById('inpHabPedidoTienda').value || ESTADO_TABLET.habElegidaCliente || 'Mostrador';
+      fetch('/api/tablet/pedido-tienda', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hab: hab, items: items })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function() {
+        vaciarCarritoTienda();
+        mostrarToastTablet('🔔 ¡Pedido enviado a Recepción! En breve te atendemos.');
+      })
+      .catch(function(err) {
+        mostrarToastTablet('Error al enviar pedido: ' + err, true);
+      });
+    }
+
+    // =====================================================================
+    // LIENZO DE FIRMA S PEN / TÁCTIL (POINTER EVENTS 120HZ)
+    // =====================================================================
+    var _firmaDibujando = false;
+    var _firmaTieneTrazos = false;
+
+    function ajustarCanvasFirma() {
+      var canvas = document.getElementById('canvasFirmaSPen');
+      if (!canvas) return;
+      var ctx = canvas.getContext('2d');
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2.8;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+    }
+
+    (function inicializarCanvasSPen() {
+      var canvas = document.getElementById('canvasFirmaSPen');
+      if (!canvas) return;
+      var ctx = canvas.getContext('2d');
+
+      function obtenerCoord(e) {
+        var rect = canvas.getBoundingClientRect();
+        var scaleX = canvas.width / rect.width;
+        var scaleY = canvas.height / rect.height;
+        return {
+          x: (e.clientX - rect.left) * scaleX,
+          y: (e.clientY - rect.top) * scaleY
+        };
+      }
+
+      canvas.addEventListener('pointerdown', function(e) {
+        e.preventDefault();
+        canvas.setPointerCapture(e.pointerId);
+        _firmaDibujando = true;
+        _firmaTieneTrazos = true;
+        var pt = obtenerCoord(e);
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = e.pointerType === 'pen' ? Math.max(1.8, (e.pressure || 0.5) * 4.2) : 2.8;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+      });
+
+      canvas.addEventListener('pointermove', function(e) {
+        if (!_firmaDibujando) return;
+        e.preventDefault();
+        var pt = obtenerCoord(e);
+        if (e.pointerType === 'pen' && e.pressure) {
+          ctx.lineWidth = Math.max(1.6, e.pressure * 4.4);
+        }
+        ctx.lineTo(pt.x, pt.y);
+        ctx.stroke();
+      });
+
+      function finTrazo(e) {
+        if (!_firmaDibujando) return;
+        _firmaDibujando = false;
+        ctx.closePath();
+      }
+      canvas.addEventListener('pointerup', finTrazo);
+      canvas.addEventListener('pointercancel', finTrazo);
+
+      var formFirma = document.getElementById('formFirmaConformidad');
+      if (formFirma) {
+        formFirma.addEventListener('submit', function(e) {
+          e.preventDefault();
+          if (!_firmaTieneTrazos) {
+            mostrarToastTablet('Por favor firma dentro del recuadro blanco con el S Pen o el dedo.', true);
+            return;
+          }
+          var hab = String(document.getElementById('inpFirmaHab').value || '').trim();
+          var huesped = String(document.getElementById('inpFirmaHuesped').value || '').trim();
+          if (!hab || !huesped) {
+            mostrarToastTablet('Completa la Habitación y tu Nombre antes de guardar la firma.', true);
+            return;
+          }
+          var dataUrl = canvas.toDataURL('image/png');
+          var btn = document.getElementById('btnGuardarFirmaSPen');
+          btn.disabled = true;
+          btn.textContent = '⏳ Guardando firma...';
+
+          fetch('/api/tablet/firma', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              hab: hab,
+              dni: document.getElementById('inpFirmaDni').value,
+              huesped: huesped,
+              empresa: document.getElementById('inpFirmaEmpresa').value,
+              firmaBase64: dataUrl
+            })
+          })
+          .then(function(r) { return r.json(); })
+          .then(function() {
+            btn.disabled = false;
+            btn.textContent = '✍️ Guardar Conformidad Firmada';
+            limpiarLienzoFirma();
+            mostrarToastTablet('✍️ ¡Firma de conformidad registrada con éxito en Recepción!');
+          })
+          .catch(function(err) {
+            btn.disabled = false;
+            btn.textContent = '✍️ Guardar Conformidad Firmada';
+            mostrarToastTablet('Error al guardar firma: ' + err, true);
+          });
+        });
+      }
+    })();
+
+    function limpiarLienzoFirma() {
+      var canvas = document.getElementById('canvasFirmaSPen');
+      if (!canvas) return;
+      var ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      _firmaTieneTrazos = false;
+    }
+
+    function autocompletarHuespedFirma() {
+      var dni = String(document.getElementById('inpFirmaDni').value || '').trim();
+      if (dni.length < 7) return;
+      fetch('/api/tablet/consultar-doc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo: 'DNI', numero: dni })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res && res.nombre && !document.getElementById('inpFirmaHuesped').value) {
+          document.getElementById('inpFirmaHuesped').value = res.nombre;
+        }
+        if (res && res.empresa && !document.getElementById('inpFirmaEmpresa').value) {
+          document.getElementById('inpFirmaEmpresa').value = res.empresa;
+        }
+      })
+      .catch(function() {});
+    }
+
+    // =====================================================================
+    // BUZÓN DE SUGERENCIAS Y MEJORA CONTINUA
+    // =====================================================================
+    function seleccionarEstrellas(n) {
+      document.getElementById('inpCalificacionSug').value = String(n);
+      for (var i = 1; i <= 5; i++) {
+        var b = document.getElementById('starBtn_' + i);
+        if (!b) continue;
+        if (i === n) {
+          b.className = 'kiosk-btn py-3 rounded-2xl border-2 border-amber-400 bg-amber-500/20 text-amber-300 font-black text-sm cursor-pointer';
+        } else {
+          b.className = 'kiosk-btn py-3 rounded-2xl border border-slate-700 bg-slate-900 text-slate-300 font-black text-sm cursor-pointer';
+        }
+      }
+    }
+
+    function seleccionarCatSug(cat) {
+      document.getElementById('inpCategoriaSug').value = cat;
+      var btns = document.querySelectorAll('.cat-sug-btn');
+      btns.forEach(function(b) {
+        if (b.textContent.indexOf(cat.split(' ')[0]) !== -1) {
+          b.className = 'cat-sug-btn px-4 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs cursor-pointer';
+        } else {
+          b.className = 'cat-sug-btn px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-black text-xs cursor-pointer';
+        }
+      });
+    }
+
+    (function inicializarFormSugerencias() {
+      var f = document.getElementById('formSugerenciasTablet');
+      if (!f) return;
+      f.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var com = String(document.getElementById('inpComentarioSug').value || '').trim();
+        if (!com) {
+          mostrarToastTablet('Escribe brevemente tu sugerencia o comentario.', true);
+          document.getElementById('inpComentarioSug').focus();
+          return;
+        }
+        fetch('/api/tablet/sugerencia', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            calificacion: Number(document.getElementById('inpCalificacionSug').value || 5),
+            categoria: document.getElementById('inpCategoriaSug').value,
+            hab: document.getElementById('inpHabSug').value,
+            huesped: document.getElementById('inpNombreSug').value,
+            comentario: com
+          })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function() {
+          document.getElementById('inpComentarioSug').value = '';
+          mostrarToastTablet('⭐ ¡Muchas gracias! Tu mensaje fue registrado directamente para Gerencia.');
+        })
+        .catch(function(err) {
+          mostrarToastTablet('Error al guardar sugerencia: ' + err, true);
+        });
+      });
+    })();
+
+    // =====================================================================
+    // MÓDULO 7: PANEL 1-CLIC DE LIMPIEZA POR PISOS
+    // =====================================================================
+    function renderizarPanelLimpieza() {
+      var cont = document.getElementById('contenedorPisosLimpieza');
+      var habs = ESTADO_TABLET.habitaciones || [];
+      var pisosMap = {};
+      var cPend = 0, cRepaso = 0, cLimpia = 0, cOcup = 0;
+
+      habs.forEach(function(h) {
+        if (!pisosMap[h.piso]) pisosMap[h.piso] = [];
+        pisosMap[h.piso].push(h);
+        if (h.estadoLimpieza === 'PENDIENTE') cPend++;
+        else if (h.estadoLimpieza === 'REPASO_CONTINUA') cRepaso++;
+        else if (h.estadoLimpieza === 'LIMPIA' || h.estadoLimpieza === 'OCUPADA_LIMPIA') cLimpia++;
+        else cOcup++;
+      });
+
+      document.getElementById('resumenContadoresLimpieza').innerHTML =
+        '<span class="px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-400/50 text-amber-300">🧹 Por Limpiar (Salidas): ' + cPend + '</span>' +
+        '<span class="px-3 py-1.5 rounded-xl bg-sky-500/20 border border-sky-400/50 text-sky-300">🔁 Continúan (Repaso): ' + cRepaso + '</span>' +
+        '<span class="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-400/50 text-emerald-300">✨ Limpias y Listas: ' + cLimpia + '</span>' +
+        '<span class="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300">🛌 Ocupadas: ' + cOcup + '</span>';
+
+      var pisosOrden = Object.keys(pisosMap).sort();
+      cont.innerHTML = pisosOrden.map(function(p) {
+        var tarjetas = pisosMap[p].map(function(h) {
+          var st = h.estadoLimpieza;
+          var claseColor = 'bg-emerald-950/60 border-emerald-500/50 text-emerald-200';
+          var etiqueta = '✨ LIMPIA Y LISTA';
+          var accionSig = 'PENDIENTE';
+
+          if (st === 'PENDIENTE') {
+            claseColor = 'bg-amber-500/25 border-2 border-amber-400 text-amber-100 shadow-lg';
+            etiqueta = '🧹 FALTA LIMPIAR';
+            accionSig = 'LIMPIA';
+          } else if (st === 'REPASO_CONTINUA') {
+            claseColor = 'bg-sky-500/25 border-2 border-sky-400 text-sky-100';
+            etiqueta = '🔁 CONTINÚA (REPASO)';
+            accionSig = 'LIMPIA';
+          } else if (st === 'OCUPADA_ACTUAL') {
+            claseColor = 'bg-slate-900 border-slate-700 text-slate-300';
+            etiqueta = '🛌 OCUPADA EN CURSO';
+            accionSig = 'LIMPIA';
+          } else if (st === 'OCUPADA_LIMPIA') {
+            claseColor = 'bg-teal-950/70 border-teal-500/50 text-teal-200';
+            etiqueta = '✅ REPASO HECHO';
+            accionSig = 'PENDIENTE';
+          } else if (st === 'MANTENIMIENTO') {
+            claseColor = 'bg-rose-950/70 border-rose-500/50 text-rose-300';
+            etiqueta = '⛔ MANTENIMIENTO';
+          }
+
+          return '<button type="button" onclick="toggleLimpiezaHabitacion(\'' + escHtml(h.hab) + '\', \'' + accionSig + '\')" ' +
+            'class="p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between min-h-[104px] ' + claseColor + '">' +
+            '<div class="flex items-center justify-between w-full">' +
+              '<span class="text-2xl font-black">Hab. ' + escHtml(h.hab) + '</span>' +
+              '<span class="text-[11px] font-extrabold opacity-80">' + escHtml(h.tipo) + '</span>' +
+            '</div>' +
+            '<div class="mt-2">' +
+              '<div class="text-xs font-black uppercase tracking-wide">' + etiqueta + '</div>' +
+              (h.horaLimpieza ? '<div class="text-[10px] opacity-75 mt-0.5">Marcado: ' + escHtml(h.horaLimpieza) + '</div>' : '') +
+            '</div>' +
+          '</button>';
+        }).join('');
+
+        return '<div class="bg-[#0b1120] border border-slate-800 rounded-2xl p-4">' +
+          '<h3 class="text-sm font-black uppercase tracking-wider text-slate-400 mb-3">🏢 Piso ' + escHtml(p) + '</h3>' +
+          '<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">' + tarjetas + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function toggleLimpiezaHabitacion(habNum, nuevoEstado) {
+      fetch('/api/tablet/limpieza', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hab: habNum, estado: nuevoEstado })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function() {
+        mostrarToastTablet('🧹 Habitación ' + habNum + ' marcada como ' + (nuevoEstado === 'LIMPIA' ? '✨ LIMPIA Y LISTA' : '🧹 POR LIMPIAR'));
+        cargarEstadoServidorTablet();
+      })
+      .catch(function(err) {
+        mostrarToastTablet('Error al actualizar limpieza: ' + err, true);
+      });
+    }
+
+    // =====================================================================
+    // SINCRONIZACIÓN EN VIVO CON LAPTOP DE RECEPCIÓN (POLLING LIGERO 2.5s)
+    // =====================================================================
+    function sincronizarVistaDesdeEstado() {
+      renderizarGridHabitaciones();
+      renderizarVitrinaTienda();
+      renderizarPanelLimpieza();
+    }
+
+    function cargarEstadoServidorTablet() {
+      fetch('/api/tablet/estado?from_tablet=1', { cache: 'no-store' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data) return;
+
+          // Auto-recarga instantánea cuando actualizas el código desde Laptop 1
+          if (ESTADO_TABLET.uiVersionTablet !== null && data.uiVersionTablet && data.uiVersionTablet !== ESTADO_TABLET.uiVersionTablet) {
+            window.location.reload();
+            return;
+          }
+          ESTADO_TABLET.uiVersionTablet = data.uiVersionTablet;
+
+          document.getElementById('lblNombreHotel').textContent = data.nombreHotel || 'Hotel';
+          document.getElementById('lblFechaHoy').textContent = data.fechaHoy || 'Hoy';
+
+          ESTADO_TABLET.habitaciones = data.habitaciones || [];
+          ESTADO_TABLET.productosTienda = data.productosTienda || [];
+
+          var ctrl = data.control || {};
+          ESTADO_TABLET.mostrarPrecios = ctrl.mostrarPrecios !== false;
+          ESTADO_TABLET.habDestacada = ctrl.habDestacada || '';
+
+          // Si el recepcionista envió una orden remota nueva desde la Laptop, aplicarla de inmediato
+          if (ctrl.ordenSeq && ctrl.ordenSeq !== ESTADO_TABLET.ultimoOrdenSeqAplicado) {
+            var esPrimeraCarga = ESTADO_TABLET.ultimoOrdenSeqAplicado === 0;
+            ESTADO_TABLET.ultimoOrdenSeqAplicado = ctrl.ordenSeq;
+
+            if (ctrl.cobroQr && ctrl.cobroQr.activo) {
+              document.getElementById('qrMontoExacto').textContent = 'S/ ' + Number(ctrl.cobroQr.monto || 0).toFixed(2);
+              document.getElementById('qrTituloConcepto').textContent = ctrl.cobroQr.concepto || 'Pago de Hospedaje';
+              document.getElementById('qrHabDetalle').textContent = ctrl.cobroQr.hab ? ('Habitación ' + ctrl.cobroQr.hab) : 'Recepción';
+            }
+
+            if (ctrl.firmaSolicitud && ctrl.firmaSolicitud.activa) {
+              if (ctrl.firmaSolicitud.hab) document.getElementById('inpFirmaHab').value = ctrl.firmaSolicitud.hab;
+              if (ctrl.firmaSolicitud.huesped) document.getElementById('inpFirmaHuesped').value = ctrl.firmaSolicitud.huesped;
+              if (ctrl.firmaSolicitud.dni) document.getElementById('inpFirmaDni').value = ctrl.firmaSolicitud.dni;
+              if (ctrl.firmaSolicitud.empresa) document.getElementById('inpFirmaEmpresa').value = ctrl.firmaSolicitud.empresa;
+            }
+
+            if (ctrl.modoPantalla && (!esPrimeraCarga || ctrl.modoPantalla !== 'catalogo')) {
+              cambiarModoTablet(ctrl.modoPantalla);
+            }
+            if (!esPrimeraCarga && ctrl.habDestacada) {
+              cambiarModoTablet('catalogo');
+              abrirDetalleHabitacion(ctrl.habDestacada);
+            }
+          }
+
+          renderizarFiltrosCatalogo(data.tipos || [], data.pisos || []);
+          sincronizarVistaDesdeEstado();
+        })
+        .catch(function() {});
+    }
+
+    cargarEstadoServidorTablet();
+    setInterval(cargarEstadoServidorTablet, 2500);
+  </script>
+</body>
+</html>

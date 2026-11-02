@@ -121,8 +121,8 @@ APISPERU_TOKEN = (
 APISPERU_DNI_URL = "https://dniruc.apisperu.com/api/v1/dni"
 APISPERU_RUC_URL = "https://dniruc.apisperu.com/api/v1/ruc"
 
-# Puerto del servidor local de Recepción
-APP_HOST = "127.0.0.1"
+# Puerto del servidor local de Recepción (0.0.0.0 habilita vinculación Wi-Fi con Tablet Samsung S8+)
+APP_HOST = "0.0.0.0"
 APP_PORT = int(PERFIL_HOTEL.get("app_port") or 8080)
 
 # Intervalo de sincronización automática en segundo plano (segundos)

@@ -215,6 +215,11 @@
               class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors" title="Bases de datos internas: Estancias, Gastos y Ventas Tienda">🗂️ Registros (BD)</button>
       <button type="button" id="btnMovimientos" onclick="abrirMovimientos()" title="Historial de movimientos (quién hizo qué y cuándo)"
               class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors">🕒 Movimientos</button>
+      <button type="button" id="btnTabletS8" onclick="abrirModalTabletS8()" title="Vincular y controlar Galaxy Tab S8+ (Catálogo de Habitaciones, Auto-llenado DNI/RUC, Vitrina, Limpieza y Firmas)"
+              class="px-2.5 py-1 text-xs font-black bg-indigo-950 text-white hover:bg-indigo-800 border-l border-[#D8C7B8] cursor-pointer transition-colors inline-flex items-center gap-1.5">
+        <span id="dotEstadoTabletS8" class="inline-block w-2 h-2 rounded-full bg-slate-400"></span>
+        <span>📲 Tablet S8+</span>
+      </button>
     </div>
   </div>
 </div>
@@ -7663,5 +7668,339 @@
 
 </script>
 <!-- FECHA_DMY_END -->
+
+<!-- ======================= PUENTE Y CONTROL REMOTO GALAXY TAB S8+ ======================= -->
+<div id="bannerAvisoClienteTablet" role="status" aria-live="polite"
+     class="hidden fixed bottom-4 right-4 z-50 max-w-md bg-slate-900 text-white border-2 border-amber-400 rounded-2xl p-4 shadow-2xl">
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <div class="text-[11px] font-black uppercase tracking-wider text-amber-400">📲 Acción en vivo desde la Tablet S8+</div>
+      <div id="txtResumenEventoTablet" class="text-sm font-extrabold mt-0.5"></div>
+    </div>
+    <button type="button" onclick="cerrarAvisoEventoTablet()" class="text-slate-400 hover:text-white font-black text-sm cursor-pointer">✕</button>
+  </div>
+  <div class="mt-3 flex flex-wrap gap-2">
+    <button type="button" id="btnCargarEventoEnCheckIn" onclick="cargarDatosTabletEnCheckIn()"
+            class="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer">
+      ⚡ Cargar en Check-In Ahora
+    </button>
+    <button type="button" onclick="enviarOrdenRemotaTablet({ modoPantalla: 'checkin_express' })"
+            class="px-3 py-1.5 rounded-xl bg-sky-700 hover:bg-sky-600 text-white font-black text-xs cursor-pointer">
+      ✍️ Pedir DNI / Celular en Tablet
+    </button>
+  </div>
+</div>
+
+<dialog id="dialogTabletS8" closedby="any" aria-labelledby="tituloDialogTabletS8"
+        class="rounded-2xl shadow-2xl border border-slate-300 p-0 w-[860px] max-w-[95vw] bg-white text-slate-800 m-auto">
+  <div class="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between rounded-t-2xl">
+    <div class="flex items-center gap-2.5">
+      <span class="text-xl">📲</span>
+      <div>
+        <h2 id="tituloDialogTabletS8" class="text-base font-black leading-tight">Centro de Vinculación y Control — Samsung Galaxy Tab S8+</h2>
+        <div id="subtituloEstadoTabletModal" class="text-xs text-slate-300 font-semibold">Escanea el código QR con la cámara de la Tablet en el mismo Wi-Fi</div>
+      </div>
+    </div>
+    <button type="button" onclick="document.getElementById('dialogTabletS8').close()"
+            class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-black text-xs cursor-pointer">✕ Cerrar</button>
+  </div>
+
+  <div class="p-5 grid grid-cols-1 md:grid-cols-12 gap-5 max-h-[82vh] overflow-y-auto">
+    <!-- Columna Izquierda: QR de Vinculación Instantánea -->
+    <div class="md:col-span-5 bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col items-center text-center justify-between">
+      <div>
+        <span id="badgeEstadoConexionModal" class="inline-block px-3 py-1 rounded-full text-xs font-black bg-slate-200 text-slate-700 mb-2">
+          ⚪ Esperando conexión...
+        </span>
+        <h3 class="text-sm font-black text-slate-800">1. Escanea con la Cámara de tu S8+</h3>
+        <p class="text-[11px] text-slate-600 mt-0.5">Asegúrate de que la Tablet esté en el mismo Wi-Fi del hotel.</p>
+      </div>
+
+      <div id="contenedorQrSvgTablet" class="my-3 p-2 bg-white rounded-xl border border-slate-300 shadow-xs flex items-center justify-center min-h-[220px] min-w-[220px]">
+        <span class="text-xs text-slate-400 font-bold">Generando QR...</span>
+      </div>
+
+      <div class="w-full text-left bg-white border border-slate-200 rounded-xl p-2.5">
+        <div class="text-[10px] font-black uppercase text-slate-500">Dirección directa (Wi-Fi Local):</div>
+        <div id="lblUrlPrincipalTablet" class="text-xs font-black text-indigo-700 break-all select-all mt-0.5">http://127.0.0.1:8080/tablet</div>
+        <div class="mt-2 flex gap-1.5">
+          <a id="linkProbarTabletEnLaptop" href="/tablet" target="_blank"
+             class="flex-1 text-center py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-black text-[11px]">
+            🖥️ Abrir Vista Tablet aquí
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Columna Derecha: Control en Vivo, Bandeja de Huésped, Firmas y Buzón -->
+    <div class="md:col-span-7 flex flex-col gap-3.5">
+      <!-- Control de Pantalla en Vivo -->
+      <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3.5">
+        <div class="flex items-center justify-between mb-2.5">
+          <span class="text-xs font-black uppercase text-slate-700">🎛️ Control Remoto de Pantalla en la S8+</span>
+          <label class="inline-flex items-center gap-1.5 text-xs font-black text-slate-800 cursor-pointer">
+            <input type="checkbox" id="chkMostrarPreciosTablet" onchange="cambiarVisibilidadPreciosTablet(this.checked)" checked class="w-4 h-4 accent-indigo-600">
+            <span>💰 Mostrar Precios al Cliente</span>
+          </label>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+          <button type="button" onclick="enviarOrdenRemotaTablet({ modoPantalla: 'catalogo', habDestacada: '' })"
+                  class="px-2.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer">
+            🛏️ Mostrar Habitaciones
+          </button>
+          <button type="button" onclick="enviarOrdenRemotaTablet({ modoPantalla: 'checkin_express' })"
+                  class="px-2.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-black text-xs cursor-pointer">
+            ✍️ Pedir DNI / RUC / Cel
+          </button>
+          <button type="button" onclick="enviarOrdenRemotaTablet({ modoPantalla: 'vitrina' })"
+                  class="px-2.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs cursor-pointer">
+            🏪 Mostrar Vitrina Tienda
+          </button>
+          <button type="button" onclick="enviarOrdenRemotaTablet({ modoPantalla: 'firma_empresa' })"
+                  class="px-2.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs cursor-pointer">
+            🏢 Pedir Firma S Pen
+          </button>
+          <button type="button" onclick="enviarOrdenRemotaTablet({ modoPantalla: 'limpieza' })"
+                  class="px-2.5 py-2 rounded-xl bg-purple-700 hover:bg-purple-600 text-white font-black text-xs cursor-pointer">
+            🧹 Mostrar Limpieza
+          </button>
+          <button type="button" onclick="enviarOrdenRemotaTablet({ modoPantalla: 'sugerencias' })"
+                  class="px-2.5 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-black text-xs cursor-pointer">
+            ⭐ Mostrar Encuesta
+          </button>
+        </div>
+
+        <!-- Enviar Cobro QR Yape con monto exacto -->
+        <div class="mt-3 pt-2.5 border-t border-slate-200 flex flex-wrap items-center gap-2">
+          <span class="text-xs font-black text-purple-900">📱 Cobro QR en Tablet:</span>
+          <input type="text" id="inpMontoQrTablet" inputmode="decimal" placeholder="Monto S/" class="w-24 px-2.5 py-1 text-xs font-black border border-slate-300 rounded-lg">
+          <input type="text" id="inpHabQrTablet" placeholder="Hab. (ej. 204)" class="w-24 px-2.5 py-1 text-xs font-bold border border-slate-300 rounded-lg">
+          <button type="button" onclick="enviarCobroQrATablet()"
+                  class="px-3 py-1.5 rounded-lg bg-purple-800 hover:bg-purple-700 text-white font-black text-xs cursor-pointer">
+            Enviar Monto QR a S8+
+          </button>
+        </div>
+      </div>
+
+      <!-- Últimos datos enviados por el huésped desde la Tablet -->
+      <div class="bg-amber-50/80 border border-amber-200 rounded-2xl p-3.5">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-black uppercase text-amber-900">📥 Bandeja en Vivo del Huésped en Mostrador</span>
+          <button type="button" onclick="cargarDatosTabletEnCheckIn()"
+                  class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer">
+            ⚡ Abrir en Check-In
+          </button>
+        </div>
+        <div id="cajaDetalleEventoModalTablet" class="text-xs text-slate-700 font-bold mt-1.5">
+          Cuando el cliente elija una habitación o escriba su DNI/Celular/RUC en la S8+, aparecerá aquí al instante.
+        </div>
+      </div>
+
+      <!-- Historial reciente de Firmas S Pen y Buzón de Sugerencias -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
+          <div class="text-xs font-black text-slate-700 mb-1.5">🖊️ Últimas Firmas S Pen (Empresas)</div>
+          <div id="listaFirmasRecientesTablet" class="max-h-32 overflow-y-auto space-y-1.5 text-[11px] text-slate-600">
+            Sin firmas registradas aún.
+          </div>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
+          <div class="text-xs font-black text-slate-700 mb-1.5">⭐ Buzón Quejas y Mejoras</div>
+          <div id="listaSugerenciasRecientesTablet" class="max-h-32 overflow-y-auto space-y-1.5 text-[11px] text-slate-600">
+            Sin comentarios aún.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
+
+<script>
+(function inicializarControlTabletS8() {
+  var dlgTablet = document.getElementById('dialogTabletS8');
+  if (dlgTablet && !('closedBy' in HTMLDialogElement.prototype)) {
+    dlgTablet.addEventListener('click', function(event) {
+      if (event.target !== dlgTablet) return;
+      var rect = dlgTablet.getBoundingClientRect();
+      var inside = rect.top <= event.clientY && event.clientY <= rect.top + rect.height &&
+                   rect.left <= event.clientX && event.clientX <= rect.left + rect.width;
+      if (!inside) dlgTablet.close();
+    });
+  }
+
+  window._ultimoEventoSeqVistoLaptop = 0;
+  window._ultimoEventoClienteTablet = null;
+
+  window.abrirModalTabletS8 = function() {
+    var d = document.getElementById('dialogTabletS8');
+    if (d) d.showModal();
+    refrescarEstadoControlTablet(true);
+  };
+
+  window.enviarOrdenRemotaTablet = function(payload) {
+    fetch('/api/tablet/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) { renderizarModalControlTablet(data); })
+    .catch(function() {});
+  };
+
+  window.cambiarVisibilidadPreciosTablet = function(mostrar) {
+    window.enviarOrdenRemotaTablet({ mostrarPrecios: !!mostrar });
+  };
+
+  window.enviarCobroQrATablet = function() {
+    var monto = parseFloat(document.getElementById('inpMontoQrTablet').value || '0');
+    var hab = document.getElementById('inpHabQrTablet').value || '';
+    if (!monto || monto <= 0) {
+      alert('Ingresa un monto mayor a S/ 0.00 para mostrar en la Tablet.');
+      return;
+    }
+    window.enviarOrdenRemotaTablet({
+      cobroQr: { activo: true, monto: monto, hab: hab, concepto: 'Pago de Hospedaje / Consumo' }
+    });
+  };
+
+  window.cerrarAvisoEventoTablet = function() {
+    var b = document.getElementById('bannerAvisoClienteTablet');
+    if (b) b.classList.add('hidden');
+    window.enviarOrdenRemotaTablet({ marcarEventoLeido: true });
+  };
+
+  window.cargarDatosTabletEnCheckIn = function() {
+    var ev = window._ultimoEventoClienteTablet || {};
+    var dlg = document.getElementById('dialogTabletS8');
+    if (dlg && dlg.open) dlg.close();
+    window.cerrarAvisoEventoTablet();
+
+    var habElegida = ev.hab || '';
+    if (typeof abrirFormularioDrawer === 'function') {
+      abrirFormularioDrawer('CheckInRapido', { hab: habElegida, tab: 'checkin' });
+      var intentos = 20;
+      var inyectarDatosEnIframe = function() {
+        var ifr = document.getElementById('drawerIframe');
+        var doc = ifr && (ifr.contentDocument || (ifr.contentWindow && ifr.contentWindow.document));
+        if (!doc || !doc.getElementById('dni')) {
+          if (intentos-- > 0) setTimeout(inyectarDatosEnIframe, 180);
+          return;
+        }
+        if (ev.dni) {
+          var elDni = doc.getElementById('dni');
+          elDni.value = ev.dni;
+          elDni.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        if (ev.nombre) {
+          var elNom = doc.getElementById('nombre');
+          if (elNom) {
+            elNom.value = ev.nombre;
+            elNom.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+        if (ev.celular) {
+          var elCel = doc.getElementById('celular');
+          if (elCel) {
+            elCel.value = ev.celular;
+            elCel.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+        if (ev.ruc) {
+          var elRuc = doc.getElementById('ruc');
+          if (elRuc) {
+            elRuc.value = ev.ruc;
+            elRuc.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+      };
+      setTimeout(inyectarDatosEnIframe, 350);
+    }
+  };
+
+  function renderizarModalControlTablet(data) {
+    if (!data) return;
+    var st = data.estado || {};
+    var dot = document.getElementById('dotEstadoTabletS8');
+    if (dot) {
+      dot.className = st.conectada
+        ? 'inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse'
+        : 'inline-block w-2 h-2 rounded-full bg-slate-400';
+    }
+
+    var badgeModal = document.getElementById('badgeEstadoConexionModal');
+    if (badgeModal) {
+      if (st.conectada) {
+        badgeModal.className = 'inline-block px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300 mb-2';
+        badgeModal.textContent = '🟢 Tablet S8+ Conectada en Vivo (' + (st.tabletIp || 'Wi-Fi') + ')';
+      } else {
+        badgeModal.className = 'inline-block px-3 py-1 rounded-full text-xs font-black bg-slate-200 text-slate-700 mb-2';
+        badgeModal.textContent = '⚪ Lista para vincular (Escanea el QR)';
+      }
+    }
+
+    if (data.qrSvgPrincipal) {
+      var contQr = document.getElementById('contenedorQrSvgTablet');
+      if (contQr) contQr.innerHTML = data.qrSvgPrincipal;
+    }
+    var lblUrl = document.getElementById('lblUrlPrincipalTablet');
+    if (lblUrl && data.urlPrincipal) lblUrl.textContent = data.urlPrincipal;
+
+    var chkPrecios = document.getElementById('chkMostrarPreciosTablet');
+    if (chkPrecios) chkPrecios.checked = st.mostrarPrecios !== false;
+
+    var ev = st.eventoCliente || {};
+    if (ev && ev.seq) {
+      window._ultimoEventoClienteTablet = ev;
+      var cajaEv = document.getElementById('cajaDetalleEventoModalTablet');
+      if (cajaEv && ev.resumen) {
+        cajaEv.innerHTML = '<div class="text-slate-900 font-black">' + ev.resumen + ' (' + (ev.timestamp || '') + ')</div>' +
+          (ev.dni ? '<div class="mt-0.5">DNI: <span class="font-black">' + ev.dni + '</span> · Nombre: <span class="font-black">' + (ev.nombre || '-') + '</span> · Celular: <span class="font-black">' + (ev.celular || '-') + '</span></div>' : '');
+      }
+      if (!ev.leido_en_laptop && ev.seq > window._ultimoEventoSeqVistoLaptop) {
+        window._ultimoEventoSeqVistoLaptop = ev.seq;
+        var banner = document.getElementById('bannerAvisoClienteTablet');
+        var txtRes = document.getElementById('txtResumenEventoTablet');
+        if (banner && txtRes) {
+          txtRes.textContent = ev.resumen;
+          banner.classList.remove('hidden');
+        }
+      }
+    }
+
+    var contFirmas = document.getElementById('listaFirmasRecientesTablet');
+    if (contFirmas && data.firmasRecientes && data.firmasRecientes.length) {
+      contFirmas.innerHTML = data.firmasRecientes.map(function(f) {
+        return '<div class="p-1.5 rounded bg-white border border-slate-200 flex items-center justify-between gap-2">' +
+          '<div><div class="font-black text-slate-800">Hab. ' + (f.hab || '-') + ' · ' + (f.huesped || f.dni) + '</div>' +
+          '<div class="text-[10px] text-slate-500">' + (f.empresa || 'Particular') + ' · ' + f.fechaHora + '</div></div>' +
+          (f.firmaBase64 ? '<a href="' + f.firmaBase64 + '" download="Firma_Hab_' + f.hab + '.png" class="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-black text-[10px]">Ver</a>' : '') +
+        '</div>';
+      }).join('');
+    }
+
+    var contSug = document.getElementById('listaSugerenciasRecientesTablet');
+    if (contSug && data.sugerenciasRecientes && data.sugerenciasRecientes.length) {
+      contSug.innerHTML = data.sugerenciasRecientes.map(function(s) {
+        return '<div class="p-1.5 rounded bg-white border border-slate-200">' +
+          '<div class="font-black text-amber-600">' + '★'.repeat(s.calificacion || 5) + ' <span class="text-slate-700">(' + s.categoria + ' · Hab. ' + (s.hab || '-') + ')</span></div>' +
+          '<div class="text-slate-700">' + s.comentario + '</div>' +
+        '</div>';
+      }).join('');
+    }
+  }
+
+  function refrescarEstadoControlTablet(forzar) {
+    fetch('/api/tablet/control', { cache: 'no-store' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) { renderizarModalControlTablet(data); })
+      .catch(function() {});
+  }
+
+  setTimeout(refrescarEstadoControlTablet, 1200);
+  setInterval(refrescarEstadoControlTablet, 3500);
+})();
+</script>
 </body>
 </html>
