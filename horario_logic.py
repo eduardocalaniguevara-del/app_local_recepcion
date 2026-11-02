@@ -230,10 +230,12 @@ def _auditar(conn, emp: str, fecha_dmy: str, campo: str, antes: str, nuevo: str)
 
 def _fila_publica(r: Dict[str, Any], cfg: Dict[str, Any], hoy: date, feriados: Dict[str, str]) -> Dict[str, Any]:
     d = _fecha(r["fecha_dmy"])
+    fer_nom = feriados.get(r["fecha_dmy"], "")
+    # El feriado manda sobre el descanso: si el día es feriado, no se marca como descanso
     return {
         "fecha": r["fecha_dmy"], "fechaIso": d.isoformat(), "dia": d.day, "dow": d.weekday(), "dowNombre": DOW_ES[d.weekday()],
-        "esDescanso": d.weekday() == int(cfg["descanso_dow"]),
-        "feriado": feriados.get(r["fecha_dmy"], ""),
+        "esDescanso": (d.weekday() == int(cfg["descanso_dow"])) and not bool(fer_nom),
+        "feriado": fer_nom,
         "e1": r["e1"], "s1": r["s1"], "e2": r["e2"], "s2": r["s2"],
         "estado": r["estado"], "extras": r["extras"], "extraNoche": int(r["extra_noche"] or 0), "nota": r["nota"],
         "horas": _horas_pares(r), "esHoy": d == hoy, "futuro": d > hoy,
@@ -411,8 +413,8 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
             faltas += 0.5
             d_falta.append(f + " (½ medio tiempo)")
 
-        # Si descanso y feriado coinciden el mismo día, se considera solo el feriado x2 y no se suma descanso
-        es_fer_trab = (f in feriados and (trabajo or est == "FERIADO")) or (est == "FERIADO")
+        # El feriado manda sobre el descanso: si coincide con feriado, cuenta como feriado x2 y nunca como descanso
+        es_fer_trab = (f in feriados and (trabajo or est in ("FERIADO", "DESCANSO"))) or (est == "FERIADO")
         if es_fer_trab:
             feriados_trab += 1
             nom_fer = feriados.get(f) or "Feriado"

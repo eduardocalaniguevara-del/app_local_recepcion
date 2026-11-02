@@ -4793,6 +4793,68 @@ def editar_estancia_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     return modificar_estancia_local(datos)
 
 
+def eliminar_estancia_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
+    import horario_logic as hl
+    hl.validar_clave_cuentas(datos)
+
+    e_uuid = str(datos.get("estanciaUuid") or "").strip()
+    id_ts = str(datos.get("id") or "").strip()
+    fila_hint = int(datos.get("fila") or 0)
+
+    if not e_uuid and not id_ts and fila_hint < 2:
+        raise ValueError("Falta el identificador de la estancia a eliminar.")
+
+    with db_transaction() as conn:
+        actual = None
+        if e_uuid:
+            actual = conn.execute("SELECT * FROM estancias WHERE estancia_uuid = ?", (e_uuid,)).fetchone()
+        if not actual and id_ts:
+            actual = conn.execute("SELECT * FROM estancias WHERE id_timestamp_str = ?", (id_ts,)).fetchone()
+        if not actual and fila_hint >= 2:
+            actual = conn.execute("SELECT * FROM estancias WHERE sheet_row = ?", (fila_hint,)).fetchone()
+        if not actual:
+            raise ValueError("No se encontró la estancia en la base de datos interna.")
+
+        est_uuid_real = actual["estancia_uuid"]
+        id_ts_real = str(actual["id_timestamp_str"] or "").strip()
+        s_row_real = int(actual["sheet_row"] or 0)
+
+        efec_cobrado = round(float(actual["pago_ini_efec"] or 0) + float(actual["pago_post_efec"] or 0), 2)
+        delta_caja = round(-efec_cobrado, 2)
+
+        pagos_vinc = conn.execute(
+            "SELECT pago_id, sheet_row FROM pagos WHERE (estancia_uuid != '' AND estancia_uuid = ?) OR (id_estancia != '' AND id_estancia = ?)",
+            (est_uuid_real, id_ts_real),
+        ).fetchall()
+        lista_pagos_vinc = [{"pago_id": r["pago_id"], "sheet_row": int(r["sheet_row"] or 0)} for r in pagos_vinc]
+        if lista_pagos_vinc:
+            conn.execute(
+                "DELETE FROM pagos WHERE (estancia_uuid != '' AND estancia_uuid = ?) OR (id_estancia != '' AND id_estancia = ?)",
+                (est_uuid_real, id_ts_real),
+            )
+            for pv in sorted([p["sheet_row"] for p in lista_pagos_vinc if p["sheet_row"] >= 2], reverse=True):
+                conn.execute("UPDATE pagos SET sheet_row = sheet_row - 1 WHERE sheet_row > ?", (pv,))
+
+        conn.execute("DELETE FROM estancias WHERE estancia_uuid = ?", (est_uuid_real,))
+        if s_row_real >= 3:
+            conn.execute("UPDATE estancias SET sheet_row = sheet_row - 1 WHERE sheet_row > ?", (s_row_real,))
+
+        _encolar_operacion(
+            conn,
+            "ELIMINAR_ESTANCIA_ADMIN",
+            est_uuid_real,
+            {
+                "estancia_uuid": est_uuid_real,
+                "id_timestamp_str": id_ts_real,
+                "sheet_row": s_row_real,
+                "pagos_vinculados": lista_pagos_vinc,
+            },
+            delta_caja=delta_caja,
+        )
+
+    return {"ok": True, "estanciaUuid": est_uuid_real}
+
+
 def _parse_ts_hms_key(ts_str: str, fecha_dmy: str, sheet_row: int) -> tuple:
     """Clave de ordenamiento descendente: última anotación / fecha arriba (Fila 1)."""
     s = str(ts_str or "").strip()
@@ -5049,7 +5111,10 @@ def eliminar_gasto_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         met_prev = str(actual["metodo_pago"] or "").strip()
         delta_caja = monto_prev if "efectivo" in met_prev.lower() else 0.0
 
+        s_row_g = int(actual["sheet_row"] or 0)
         conn.execute("DELETE FROM gastos WHERE gasto_uuid = ?", (g_uuid,))
+        if s_row_g >= 2:
+            conn.execute("UPDATE gastos SET sheet_row = sheet_row - 1 WHERE sheet_row > ?", (s_row_g,))
         _encolar_operacion(
             conn,
             "ELIMINAR_GASTO_ADMIN",
@@ -5057,7 +5122,9 @@ def eliminar_gasto_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
             {
                 "gasto_uuid": g_uuid,
                 "id_ts_str": actual["id_ts_str"],
-                "sheet_row": int(actual["sheet_row"] or 0),
+                "descripcion": actual["descripcion"],
+                "monto": monto_prev,
+                "sheet_row": s_row_g,
             },
             delta_caja=delta_caja,
         )
@@ -5296,6 +5363,8 @@ def editar_venta_tienda_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
             {
                 "venta_uuid": v_uuid,
                 "fecha_iso": actual["fecha_iso"],
+                "producto_prev": actual["producto"],
+                "subtotal_prev": sub_prev,
                 "sheet_row": int(actual["sheet_row"] or 0),
                 "fila_bi": [fecha_dmy, prod, cant, met, hab, pers, p_unit, sub],
                 "nro_op_yape": nro_op,
@@ -5347,7 +5416,10 @@ def eliminar_venta_tienda_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any
                     "adic_snacks": snacks_new,
                 }
 
+        s_row_vt = int(actual["sheet_row"] or 0)
         conn.execute("DELETE FROM ventas_tienda WHERE venta_uuid = ?", (v_uuid,))
+        if s_row_vt >= 2:
+            conn.execute("UPDATE ventas_tienda SET sheet_row = sheet_row - 1 WHERE sheet_row > ?", (s_row_vt,))
         _encolar_operacion(
             conn,
             "ELIMINAR_VENTA_TIENDA_ADMIN",
@@ -5355,7 +5427,9 @@ def eliminar_venta_tienda_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any
             {
                 "venta_uuid": v_uuid,
                 "fecha_iso": actual["fecha_iso"],
-                "sheet_row": int(actual["sheet_row"] or 0),
+                "producto_prev": actual["producto"],
+                "subtotal_prev": sub_prev,
+                "sheet_row": s_row_vt,
                 "estancia_updates": est_updates,
             },
             delta_caja=delta_caja,
@@ -5658,14 +5732,17 @@ def eliminar_pago_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                     "pago_visa": cols_p["pago_visa"],
                 }
 
+        s_row_p = int(actual["sheet_row"] or 0)
         conn.execute("DELETE FROM pagos WHERE pago_id = ?", (pid,))
+        if s_row_p >= 2:
+            conn.execute("UPDATE pagos SET sheet_row = sheet_row - 1 WHERE sheet_row > ?", (s_row_p,))
         _encolar_operacion(
             conn,
             "ELIMINAR_PAGO_ADMIN",
             pid,
             {
                 "pago_id": pid,
-                "sheet_row": int(actual["sheet_row"] or 0),
+                "sheet_row": s_row_p,
                 "estancia_updates": est_updates,
             },
             delta_caja=delta_caja,

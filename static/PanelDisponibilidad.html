@@ -5678,7 +5678,7 @@
         : '<td class="px-0.5 w-[24px] max-w-[24px] text-center border-r border-[#E6DCD2] text-slate-300 text-[9px]">' + ((f.triple1 || f.triple2) ? '●' : '') + '</td>';
 
       return '<tr class="h-8 ' + rowCls + '">' +
-        (admin ? '<td class="px-1 text-center border-r border-[#E6DCD2] whitespace-nowrap"><button type="button" onclick="bdAbrirModalEditar(' + idx + ')" class="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-[10.5px] border border-amber-300 cursor-pointer mr-0.5" title="Editar fila #' + f.fila + '">✏️</button>' + (!canc ? '<button type="button" onclick="bdEliminarRegistroUI(' + idx + ')" class="px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-900 font-black text-[10.5px] border border-red-300 cursor-pointer" title="Anular estancia duplicada #' + f.fila + '">🗑️</button>' : '') + '</td>' : '') +
+        (admin ? '<td class="px-1 text-center border-r border-[#E6DCD2] whitespace-nowrap"><button type="button" onclick="bdAbrirModalEditar(' + idx + ')" class="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-[10.5px] border border-amber-300 cursor-pointer mr-0.5" title="Editar fila #' + f.fila + '">✏️</button><button type="button" onclick="bdEliminarRegistroUI(' + idx + ')" class="px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-900 font-black text-[10.5px] border border-red-300 cursor-pointer" title="Eliminar fila #' + f.fila + ' en WebApp y Google Sheets">🗑️</button></td>' : '') +
         '<td class="px-1.5 py-1 border-r border-[#E6DCD2] whitespace-nowrap"><div class="font-bold text-slate-800 text-[10.5px]">' + esc(f.id) + '</div><div class="text-[9.5px] text-slate-400">Fila #' + f.fila + (f.dirty ? ' • ⏳' : '') + '</div></td>' +
         '<td class="px-1.5 text-center font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + esc(f.fechaIn) + '</td>' +
         '<td class="px-1.5 text-center font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + esc(f.fechaOut) + '</td>' +
@@ -6256,16 +6256,14 @@
     var f = BDE.filas[idx];
     if (!f) return;
     if (BDE.subtab === 'ESTANCIAS') {
-      if (!confirm('¿Anular/eliminar esta estancia duplicada (Hab. ' + f.hab + ' — ' + (f.huesped || '') + ' • Fila #' + f.fila + ')?\n\n• Pasará a estado Cancelado con tarifa S/ 0.00 en la Base Local y en Google Sheets.')) return;
-      runGas('cancelarEstanciaDesdeApp', [{
+      if (!confirm('¿Eliminar definitivamente esta estancia (Hab. ' + f.hab + ' — ' + (f.huesped || '') + ' • Fila #' + f.fila + ') de la Base Interna y borrar su fila en Registro_Estancias de Google Sheets?')) return;
+      runGas('eliminarEstanciaBDAdmin', [{
+        clave: BDE.clave,
         fila: f.fila,
         id: f.id,
-        estanciaUuid: f.estanciaUuid || '',
-        hab: f.hab,
-        motivo: 'Anulada desde Base de Datos (duplicado/corrección)',
-        devolverPago: false
+        estanciaUuid: f.estanciaUuid || ''
       }], function () {
-        bdBanner('ok', '🚫 Estancia #' + f.fila + ' (Hab. ' + f.hab + ') anulada en la Base Interna y sincronizada con Google Sheets.');
+        bdBanner('ok', '🗑️ Estancia #' + f.fila + ' (Hab. ' + f.hab + ') eliminada de la Base Interna y borrada en Registro_Estancias (Sheets).');
         cargarVistaEstanciasBD();
         if (typeof recargarDatos === 'function') recargarDatos();
       }, function (err) {
@@ -6398,7 +6396,7 @@
       var fondo = d.feriado ? 'background-color:#BBF7D0;' : (d.esDescanso ? 'background-color:#E9D5FF;' : (d.futuro ? 'background-color:#FFFFFFAA;' : 'background-color:#FFFFFF;'));
       var marcaHoy = d.esHoy ? 'outline:2px solid #F59E0B; outline-offset:-2px;' : '';
       var badges = '';
-      if (d.esDescanso) badges += '<span class="ml-1 px-1 rounded text-[9px] font-black bg-purple-700 text-white">DESCANSO</span>';
+      if (d.esDescanso && !d.feriado) badges += '<span class="ml-1 px-1 rounded text-[9px] font-black bg-purple-700 text-white">DESCANSO</span>';
       if (d.feriado) badges += '<span class="ml-1 px-1 rounded text-[9px] font-black bg-green-700 text-white" title="' + esc(d.feriado) + '">FERIADO</span>';
       var celdas = ['e1', 's1', 'e2', 's2'].map(function (c) {
         return '<td class="px-0.5 text-center border-r border-[#E6DCD2]"><input type="text" inputmode="numeric" maxlength="5" placeholder="--:--" value="' + esc(d[c]) + '"' +
@@ -6551,8 +6549,10 @@
       return '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">' + lbl + (detalle || '') + '</td><td class="py-1 text-right font-black whitespace-nowrap" id="' + idv + '"></td>' + (extra || '') + '</tr>';
     };
     var hist = (L.historial || []).map(function (h) {
-      return '<li>' + esc(h.desde) + ' → ' + esc(h.hasta) + ': <b>' + soles(h.neto) + '</b> (Yape ' + soles(h.yape) + ' · Efectivo ' + soles(h.efectivo) + ') <span class="text-slate-400">' + esc(String(h.creado || '').replace('T', ' ')) + '</span></li>';
+      var extraAE = (Number(h.aEfec) || 0) > 0 ? ' · A. Efec ' + soles(h.aEfec) : '';
+      return '<li>' + esc(h.desde) + ' → ' + esc(h.hasta) + ': <b>' + soles(h.neto) + '</b> (Yape ' + soles(h.yape) + ' · Efectivo ' + soles(h.efectivo) + extraAE + ') <span class="text-slate-400">' + esc(String(h.creado || '').replace('T', ' ')) + '</span></li>';
     }).join('');
+    var multFer = Number(L.feriadoMultiplicador || 2);
 
     document.getElementById('cuBody').innerHTML =
       '<div class="flex flex-wrap items-end gap-2 mb-2">' +
@@ -6569,17 +6569,18 @@
           '<td class="py-1 pl-2 text-right font-black text-emerald-800 whitespace-nowrap w-24" id="liqBase"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Faltas (' + L.faltas + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.faltasDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqFaltas"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-purple-800">+ Descansos trabajados (' + L.descansos + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.descansosDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-purple-800" id="liqDesc"></td></tr>' +
-        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-green-800">+ Feriados trabajados (' + L.feriados + ' × ' + L.valorDia.toFixed(2) + ')' + cuLista('días', L.feriadosDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-green-800" id="liqFer"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-green-800">+ Feriados trabajados (2×: ' + L.feriados + ' × S/ ' + L.valorDia.toFixed(2) + ' × ' + multFer + ')' + cuLista('días', L.feriadosDias, esc) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-green-800" id="liqFer"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">+ Horas extras (' + L.horasExtraM + ' h = ' + L.horasExtraM + '/8 × S/ ' + L.diarioManana.toFixed(2) + ')' + cuLista('días con extras', L.extrasDetalle, function (x) { return esc(x.fecha) + ': ' + esc(x.raw || (x.horas + ' h')) + ' (' + x.horas + ' h)'; }) + '</td><td></td><td class="py-1 pl-2 text-right font-black text-emerald-800" id="liqExM"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− AFP / planilla (monto fijo, editable)</td><td class="py-1 text-right">S/ <input id="liqAfp" type="text" value="' + L.afp + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqAfpTot"></td></tr>' +
-        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Adelantos de sueldo (de Gastos)' + cuLista('detalle', L.adelantos, function (a) { return esc(a.fecha) + ' · ' + esc(a.descripcion) + ': ' + soles(a.monto) + (a.via === 'descripcion' ? ' <i>(por descripción)</i>' : ''); }) + '</td><td class="py-1 text-right">S/ <input id="liqAdel" type="text" value="' + L.adelantosTotal + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqAdelTot"></td></tr>' +
+        '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Adelantos de sueldo (Gastos: Adelanto / Sueldos y Salarios)' + cuLista('detalle', L.adelantos, function (a) { return esc(a.fecha) + ' · ' + esc(a.descripcion) + ': ' + soles(a.monto) + (a.via === 'descripcion' ? ' <i>(por descripción)</i>' : ''); }) + '</td><td class="py-1 text-right">S/ <input id="liqAdel" type="text" value="' + L.adelantosTotal + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqAdelTot"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold text-red-800">− Consumo tienda (Cargar a la Cuenta)' + cuLista('detalle', L.tienda, function (t) { return esc(t.fecha) + ' · ' + t.cantidad + ' × ' + esc(t.producto) + ': ' + soles(t.subtotal); }) + '</td><td class="py-1 text-right">S/ <input id="liqTienda" type="text" value="' + L.tiendaTotal + '" oninput="cuCalc()" class="' + inpC + '"></td><td class="py-1 pl-2 text-right font-black text-red-700" id="liqTiendaTot"></td></tr>' +
         '<tr class="border-b border-[#EDE3D9]"><td class="py-1 pr-2 font-bold">± Ajuste manual (opcional)</td><td class="py-1 text-right">S/ <input id="liqOtros" type="text" value="0" oninput="cuCalc()" class="' + inpC + '" title="Positivo suma, negativo resta"></td><td class="py-1 pl-2 text-right font-black" id="liqOtrosTot"></td></tr>' +
       '</tbody></table>' +
       '<div class="mt-2 flex items-center justify-between rounded-lg bg-slate-900 text-white px-3 py-2"><span class="font-black text-xs tracking-wide">TOTAL NETO A PAGAR</span><span class="font-black text-xl text-emerald-300" id="liqNeto">S/ 0.00</span></div>' +
-      '<div class="mt-2 grid grid-cols-2 gap-2">' +
-        '<div class="rounded-lg border border-[#D8C7B8] bg-white p-2"><label class="block text-[10px] font-black text-slate-500">📱 Pago por cuenta YAPE (S/)</label><input id="liqYape" type="text" value="0" oninput="cuPago(\'yape\')" class="w-full px-2 py-1 text-right font-black rounded border border-slate-300 text-sm"></div>' +
-        '<div class="rounded-lg border border-[#D8C7B8] bg-white p-2"><label class="block text-[10px] font-black text-slate-500">💵 Pago en EFECTIVO (S/)</label><input id="liqEfec" type="text" value="0" oninput="cuPago(\'efectivo\')" class="w-full px-2 py-1 text-right font-black rounded border border-slate-300 text-sm"></div>' +
+      '<div class="mt-2 grid grid-cols-3 gap-2">' +
+        '<div class="rounded-lg border border-[#D8C7B8] bg-white p-2"><label class="block text-[10px] font-black text-slate-500">📱 YAPE / TRANSF. (S/)</label><input id="liqYape" type="text" value="0" oninput="cuPago(\'yape\')" class="w-full px-2 py-1 text-right font-black rounded border border-slate-300 text-sm"></div>' +
+        '<div class="rounded-lg border border-[#D8C7B8] bg-white p-2"><label class="block text-[10px] font-black text-slate-500">💵 EFECTIVO CAJA (S/)</label><input id="liqEfec" type="text" value="0" oninput="cuPago(\'efectivo\')" class="w-full px-2 py-1 text-right font-black rounded border border-slate-300 text-sm"></div>' +
+        '<div class="rounded-lg border border-[#D8C7B8] bg-white p-2"><label class="block text-[10px] font-black text-slate-500" title="Acumulado Efectivo (cuando el efectivo de caja no alcanza)">🏛️ A. EFECTIVO (S/)</label><input id="liqAEfec" type="text" value="0" oninput="cuPago(\'aEfec\')" class="w-full px-2 py-1 text-right font-black rounded border border-slate-300 text-sm"></div>' +
       '</div>' +
       '<p id="liqAvisoPago" class="text-[10.5px] font-extrabold mt-1"></p>' +
       '<label class="flex items-center gap-1.5 mt-1.5 text-[11px] font-bold text-slate-800 cursor-pointer"><input type="checkbox" id="liqRegGastos" checked> Sincronizar pago con Sheets en <b>Registro_Gastos</b> (categoría «Sueldos y Salarios»)</label>' +
@@ -6600,7 +6601,8 @@
     var L = HOR.liq; if (!L) return;
     var set = function (id, v, neg) { var el = document.getElementById(id); if (el) el.textContent = (neg ? '− ' : (v < 0 ? '− ' : '')) + 'S/ ' + Math.abs(v).toFixed(2); };
     var base = r2(cuNum('liqSueldo1') * cuNum('liqDias1') / 30 + (HOR.tramo2 ? cuNum('liqSueldo2') * cuNum('liqDias2') / 30 : 0));
-    var faltas = r2(L.faltas * L.valorDia), desc = r2(L.descansos * L.valorDia), fer = r2(L.feriados * L.valorDia);
+    var multFer = Number(L.feriadoMultiplicador || 2);
+    var faltas = r2(L.faltas * L.valorDia), desc = r2(L.descansos * L.valorDia), fer = r2(L.feriados * L.valorDia * multFer);
     var exM = r2(L.horasExtraM * L.diarioManana / 8);
     var afp = r2(cuNum('liqAfp')), adel = r2(cuNum('liqAdel')), tienda = r2(cuNum('liqTienda')), otros = r2(cuNum('liqOtros'));
     var neto = r2(base - faltas + desc + fer + exM - afp - adel - tienda + otros);
@@ -6614,25 +6616,50 @@
   window.cuPago = function (quien) {
     var L = HOR.liq; if (!L || !L._calc) return;
     var neto = L._calc.neto;
-    var y = document.getElementById('liqYape'), e = document.getElementById('liqEfec');
-    if (quien === 'yape') { HOR.pagoUlt = 'yape'; e.value = r2(neto - cuNum('liqYape')).toFixed(2); }
-    else if (quien === 'efectivo') { HOR.pagoUlt = 'efectivo'; y.value = r2(neto - cuNum('liqEfec')).toFixed(2); }
-    else if (HOR.pagoUlt === 'efectivo') { y.value = r2(neto - cuNum('liqEfec')).toFixed(2); }
-    else if (HOR.pagoUlt === 'yape') { e.value = r2(neto - cuNum('liqYape')).toFixed(2); }
-    else { y.value = '0.00'; e.value = neto.toFixed(2); }
-    var suma = r2(cuNum('liqYape') + cuNum('liqEfec'));
+    var y = document.getElementById('liqYape'), e = document.getElementById('liqEfec'), a = document.getElementById('liqAEfec');
+    if (quien === 'yape') {
+      HOR.pagoUlt = 'yape';
+      if (e && cuNum('liqAEfec') === 0) e.value = Math.max(0, Math.floor(r2(neto - cuNum('liqYape')))).toFixed(2);
+    } else if (quien === 'efectivo') {
+      HOR.pagoUlt = 'efectivo';
+    } else if (quien === 'aEfec') {
+      HOR.pagoUlt = 'aEfec';
+    } else if (!HOR.pagoUlt) {
+      if (y) y.value = '0.00';
+      if (e) e.value = neto.toFixed(2);
+      if (a) a.value = '0.00';
+    }
+    var suma = r2(cuNum('liqYape') + cuNum('liqEfec') + cuNum('liqAEfec'));
+    var diff = r2(suma - neto);
+    var absDiff = Math.abs(diff);
     var av = document.getElementById('liqAvisoPago');
-    if (av) { var ok = Math.abs(suma - neto) <= 0.05; av.textContent = ok ? '✔ Yape + Efectivo = Total' : '⚠️ Yape + Efectivo (' + soles(suma) + ') no suma el Total (' + soles(neto) + ')'; av.className = 'text-[10.5px] font-extrabold mt-1 ' + (ok ? 'text-emerald-700' : 'text-red-700'); }
+    if (av) {
+      if (absDiff <= 0.01) {
+        av.textContent = '✔ Yape + Efectivo + A. Efectivo = Total exacto (' + soles(suma) + ')';
+        av.className = 'text-[10.5px] font-extrabold mt-1 text-emerald-700';
+      } else if (absDiff <= 1.00) {
+        av.textContent = '✔ Pagos cuadran con flexibilidad de centavos: ' + soles(suma) + ' vs Neto ' + soles(neto) + ' (dif. ' + (diff > 0 ? '+' : '−') + 'S/ ' + absDiff.toFixed(2) + ')';
+        av.className = 'text-[10.5px] font-extrabold mt-1 text-emerald-700';
+      } else {
+        av.textContent = '⚠️ Suma de pagos (' + soles(suma) + ') difiere del Neto (' + soles(neto) + ') en ' + (diff > 0 ? '+' : '−') + 'S/ ' + absDiff.toFixed(2);
+        av.className = 'text-[10.5px] font-extrabold mt-1 text-amber-700';
+      }
+    }
   };
 
   window.cuGuardarLiquidacion = function () {
     var L = HOR.liq; if (!L || !L._calc) return;
+    var yVal = cuNum('liqYape'), eVal = cuNum('liqEfec'), aVal = cuNum('liqAEfec');
+    var suma = r2(yVal + eVal + aVal);
+    var absDiff = Math.abs(suma - L._calc.neto);
+    if (absDiff > 1.00 && !confirm('La suma de pagos (S/ ' + suma.toFixed(2) + ') difiere del neto (S/ ' + L._calc.neto.toFixed(2) + ') por más de S/ 1.00. ¿Deseas guardar igual?')) return;
     var payload = {
       clave: HOR.clave, empleado: L.empleado, desde: L.desde, hasta: L.hasta,
-      neto: L._calc.neto, yape: cuNum('liqYape'), efectivo: cuNum('liqEfec'),
+      neto: L._calc.neto, yape: yVal, efectivo: eVal, aEfec: aVal,
       registrarGastos: !!(document.getElementById('liqRegGastos') || {}).checked,
       detalle: { calc: L._calc, faltasDias: L.faltasDias, descansosDias: L.descansosDias, feriadosDias: L.feriadosDias,
-                 horasExtraM: L.horasExtraM, horasExtraN: L.horasExtraN, adelantos: L.adelantos, tienda: L.tienda }
+                 horasExtraM: L.horasExtraM, horasExtraN: L.horasExtraN, adelantos: L.adelantos, tienda: L.tienda,
+                 pagos: { yape: yVal, efectivo: eVal, aEfec: aVal } }
     };
     if (payload.neto < 0 && !confirm('El total es negativo. ¿Guardar igual?')) return;
     runGas('guardarLiquidacionHorario', [payload], function (r) {
