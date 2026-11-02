@@ -2422,6 +2422,7 @@ def actualizar_comprobante_desde_panel_local(datos: Dict[str, Any]) -> Dict[str,
     nuevo_celular = str(datos.get("celular") or "").strip() if datos.get("celular") is not None else None
     ruc_entrada = re.sub(r"\D", "", str(datos.get("ruc") or ""))
     emp_entrada = str(datos.get("empresa") or "").strip().upper()
+    dni_raw_in = str(datos.get("dni") or "").strip() if datos.get("dni") is not None else None
 
     with db_transaction() as conn:
         st = _buscar_estancia_local(
@@ -2431,6 +2432,20 @@ def actualizar_comprobante_desde_panel_local(datos: Dict[str, Any]) -> Dict[str,
             estancia_uuid=str(datos.get("estanciaUuid") or ""),
             hab=hab_busq,
         )
+
+        dni_prev = str(st["dni"] or "").strip()
+        dni_final = dni_prev
+        dni_actualizado = False
+        if dni_raw_in is not None and dni_raw_in not in ("", "-"):
+            dni_norm_in = normalizar_dni(dni_raw_in, str(st["nac"] or "Perú"))
+            solo_d = re.sub(r"\D", "", dni_norm_in)
+            if len(solo_d) == 7:
+                dni_norm_in = solo_d.zfill(8)
+            elif len(solo_d) == 8 and "/" not in dni_raw_in and "," not in dni_raw_in:
+                dni_norm_in = solo_d
+            if dni_norm_in and dni_norm_in != dni_prev:
+                dni_final = dni_norm_in
+                dni_actualizado = True
 
         ruc_final = ruc_entrada if ruc_entrada else str(st["ruc"] or "").strip()
         emp_final = emp_entrada if emp_entrada else str(st["empresa"] or "").strip()
@@ -2457,18 +2472,19 @@ def actualizar_comprobante_desde_panel_local(datos: Dict[str, Any]) -> Dict[str,
                   AND TRIM(dni) != TRIM(?)
                 LIMIT 1
                 """,
-                (nro_final, str(st["hab"] or ""), str(st["dni"] or "")),
+                (nro_final, str(st["hab"] or ""), dni_final),
             ).fetchone()
             if otra_hab:
                 raise ValueError(
                     f"El comprobante {nro_final} ya pertenece a la Hab. {otra_hab['hab']} "
                     f"({otra_hab['huesped']}, fila #{otra_hab['sheet_row']}). "
-                    f"Verifica que no est?s confundiendo de habitaci?n."
+                    f"Verifica que no estés confundiendo de habitación."
                 )
 
         conn.execute(
             """
             UPDATE estancias SET
+                dni = ?,
                 solicita_comp = 'Sí',
                 tipo_comp = ?,
                 estado_comp = ?,
@@ -2483,7 +2499,7 @@ def actualizar_comprobante_desde_panel_local(datos: Dict[str, Any]) -> Dict[str,
             WHERE estancia_uuid = ?
             """,
             (
-                tipo_final, nuevo_estado, nro_final, monto_final, adic_final,
+                dni_final, tipo_final, nuevo_estado, nro_final, monto_final, adic_final,
                 cel_final, ruc_final, emp_final, datetime.now().isoformat(), st["estancia_uuid"],
             ),
         )
@@ -2511,6 +2527,8 @@ def actualizar_comprobante_desde_panel_local(datos: Dict[str, Any]) -> Dict[str,
                 "celular": cel_final,
                 "ruc": ruc_final,
                 "empresa": emp_final,
+                "dni": dni_final,
+                "dni_actualizado": dni_actualizado,
             },
             delta_caja=0.0,
         )
@@ -2520,6 +2538,7 @@ def actualizar_comprobante_desde_panel_local(datos: Dict[str, Any]) -> Dict[str,
         "fila": int(st["sheet_row"] or 0),
         "estanciaUuid": st["estancia_uuid"],
         "hab": st["hab"],
+        "dni": dni_final,
         "estadoComp": nuevo_estado,
         "tipoComp": tipo_final,
         "nroComp": nro_final,

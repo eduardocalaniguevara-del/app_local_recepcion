@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Panel de Disponibilidad — Hostal Óvalo</title>
   <script src="/static/js/tailwind_local.js"></script>
-  <script src="/static/js/api_bridge.js"></script>
-  <script src="/static/js/facturacion_sunat.js"></script>
+  <script src="/static/js/api_bridge.js?v=20261102b"></script>
+  <script src="/static/js/facturacion_sunat.js?v=20261102b"></script>
   <style>
     html, body {
       height: 100vh;
@@ -2285,13 +2285,7 @@
         let estadoFactHtml = "-";
         let montoFactHtml = "-";
 
-        if (h.estado !== "libre" && fact && fact.estado) {
-          const esFact = Boolean(
-            fact.esFactura ||
-            String(fact.tipoComp || "").toLowerCase().includes("factura") ||
-            fact.ruc ||
-            fact.empresa
-          );
+        if (h.estado !== "libre") {
           const jobSunatVivo = window.sunatJobsPorHab && window.sunatJobsPorHab[String(h.hab)];
           if (jobSunatVivo) {
             const lblVivo = jobSunatVivo.accion === "NOTA_CREDITO"
@@ -2303,51 +2297,67 @@
                     title="${(jobSunatVivo.etapa || 'Procesando en segundo plano...').replace(/"/g, '&quot;')}">
                 ${lblVivo}
               </span>`;
-            const mVivo = Number(fact.montoSolicitadoFact) || Number(fact.montoFacturado) || Number(fact.montoPorFacturar) || 0;
+            const mVivo = fact ? (Number(fact.montoSolicitadoFact) || Number(fact.montoFacturado) || Number(fact.montoPorFacturar) || 0) : 0;
             montoFactHtml = mVivo > 0
               ? `<span class="font-black text-indigo-800">S/ ${mVivo.toFixed(2)}</span>`
               : `<span class="text-slate-400">-</span>`;
-          } else if (fact.estado === "Emitido") {
-            const cpLabel = fact.comprobantesStr ? ` (${fact.comprobantesStr})` : "";
-            const tipoLbl = esFact ? "Factura" : "Boleta";
-            estadoFactHtml = `
-              <span class="detail-pill bg-emerald-100 text-emerald-950 border border-emerald-400"
-                    onclick="verDetalleFacturacion(event, '${h.hab}')"
-                    title="Emitido ${tipoLbl}${cpLabel} — Clic para ver detalles">
-                ✅ ${tipoLbl} <span class="sr-only">Emitido </span><span class="text-[9px]">ℹ️</span>
-              </span>`;
-            const mVal = Number(fact.montoFacturado) || Number(fact.montoPorFacturar) || 0;
-            montoFactHtml = mVal > 0
-              ? `<span class="font-black text-slate-900">S/ ${mVal.toFixed(2)}</span>`
-              : `<span class="text-slate-400">-</span>`;
-          } else if (fact.estado === "Pendiente") {
-            const mAnotado = Number(fact.montoSolicitadoFact) || Number(fact.montoFacturado) || 0;
-            const mSugerido = Number(fact.montoPorFacturar) || 0;
-            const mMostrar = mAnotado > 0 ? mAnotado : mSugerido;
-
-            if (esFact) {
-              // PENDIENTE FACTURA -> NARANJA DESTACADO
+          } else if (fact && fact.estado) {
+            const esFact = Boolean(
+              fact.esFactura ||
+              String(fact.tipoComp || "").toLowerCase().includes("factura") ||
+              fact.ruc ||
+              fact.empresa
+            );
+            if (fact.estado === "Emitido") {
+              const cpLabel = fact.comprobantesStr ? ` (${fact.comprobantesStr})` : "";
+              const tipoLbl = esFact ? "Factura" : "Boleta";
               estadoFactHtml = `
-                <span class="detail-pill bg-orange-500 text-white border border-orange-600 shadow-2xs"
+                <span class="detail-pill bg-emerald-100 text-emerald-950 border border-emerald-400"
                       onclick="verDetalleFacturacion(event, '${h.hab}')"
-                      title="Pendiente Factura (RUC: ${fact.ruc || '-'}) — Clic para ver desglose o cambiar a Emitido">
-                  🟠 Pend. Factura <span class="sr-only">Pendiente Factura </span><span class="text-[9px]">ℹ️</span>
+                      title="Emitido ${tipoLbl}${cpLabel} — Clic para ver detalles">
+                  ✅ ${tipoLbl} <span class="sr-only">Emitido </span><span class="text-[9px]">ℹ️</span>
                 </span>`;
-              montoFactHtml = mMostrar > 0
-                ? `<span class="font-black text-slate-900" title="Monto solicitado para Factura">S/ ${mMostrar.toFixed(2)}</span>`
-                : `<span class="text-slate-400 font-bold">-</span>`;
-            } else {
-              // PENDIENTE BOLETA
-              estadoFactHtml = `
-                <span class="detail-pill bg-amber-100 text-amber-950 border border-amber-400"
-                      onclick="verDetalleFacturacion(event, '${h.hab}')"
-                      title="Pendiente Boleta — Clic para ver desglose o cambiar a Emitido">
-                  ⏳ Pend. Boleta <span class="sr-only">Pendiente Boleta </span><span class="text-[9px]">ℹ️</span>
-                </span>`;
-              montoFactHtml = mMostrar > 0
-                ? `<span class="font-black text-slate-900" title="Monto por facturar (Boleta)">S/ ${mMostrar.toFixed(2)}</span>`
+              const mVal = Number(fact.montoFacturado) || Number(fact.montoPorFacturar) || 0;
+              montoFactHtml = mVal > 0
+                ? `<span class="font-black text-slate-900">S/ ${mVal.toFixed(2)}</span>`
                 : `<span class="text-slate-400">-</span>`;
+            } else if (fact.estado === "Pendiente") {
+              const mAnotado = Number(fact.montoSolicitadoFact) || Number(fact.montoFacturado) || 0;
+              const mSugerido = Number(fact.montoPorFacturar) || 0;
+              const mMostrar = mAnotado > 0 ? mAnotado : mSugerido;
+
+              if (esFact) {
+                // PENDIENTE FACTURA -> NARANJA DESTACADO
+                estadoFactHtml = `
+                  <span class="detail-pill bg-orange-500 text-white border border-orange-600 shadow-2xs"
+                        onclick="verDetalleFacturacion(event, '${h.hab}')"
+                        title="Pendiente Factura (RUC: ${fact.ruc || '-'}) — Clic para ver desglose o emitir en SUNAT">
+                    🟠 Pend. Factura <span class="sr-only">Pendiente Factura </span><span class="text-[9px]">ℹ️</span>
+                  </span>`;
+                montoFactHtml = mMostrar > 0
+                  ? `<span class="font-black text-slate-900" title="Monto solicitado para Factura">S/ ${mMostrar.toFixed(2)}</span>`
+                  : `<span class="text-slate-400 font-bold">-</span>`;
+              } else {
+                // PENDIENTE BOLETA
+                estadoFactHtml = `
+                  <span class="detail-pill bg-amber-100 text-amber-950 border border-amber-400"
+                        onclick="verDetalleFacturacion(event, '${h.hab}')"
+                        title="Pendiente Boleta — Clic para ver desglose o emitir en SUNAT">
+                    ⏳ Pend. Boleta <span class="sr-only">Pendiente Boleta </span><span class="text-[9px]">ℹ️</span>
+                  </span>`;
+                montoFactHtml = mMostrar > 0
+                  ? `<span class="font-black text-slate-900" title="Monto por facturar (Boleta)">S/ ${mMostrar.toFixed(2)}</span>`
+                  : `<span class="text-slate-400">-</span>`;
+              }
             }
+          } else {
+            // Habitación ocupada sin solicitud previa (ej. Efectivo / VISA): botón rápido para emitir si lo piden
+            estadoFactHtml = `
+              <span class="detail-pill bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-800 border border-slate-300 hover:border-indigo-300"
+                    onclick="verDetalleFacturacion(event, '${h.hab}')"
+                    title="Emitir Boleta o Factura en SUNAT para Hab. ${h.hab}">
+                ➕ Emitir
+              </span>`;
           }
         }
 
@@ -3141,9 +3151,37 @@
     function verDetalleFacturacion(e, habNum) {
       if (e) e.stopPropagation();
       const h = habitacionesData.find(x => String(x.hab) === String(habNum));
-      if (!h) return;
-      const f = obtenerFacturacionEfectiva(h);
-      if (!f || !f.estado) return;
+      if (!h || h.estado === "libre") return;
+      let f = obtenerFacturacionEfectiva(h);
+      if (!f || !f.estado) {
+        const tieneRucPrev = Boolean(h.ruc || (h.empresa && h.empresa !== "-"));
+        const tarifaBase = Number(h.tarifaPactada) || Number(h.pagado) || 0;
+        f = {
+          estado: "Pendiente",
+          esFactura: tieneRucPrev,
+          tipoComp: tieneRucPrev ? "Factura" : "Boleta",
+          montoFacturado: 0,
+          montoPorFacturar: tarifaBase,
+          montoSolicitadoFact: tarifaBase,
+          comprobantesStr: "",
+          comprobantesDetalle: [],
+          enCalzado: false,
+          estadoConciliacion: "",
+          yapeEstancia: (h.pagoDetalle && Number(h.pagoDetalle.yape)) || 0,
+          codigoYape: (h.pagoDetalle && h.pagoDetalle.codigoMontoHora) || "",
+          dni: h.dni || "",
+          celular: h.celular || "",
+          ruc: h.ruc || "",
+          empresa: (h.empresa && h.empresa !== "-") ? h.empresa : "",
+          tarifaNoche: Number(h.tarifaPactada) || 0,
+          noches: 1,
+          subtotalAloj: Number(h.tarifaPactada) || 0,
+          adicSnacks: Number(h.adicional) || 0,
+          adicServicios: 0,
+          adicComprobante: 0,
+          filaNum: h.filaNum || 0
+        };
+      }
 
       const esFact = Boolean(
         f.esFactura ||
@@ -3394,17 +3432,30 @@
               <div>
                 <label class="block text-[9.5px] font-black text-slate-700 mb-0.5">🎯 Monto Comp. (S/) *</label>
                 <input type="number" step="0.01" id="modalFact_monto" value="${montoSolicitado > 0 ? montoSolicitado : ''}"
+                       oninput="if(typeof onCambiarMontoCompModal==='function') onCambiarMontoCompModal(this.value)"
                        class="w-full border border-slate-300 rounded-md px-1.5 py-1 bg-white font-black text-slate-900 text-[11px]" />
+              </div>
+              <div>
+                <label class="block text-[9.5px] font-black text-slate-700 mb-0.5 flex items-center justify-between gap-1">
+                  <span>🪪 DNI Huésped</span>
+                  <span id="lblDniModalStatus" class="text-[8.5px] font-bold truncate max-w-[75px]"></span>
+                </label>
+                <input type="text" id="modalFact_dni" maxlength="8" inputmode="numeric"
+                       value="${String(f.dni || h.dni || '').split(/[\/,;]+/)[0].replace(/\D/g, '').slice(0, 8)}"
+                       placeholder="7 u 8 dígitos"
+                       oninput="if(typeof onInputDniModalFact==='function') onInputDniModalFact(this, '${h.hab}')"
+                       class="w-full border border-slate-300 rounded-md px-1.5 py-1 bg-white font-mono font-black text-slate-900 text-[11px]" />
+              </div>
+              <div>
+                <label class="block text-[9.5px] font-bold text-slate-500 mb-0.5">📱 Celular / WSP</label>
+                <input type="text" id="modalFact_celular" value="${celularParaWsp}" placeholder="987654321"
+                       oninput="if(typeof onInputCelularModalFact==='function') onInputCelularModalFact(this, '${h.hab}')"
+                       class="w-full border border-slate-300 rounded-md px-1.5 py-1 bg-white font-mono text-slate-900 text-[11px]" />
               </div>
               <div>
                 <label class="block text-[9.5px] font-bold text-slate-500 mb-0.5">➕ Adic. Comp. (S/)</label>
                 <input type="number" step="0.01" id="modalFact_adicComp" value="${adicComp}"
                        class="w-full border border-slate-300 rounded-md px-1.5 py-1 bg-white font-bold text-slate-900 text-[11px]" />
-              </div>
-              <div>
-                <label class="block text-[9.5px] font-bold text-slate-500 mb-0.5">📱 Celular / WSP</label>
-                <input type="text" id="modalFact_celular" value="${celularParaWsp}" placeholder="987654321"
-                       class="w-full border border-slate-300 rounded-md px-1.5 py-1 bg-white font-mono text-slate-900 text-[11px]" />
               </div>
               <div>
                 <label class="block text-[9.5px] font-bold text-slate-500 mb-0.5">Estado</label>
@@ -3413,7 +3464,7 @@
                   <option value="Emitido" ${f.estado === 'Emitido' ? 'selected' : ''}>✅ Emitido</option>
                 </select>
               </div>
-              <div class="col-span-2">
+              <div>
                 <label class="block text-[9.5px] font-bold text-slate-500 mb-0.5">N° Comprobante (opc.)</label>
                 <input type="text" id="modalFact_nro" value="${nroActual}" placeholder="E001-355"
                        class="w-full border border-slate-300 rounded-md px-1.5 py-1 bg-white font-mono text-slate-900 text-[11px]" />
@@ -3779,11 +3830,24 @@
       const nuevoMonto = inpMonto ? (Number(inpMonto.value) || 0) : 0;
       const nuevoAdic = inpAdic ? (Number(inpAdic.value) || 0) : undefined;
       const nuevoCel = inpCel ? inpCel.value.trim() : (f.celular || h.celular || "");
+      const inpDniModal = document.getElementById("modalFact_dni");
+      const rawDniModal = inpDniModal ? inpDniModal.value.replace(/\D/g, "") : String(f.dni || h.dni || "").split(/[\/,;]+/)[0].replace(/\D/g, "");
+      const nuevoDni = rawDniModal.length === 7 ? ("0" + rawDniModal) : rawDniModal;
       const inpRuc = document.getElementById("modalFact_ruc");
       const inpEmp = document.getElementById("modalFact_empresa");
       const nuevoRuc = inpRuc ? inpRuc.value.replace(/\D/g, "") : (f.ruc || "");
       const nuevaEmpresa = inpEmp ? inpEmp.value.trim().toUpperCase() : (f.empresa || "");
       const eraFactura = Boolean(f.ruc || f.empresa || f.esFactura);
+
+      // Validación estricta de DNI cuando tiene celular o ingresó un DNI incompleto (ej. 4 dígitos)
+      if (typeof window.validarDniConCelularModal === "function") {
+        const chkDni = window.validarDniConCelularModal(rawDniModal, nuevoCel, nuevoTipo === "Factura", nuevoRuc, false);
+        if (!chkDni.ok) {
+          alert(chkDni.error);
+          if (inpDniModal) inpDniModal.focus();
+          return;
+        }
+      }
 
       // Validaciones antes de enviar (Factura requiere RUC válido, Razón Social y Monto)
       if (nuevoTipo === "Factura") {
@@ -3798,18 +3862,18 @@
           return;
         }
         if (!(nuevoMonto > 0)) {
-          alert("⚠️ Indica el monto por el cual se har? la Factura.");
+          alert("⚠️ Indica el monto por el cual se hará la Factura.");
           if (inpMonto) inpMonto.focus();
           return;
         }
         const empPrevia = String(f.empresa || h.empresa || "").trim().toUpperCase();
         if (empPrevia && nuevaEmpresa && empPrevia !== nuevaEmpresa) {
           const confirmarCambio = confirm(
-            `⚠️ ATENCI?N ? CAMBIO DE EMPRESA EN HAB. ${h.hab}\n\n` +
-            `Hu?sped: ${h.huesped || "Sin nombre"}\n` +
+            `⚠️ ATENCIÓN — CAMBIO DE EMPRESA EN HAB. ${h.hab}\n\n` +
+            `Huésped: ${h.huesped || "Sin nombre"}\n` +
             `Empresa actual: ${empPrevia}\n` +
             `Nueva empresa: ${nuevaEmpresa} (RUC ${nuevoRuc})\n\n` +
-            `?Est?s seguro de reemplazar la empresa de esta habitaci?n?`
+            `¿Estás seguro de reemplazar la empresa de esta habitación?`
           );
           if (!confirmarCambio) return;
         }
@@ -3825,6 +3889,7 @@
         hab: h.hab,
         fila: f.filaNum || h.filaNum || 0,
         fechaRef: inputFecha ? inputFecha.value : "",
+        dni: nuevoDni || undefined,
         estadoComp: nuevoEstado,
         tipoComp: nuevoTipo,
         nroComp: nuevoNro,
@@ -3839,10 +3904,12 @@
       const aplicarCambioLocal = function() {
         const esFacturaNueva = nuevoTipo === "Factura";
         h.celular = nuevoCel;
+        if (nuevoDni) h.dni = nuevoDni;
         h.facturacion = Object.assign({}, f, {
           estado: nuevoEstado,
           esFactura: esFacturaNueva,
           tipoComp: nuevoTipo,
+          dni: nuevoDni || f.dni || h.dni || "",
           celular: nuevoCel,
           ruc: esFacturaNueva ? nuevoRuc : "",
           empresa: esFacturaNueva ? nuevaEmpresa : "",

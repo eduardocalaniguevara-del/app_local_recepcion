@@ -148,6 +148,7 @@ class RpcPayload(BaseModel):
 
 WRITE_METHODS = {
     "editarEstanciaBDAdmin",
+    "eliminarEstanciaBDAdmin",
     "editarGastoBDAdmin",
     "eliminarGastoBDAdmin",
     "editarVentaTiendaBDAdmin",
@@ -471,6 +472,8 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             res = dl.obtener_registro_estancias_bd_local(args[0] if args else {})
         elif method_name == "editarEstanciaBDAdmin":
             res = dl.editar_estancia_bd_admin_local(args[0] if args else {})
+        elif method_name == "eliminarEstanciaBDAdmin":
+            res = dl.eliminar_estancia_bd_admin_local(args[0] if args else {})
         elif method_name == "obtenerRegistroGastosBD":
             res = dl.obtener_registro_gastos_bd_local(args[0] if args else {})
         elif method_name == "editarGastoBDAdmin":

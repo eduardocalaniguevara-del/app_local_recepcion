@@ -411,27 +411,27 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
             faltas += 0.5
             d_falta.append(f + " (½ medio tiempo)")
 
-        if est in ("MEDIO DESCANSO",) or (est == "MEDIO TIEMPO" and es_desc):
-            descansos += 0.5
-            d_desc.append(f + " (½ medio tiempo)")
-        elif est == "DESCANSO":
-            descansos += 1
-            d_desc.append(f)
-        elif es_desc and trabajo and est not in ("LIBRE", "FALTÓ"):
-            # Si en su día de descanso solo trabajó un turno / medio tiempo (<= 5.5 h), cuenta como ½ descanso
-            if 0 < h_dia <= 5.5:
+        # Si descanso y feriado coinciden el mismo día, se considera solo el feriado x2 y no se suma descanso
+        es_fer_trab = (f in feriados and (trabajo or est == "FERIADO")) or (est == "FERIADO")
+        if es_fer_trab:
+            feriados_trab += 1
+            nom_fer = feriados.get(f) or "Feriado"
+            d_fer.append(f"{f} {nom_fer}".strip())
+        else:
+            if est in ("MEDIO DESCANSO",) or (est == "MEDIO TIEMPO" and es_desc):
                 descansos += 0.5
                 d_desc.append(f + " (½ medio tiempo)")
-            else:
+            elif est == "DESCANSO":
                 descansos += 1
                 d_desc.append(f)
-
-        if f in feriados and (trabajo or est == "FERIADO"):
-            feriados_trab += 1
-            d_fer.append(f"{f} {feriados[f]}")
-        elif est == "FERIADO":
-            feriados_trab += 1
-            d_fer.append(f)
+            elif es_desc and trabajo and est not in ("LIBRE", "FALTÓ"):
+                # Si en su día de descanso solo trabajó un turno / medio tiempo (<= 5.5 h), cuenta como ½ descanso
+                if 0 < h_dia <= 5.5:
+                    descansos += 0.5
+                    d_desc.append(f + " (½ medio tiempo)")
+                else:
+                    descansos += 1
+                    d_desc.append(f)
         hx = parse_extras(r["extras"]) if r["extras"] else 0.0
         if hx:
             # Todas las horas extras se calculan sobre la base de mañana (S/ 50 / 8h)
@@ -441,23 +441,47 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
             sin_marcar.append(f)
         cur += timedelta(days=1)
 
-    # Adelantos de sueldo (Registro_Gastos) y consumos de tienda (Cargar a la Cuenta)
+    # Adelantos de sueldo (Registro_Gastos: categorías 'Adelanto de sueldo' y 'Sueldos y Salarios') y tienda (Cargar a la Cuenta)
     ini_y, fin_y = _ymd(desde), _ymd(hasta)
     adelantos, asignados = [], set()
     todos_cfg = _lista_empleados(conn, solo_activos=False)
     sin_asignar = []
-    for g in conn.execute("SELECT * FROM gastos WHERE lower(categoria) LIKE 'adelanto%' ORDER BY rowid").fetchall():
+    for g in conn.execute(
+        "SELECT * FROM gastos WHERE (lower(categoria) LIKE 'adelanto%' OR lower(categoria) LIKE '%sueldo%salario%' OR lower(categoria) = 'sueldos y salarios') ORDER BY rowid"
+    ).fetchall():
         ymd = dl.fecha_dmy_a_ymd(g["fecha_gasto_dmy"])
         if not (ini_y <= ymd <= fin_y):
             continue
-        item = {"fecha": g["fecha_gasto_dmy"], "descripcion": g["descripcion"], "monto": float(g["monto"] or 0), "personal": g["personal"] or ""}
-        how = _match_personal(g["personal"], g["descripcion"], cfg)
+        desc = str(g["descripcion"] or "").strip()
+        # Omitir liquidaciones mensuales previas emitidas para no descontar el pago final como si fuera adelanto
+        if desc.lower().startswith("pago sueldo "):
+            continue
+        cat_l = str(g["categoria"] or "").strip().lower()
+        pers = str(g["personal"] or "").strip()
+
+        # Un gasto califica como adelanto si:
+        # a) Categoría empieza con 'adelanto' (ej. 'Adelanto de sueldo')
+        # b) O en 'Sueldos y Salarios', Col J (personal) indica a qué personal pertenece
+        # c) O en 'Sueldos y Salarios', la descripción menciona explícitamente adelanto ('adelanto', 'adel')
+        es_adelanto = cat_l.startswith("adelanto") or bool(pers) or ("adelanto" in desc.lower() or "adel" in desc.lower())
+        if not es_adelanto:
+            continue
+
+        item = {
+            "fecha": g["fecha_gasto_dmy"],
+            "descripcion": desc,
+            "monto": float(g["monto"] or 0),
+            "personal": pers,
+            "categoria": g["categoria"] or "",
+        }
+        how = _match_personal(pers, desc, cfg)
         if how:
             item["via"] = how
             adelantos.append(item)
             continue
-        if not any(_match_personal(g["personal"], g["descripcion"], c) for c in todos_cfg):
-            sin_asignar.append(item)
+        if not any(_match_personal(pers, desc, c) for c in todos_cfg):
+            if cat_l.startswith("adelanto") or "adelanto" in desc.lower():
+                sin_asignar.append(item)
     tienda = []
     for v in conn.execute(
         "SELECT * FROM ventas_tienda WHERE metodo_pago = 'Cargar a la Cuenta' AND personal != '' ORDER BY rowid"
@@ -476,7 +500,7 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
         "valorDia": valor_dia, "afp": float(cfg["afp"]),
         "diasBase": 30 if mes_completo else min(30, n_dias), "diasPeriodo": n_dias,
         "faltas": faltas, "faltasDias": d_falta, "descansos": descansos, "descansosDias": d_desc,
-        "feriados": feriados_trab, "feriadosDias": d_fer,
+        "feriados": feriados_trab, "feriadosDias": d_fer, "feriadoMultiplicador": 2,
         "horasExtraM": round(h_m, 2), "horasExtraN": round(h_n, 2), "extrasDetalle": extras_det,
         "adelantos": adelantos, "adelantosTotal": round(sum(a["monto"] for a in adelantos), 2),
         "adelantosSinAsignar": sin_asignar,
@@ -499,7 +523,7 @@ def obtener_liquidacion_horario_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         liq["empleados"] = [e["empleado"] for e in _lista_empleados(conn)]
         liq["historial"] = [
             {"liqUuid": r["liq_uuid"], "desde": r["desde_dmy"], "hasta": r["hasta_dmy"], "neto": r["neto"], "yape": r["yape"],
-             "efectivo": r["efectivo"], "creado": r["created_at"]}
+             "efectivo": r["efectivo"], "aEfec": (r["a_efec"] if "a_efec" in r.keys() else 0.0) or 0.0, "creado": r["created_at"]}
             for r in conn.execute("SELECT * FROM horario_liquidaciones WHERE empleado = ? ORDER BY created_at DESC LIMIT 12", (cfg["empleado"],)).fetchall()
         ]
         return liq
@@ -606,8 +630,17 @@ def guardar_liquidacion_horario_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     neto = round(float(datos.get("neto") or 0), 2)
     yape = round(float(datos.get("yape") or 0), 2)
     efectivo = round(float(datos.get("efectivo") or 0), 2)
-    if abs((yape + efectivo) - neto) > 0.05:
-        raise ValueError(f"Yape (S/ {yape:.2f}) + Efectivo (S/ {efectivo:.2f}) debe sumar el Total a pagar (S/ {neto:.2f}).")
+    a_efec = round(float(datos.get("aEfec") or datos.get("a_efec") or 0), 2)
+    total_pagos = round(yape + efectivo + a_efec, 2)
+    dif = round(abs(total_pagos - neto), 2)
+
+    # Flexibilidad con centavos: hasta S/ 1.00 de redondeo permitido sin bloquear
+    if dif > 1.00 and not datos.get("ignorarDiferencia"):
+        raise ValueError(
+            f"La suma de pagos (Yape S/ {yape:.2f} + Efectivo S/ {efectivo:.2f} + A. Efec S/ {a_efec:.2f} = S/ {total_pagos:.2f}) "
+            f"difiere del Total a pagar (S/ {neto:.2f}) por S/ {dif:.2f}."
+        )
+
     desde = dl.normalizar_fecha_dmy(datos.get("desde"))
     hasta = dl.normalizar_fecha_dmy(datos.get("hasta"))
     with db_transaction() as conn:
@@ -616,7 +649,7 @@ def guardar_liquidacion_horario_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     registrar_en_gastos = datos.get("registrarGastos", True)
     if registrar_en_gastos:
         periodo = f"{desde} al {hasta}"
-        for monto, metodo in ((yape, "Yape"), (efectivo, "Efectivo")):
+        for monto, metodo in ((yape, "Yape"), (efectivo, "Efectivo"), (a_efec, "A. Efec")):
             if monto > 0:
                 dl.guardar_gasto_local({
                     "fecha": dl.hoy_iso(), "descripcion": f"Pago sueldo {cfg['empleado']} ({periodo}) - {metodo}", "monto": monto,
@@ -627,8 +660,8 @@ def guardar_liquidacion_horario_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     liq_uuid = str(uuid.uuid4())
     with db_transaction() as conn:
         conn.execute(
-            "INSERT INTO horario_liquidaciones (liq_uuid, empleado, desde_dmy, hasta_dmy, neto, yape, efectivo, detalle_json, created_at, equipo) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (liq_uuid, cfg["empleado"], desde, hasta, neto, yape, efectivo,
+            "INSERT INTO horario_liquidaciones (liq_uuid, empleado, desde_dmy, hasta_dmy, neto, yape, efectivo, a_efec, detalle_json, created_at, equipo) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (liq_uuid, cfg["empleado"], desde, hasta, neto, yape, efectivo, a_efec,
              json.dumps(datos.get("detalle") or {}, ensure_ascii=False), datetime.now().isoformat(timespec="seconds"), dl._nombre_equipo()))
     return {"ok": True, "liqUuid": liq_uuid, "gastosCreados": gastos_creados}

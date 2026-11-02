@@ -396,6 +396,7 @@ def init_db() -> None:
                     neto         REAL NOT NULL DEFAULT 0,
                     yape         REAL NOT NULL DEFAULT 0,
                     efectivo     REAL NOT NULL DEFAULT 0,
+                    a_efec       REAL NOT NULL DEFAULT 0,
                     detalle_json TEXT NOT NULL DEFAULT '{}',
                     created_at   TEXT NOT NULL DEFAULT '',
                     equipo       TEXT NOT NULL DEFAULT ''
@@ -425,6 +426,10 @@ def init_db() -> None:
             cols_gas = [r[1] for r in conn.execute("PRAGMA table_info(gastos)").fetchall()]
             if "personal" not in cols_gas:
                 conn.execute("ALTER TABLE gastos ADD COLUMN personal TEXT NOT NULL DEFAULT ''")
+            # Migración: pago por Acumulado Efectivo (A. Efec) en liquidaciones
+            cols_liq = [r[1] for r in conn.execute("PRAGMA table_info(horario_liquidaciones)").fetchall()]
+            if "a_efec" not in cols_liq:
+                conn.execute("ALTER TABLE horario_liquidaciones ADD COLUMN a_efec REAL NOT NULL DEFAULT 0")
             # Semilla de personal (editable luego desde Cuentas / Pagos)
             if not conn.execute("SELECT 1 FROM personal_config LIMIT 1").fetchone():
                 semilla = [

@@ -10,6 +10,7 @@ Reutiliza los motores probados de C:\\Hostal_Sistema:
 - ejecutar_remoto.py (fallback remoto hacia Laptop 2)
 """
 
+import base64
 import glob
 import json
 import os
@@ -259,6 +260,44 @@ def validar_monto_preventivo(monto: float, forzar: bool = False) -> Tuple[bool, 
     return True, "OK"
 
 
+def normalizar_y_validar_dni_servicio(
+    raw_dni: Any,
+    telefono: str = "",
+    exigir_por_wsp: bool = False,
+) -> Tuple[bool, str, str]:
+    """
+    Normaliza DNI peruano (7 dígitos -> 8 dígitos con cero inicial) y aplica regla estricta:
+    - Si se ingresó un DNI no vacío y no tiene 7 u 8 dígitos (ej. 4 dígitos), bloquea la emisión/envío.
+    - Si el huésped tiene número de celular registrado o solicita envío WSP, es OBLIGATORIO tener DNI válido (7 u 8 dígitos).
+    """
+    raw_str = str(raw_dni or "").strip()
+    primer_token = re.split(r"[/,;]+", raw_str)[0].strip() if raw_str else ""
+    es_vacio = primer_token in ("", "-", "SIN DOCUMENTO", "S/D")
+    solo_dig = "" if es_vacio else re.sub(r"\D", "", primer_token)
+    if len(solo_dig) == 7:
+        solo_dig = solo_dig.zfill(8)
+
+    tel_dig = re.sub(r"\D", "", str(telefono or "").strip())
+
+    if not es_vacio and len(solo_dig) != 8:
+        return (
+            False,
+            "",
+            f"El DNI registrado ('{primer_token}' — {len(solo_dig)} dígitos) es incorrecto. "
+            f"Corríjalo con 7 u 8 dígitos válidos antes de emitir o enviar.",
+        )
+
+    if (tel_dig or exigir_por_wsp) and len(solo_dig) != 8:
+        return (
+            False,
+            "",
+            f"El huésped tiene celular registrado ({tel_dig or 'WhatsApp'}), por lo que es OBLIGATORIO "
+            f"que tenga su DNI correcto (7 u 8 dígitos) antes de emitir o enviar el comprobante.",
+        )
+
+    return True, solo_dig, ""
+
+
 def buscar_pdf_comprobante(nro_cp: str = "", ruc_dni: str = "", cliente: str = "") -> Optional[str]:
     patrones = [
         str(DESCARGAS_RECEPCION_DIR / "*.pdf"),
@@ -283,11 +322,12 @@ def buscar_pdf_comprobante(nro_cp: str = "", ruc_dni: str = "", cliente: str = "
         if palabras:
             terminos.append(palabras[0])
 
-    for ruta in archivos[:50]:
+    terminos_limpios = [t for t in terminos if t]
+    for ruta in archivos[:120]:
         nom = os.path.basename(ruta).lower()
-        if any(t in nom for t in terminos if t):
+        if any(t in nom for t in terminos_limpios):
             return ruta
-    return archivos[0]
+    return None if terminos_limpios else archivos[0]
 
 
 # ==============================================================================
@@ -326,16 +366,29 @@ def listar_jobs_sunat_recientes() -> List[Dict[str, Any]]:
     return jobs
 
 
-def _despachar_wsp_pdf(telefono: str, pdf_path: str, mensaje: str) -> Tuple[bool, str, str]:
-    """Despacha mensaje + PDF usando WhatsApp Desktop local o delegación a Laptop 2."""
+def _despachar_wsp_pdf(
+    telefono: str,
+    pdf_path: str,
+    mensaje: str,
+    nro_cp: str = "",
+) -> Tuple[bool, str, str]:
+    """
+    Despacha mensaje + PDF siempre por el WhatsApp de Recepción (Laptop 2):
+    - En Laptop 2 (es_laptop_recepcion_directa): ejecuta brazo_wsp.py directo en esta PC.
+    - En Laptop 1 (Controlador): delega a Laptop 2 vía ejecutar_remoto.py para no tocar el WhatsApp personal
+      de Laptop 1 y usar el archivo PDF guardado en Laptop 2.
+    """
     py_bin = _python_cli_bin()
-    directo_local = es_laptop_recepcion_directa() or _whatsapp_local_activo()
+    en_recepcion = es_laptop_recepcion_directa()
+    pista_archivo = os.path.basename(pdf_path) if pdf_path else (nro_cp or "")
 
-    if directo_local and BRAZO_WSP_SCRIPT.exists():
+    if en_recepcion and BRAZO_WSP_SCRIPT.exists():
         cmd = [py_bin, str(BRAZO_WSP_SCRIPT), "--telefono", telefono, "--mensaje", mensaje]
         if pdf_path:
             cmd.extend(["--archivo", pdf_path])
-    else:
+        elif nro_cp:
+            cmd.extend(["--archivo", nro_cp])
+    elif EJECUTAR_REMOTO_SCRIPT.exists():
         cmd = [
             py_bin,
             str(EJECUTAR_REMOTO_SCRIPT),
@@ -343,9 +396,11 @@ def _despachar_wsp_pdf(telefono: str, pdf_path: str, mensaje: str) -> Tuple[bool
             "--telefono", telefono,
             "--mensaje", mensaje,
         ]
-        if pdf_path:
-            cmd.extend(["--archivo", os.path.basename(pdf_path)])
-        cmd.extend(["--timeout-remoto", "120"])
+        if pista_archivo:
+            cmd.extend(["--archivo", pista_archivo])
+        cmd.extend(["--timeout-remoto", "135"])
+    else:
+        return False, "", "No se encontró brazo_wsp.py ni ejecutar_remoto.py en C:\\Hostal_Sistema."
 
     proc = subprocess.run(
         cmd,
@@ -353,7 +408,7 @@ def _despachar_wsp_pdf(telefono: str, pdf_path: str, mensaje: str) -> Tuple[bool
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=150,
+        timeout=160,
         creationflags=CREATE_NO_WINDOW,
     )
     ok = proc.returncode == 0
@@ -380,10 +435,11 @@ def _ejecutar_trabajo_sunat_wsp(
         modo_borrador = data_norm["modoBorrador"]
         tipo = data_norm["tipo"]
         py_bin = _python_cli_bin()
+        en_recepcion = es_laptop_recepcion_directa()
         CAPTURAS_SUNAT_DIR.mkdir(parents=True, exist_ok=True)
 
         # ------------------------------------------------------------------
-        # CASO A: REENVÍO SOLO WHATSAPP
+        # CASO A: REENVÍO SOLO WHATSAPP (Directo en Laptop 2 o Delegado desde Laptop 1)
         # ------------------------------------------------------------------
         if accion == "SOLO_WSP":
             tel = data_norm["telefono"]
@@ -391,15 +447,16 @@ def _ejecutar_trabajo_sunat_wsp(
             doc = data_norm["documento"]
             cli = data_norm["cliente"]
             pdf_path = data_norm["archivo"]
-            if not pdf_path or not os.path.isfile(pdf_path):
+            if en_recepcion and (not pdf_path or not os.path.isfile(pdf_path)):
                 pdf_path = buscar_pdf_comprobante(nro_cp=nro_cp, ruc_dni=doc, cliente=cli) or ""
             msg = (
                 data_norm.get("mensaje")
                 or f"Estimado(a) {cli or 'cliente'}, adjuntamos su comprobante electrónico {nro_cp} del Hostal El Óvalo Mariátegui. ¡Gracias por su preferencia!"
             )
             if job_id:
-                _update_job(job_id, state="RUNNING", etapa=f"📲 Enviando {nro_cp or 'comprobante'} por WhatsApp a {tel}...")
-            ok_wsp, out_wsp, err_wsp = _despachar_wsp_pdf(tel, pdf_path, msg)
+                pref_pc = "" if en_recepcion else "📡 [Laptop 1 → Recepción] "
+                _update_job(job_id, state="RUNNING", etapa=f"{pref_pc}📲 Enviando {nro_cp or 'comprobante'} por WhatsApp a {tel}...")
+            ok_wsp, out_wsp, err_wsp = _despachar_wsp_pdf(tel, pdf_path, msg, nro_cp=nro_cp)
             return {
                 "status": "OK" if ok_wsp else "ERROR",
                 "accion": "SOLO_WSP",
@@ -419,29 +476,46 @@ def _ejecutar_trabajo_sunat_wsp(
             motivo = data_norm["motivo"]
             cap_name = f"nc_{'borrador' if modo_borrador else 'emitida'}_{tipo.lower()}_{int(time.time())}.png"
             cap_path = CAPTURAS_SUNAT_DIR / cap_name
+            cap_remota_str = f"C:\\Hostal_Sistema\\capturas\\{cap_name}"
 
             if job_id:
+                pref_pc = "" if en_recepcion else "📡 [Laptop 1 → Recepción] "
                 _update_job(
                     job_id,
                     state="RUNNING",
                     etapa=(
-                        f"🧪 Generando Vista Preliminar de Nota de Crédito ({nro_origen})..."
+                        f"{pref_pc}🧪 Generando Vista Preliminar de Nota de Crédito ({nro_origen})..."
                         if modo_borrador
-                        else f"🧾↩️ Emitiendo Nota de Crédito en SUNAT para anular {nro_origen}..."
+                        else f"{pref_pc}🧾↩️ Emitiendo Nota de Crédito en SUNAT para anular {nro_origen}..."
                     ),
                 )
 
-            cmd_nc = [
-                py_bin,
-                str(EMITIR_NC_SCRIPT),
-                "--tipo", tipo,
-                "--numero", nro_origen,
-                "--motivo", motivo,
-                "--headless",
-                "--captura", str(cap_path),
-            ]
-            if not modo_borrador:
-                cmd_nc.append("--emitir")
+            if en_recepcion or not EJECUTAR_REMOTO_SCRIPT.exists():
+                cmd_nc = [
+                    py_bin,
+                    str(EMITIR_NC_SCRIPT),
+                    "--tipo", tipo,
+                    "--numero", nro_origen,
+                    "--motivo", motivo,
+                    "--headless",
+                    "--captura", str(cap_path),
+                ]
+                if not modo_borrador:
+                    cmd_nc.append("--emitir")
+            else:
+                cmd_nc = [
+                    py_bin,
+                    str(EJECUTAR_REMOTO_SCRIPT),
+                    "emitir_nota_credito_sunat.py",
+                    "--tipo", tipo,
+                    "--numero", nro_origen,
+                    "--motivo", motivo,
+                    "--headless",
+                    "--captura", cap_remota_str,
+                ]
+                if not modo_borrador:
+                    cmd_nc.append("--emitir")
+                cmd_nc.extend(["--timeout-remoto", "180"])
 
             proc_nc = subprocess.run(
                 cmd_nc,
@@ -449,7 +523,7 @@ def _ejecutar_trabajo_sunat_wsp(
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=180,
+                timeout=210,
                 creationflags=CREATE_NO_WINDOW,
             )
             stdout_nc = proc_nc.stdout or ""
@@ -457,6 +531,9 @@ def _ejecutar_trabajo_sunat_wsp(
             idx_res = stdout_nc.find("--- RESUMEN FINAL ---")
             if idx_res != -1:
                 bloque = stdout_nc[idx_res + len("--- RESUMEN FINAL ---"):].strip()
+                # Si vino por ejecutar_remoto.py, cortar antes del separador STDERR
+                if "------------------------------------------------------------" in bloque:
+                    bloque = bloque.split("------------------------------------------------------------")[0].strip()
                 try:
                     res_nc = json.loads(bloque)
                 except Exception:
@@ -464,6 +541,11 @@ def _ejecutar_trabajo_sunat_wsp(
 
             st_nc = str(res_nc.get("status") or "").upper()
             if modo_borrador and st_nc == "BORRADOR_GENERADO":
+                if not en_recepcion and not cap_path.exists():
+                    for _ in range(16):
+                        if cap_path.exists():
+                            break
+                        time.sleep(0.5)
                 return {
                     "status": "OK",
                     "modo": "borrador",
@@ -538,23 +620,30 @@ def _ejecutar_trabajo_sunat_wsp(
             }
 
         # ------------------------------------------------------------------
-        # CASO C: EMISIÓN DE BOLETA / FACTURA (MODO BORRADOR O OFICIAL + WSP)
+        # CASO C: EMISIÓN DE BOLETA / FACTURA (LAPTOP 2 DIRECTO O LAPTOP 1 -> LAPTOP 2)
         # ------------------------------------------------------------------
         emitir_en_firme = not modo_borrador
         items_normalizados = data_norm["items"]
         total_monto = data_norm["total_monto"]
         doc_num = data_norm["documento"]
+        dni_huesped = data_norm.get("dni_huesped", "")
         cliente = data_norm["cliente"]
         telefono = data_norm["telefono"]
 
+        # En Laptop 2 (Recepción) corre directo local; en Laptop 1 delega el flujo completo a Laptop 2
+        # vía ejecutar_remoto.py (Syncthing) para emitir y despachar el PDF desde WhatsApp Recepción.
+        usar_remoto_completo = (not en_recepcion) and EJECUTAR_REMOTO_SCRIPT.exists()
+
         if job_id:
+            pref_pc = "📡 [Laptop 1 → Recepción] " if usar_remoto_completo else ""
+            suf_wsp = " + Envío WSP" if (usar_remoto_completo and accion == "EMITIR_Y_WSP" and emitir_en_firme) else ""
             _update_job(
                 job_id,
                 state="RUNNING",
                 etapa=(
-                    f"🧪 Abriendo Vista Preliminar de {tipo.title()} en SUNAT SEE-SOL..."
+                    f"{pref_pc}🧪 Abriendo Vista Preliminar de {tipo.title()} en SUNAT SEE-SOL..."
                     if modo_borrador
-                    else f"⚡ Emitiendo {tipo.title()} S/ {total_monto:.2f} en SUNAT SEE-SOL (IGV 10.5%)..."
+                    else f"{pref_pc}⚡ Emitiendo {tipo.title()} S/ {total_monto:.2f} en SUNAT SEE-SOL (IGV 10.5%){suf_wsp}..."
                 ),
             )
 
@@ -562,10 +651,11 @@ def _ejecutar_trabajo_sunat_wsp(
             "accion": accion,
             "tipo": tipo,
             "documento": doc_num,
+            "dni_huesped": dni_huesped,
             "cliente": cliente,
             "items": items_normalizados,
             "telefono": telefono,
-            "enviar_wsp": False,  # El paso WSP se ejecuta como Etapa 2 controlada aquí mismo
+            "enviar_wsp": bool(usar_remoto_completo and accion == "EMITIR_Y_WSP" and emitir_en_firme),
             "emitir": emitir_en_firme,
             "omitir_sheets": True,
             "headless": True,
@@ -573,14 +663,7 @@ def _ejecutar_trabajo_sunat_wsp(
             "fila_calzado": fila_calzado,
         }
 
-        directo_local = es_laptop_recepcion_directa() or _whatsapp_local_activo()
-        # SIEMPRE emitir en SUNAT localmente (máxima velocidad, igual que emitir_boleta_sunat.py),
-        # y en Etapa 2 (_despachar_wsp_pdf) enviar el PDF por WhatsApp (local o delegado a Laptop 2).
-        usar_remoto_completo = False
-
         if usar_remoto_completo:
-            # Si se ordenó desde Laptop 1 y el WhatsApp está en Laptop 2, Laptop 2 emite y envía directo
-            payload_sunat["enviar_wsp"] = True
             cmd = [
                 py_bin,
                 str(EJECUTAR_REMOTO_SCRIPT),
@@ -623,8 +706,17 @@ def _ejecutar_trabajo_sunat_wsp(
                 "error": res_json.get("error") or (proc.stderr or stdout_all)[-500:] or "Error desconocido en emisión SUNAT.",
             }
 
-        # Si fue Modo Borrador, devolver captura sin alterar estado Pendiente
+        # Si fue Modo Borrador, materializar captura en disco local (instantáneo en Laptop 1 vía captura_b64)
         if modo_borrador:
+            nom_cap = str(res_json.get("nombre_captura") or "").strip()
+            cap_b64 = str(res_json.get("captura_b64") or "").strip()
+            if nom_cap and cap_b64:
+                try:
+                    local_cap = CAPTURAS_SUNAT_DIR / Path(nom_cap).name
+                    if not local_cap.exists():
+                        local_cap.write_bytes(base64.b64decode(cap_b64))
+                except Exception:
+                    pass
             return {
                 "status": "OK",
                 "modo": "borrador",
@@ -633,7 +725,7 @@ def _ejecutar_trabajo_sunat_wsp(
                 "tipo": tipo,
                 "nro_comprobante": "BORRADOR-PRELIMINAR",
                 "captura": res_json.get("captura", ""),
-                "nombre_captura": res_json.get("nombre_captura", ""),
+                "nombre_captura": nom_cap,
                 "monto": total_monto,
                 "mensaje": f"Vista Preliminar de {tipo.title()} generada en SUNAT (sin emitir).",
             }
@@ -641,9 +733,9 @@ def _ejecutar_trabajo_sunat_wsp(
         nro_cp = str(res_json.get("nro_comprobante") or "").strip()
         archivo_pdf = str(res_json.get("archivo_pdf") or "").strip()
         wsp_status = res_json.get("wsp_status", "NO_SOLICITADO")
-        wsp_err = ""
+        wsp_err = str(res_json.get("wsp_error") or "").strip()
 
-        # Etapa 2: Enviar por WhatsApp (si fue EMITIR_Y_WSP local) ANTES de cambiar a Emitido en el Panel
+        # Etapa 2: Enviar por WhatsApp (cuando corrió directo en Laptop 2) ANTES de cambiar a Emitido en el Panel
         if accion == "EMITIR_Y_WSP" and not usar_remoto_completo and telefono:
             if job_id:
                 _update_job(
@@ -655,7 +747,7 @@ def _ejecutar_trabajo_sunat_wsp(
                 f"Estimado(a) {cliente}, le adjuntamos su {tipo_lbl} Electrónica {nro_cp}. "
                 f"¡Muchas gracias por su preferencia en Hostal El Óvalo Mariátegui!"
             )
-            ok_wsp, _, err_wsp = _despachar_wsp_pdf(telefono, archivo_pdf, msg_wsp)
+            ok_wsp, _, err_wsp = _despachar_wsp_pdf(telefono, archivo_pdf, msg_wsp, nro_cp=nro_cp)
             wsp_status = "ENVIADO" if ok_wsp else "ERROR_WSP"
             wsp_err = err_wsp
 
@@ -666,6 +758,7 @@ def _ejecutar_trabajo_sunat_wsp(
                     "hab": hab,
                     "estanciaUuid": estancia_uuid,
                     "fila": id_estancia,
+                    "dni": dni_huesped if dni_huesped else None,
                     "estadoComp": "Emitido",
                     "tipoComp": "Factura" if tipo == "FACTURA" else "Boleta",
                     "nroComp": nro_cp,
@@ -759,6 +852,11 @@ def ejecutar_orden_sunat_wsp(
         tel = re.sub(r"\D", "", str(data.get("telefono") or "").strip())
         if not tel:
             return {"status": "ERROR", "error": "Ingrese un número de celular válido para enviar por WhatsApp."}
+        dni_wsp_in = data.get("dni_huesped") if data.get("dni_huesped") is not None else data.get("dni")
+        if dni_wsp_in is not None:
+            ok_d, _, err_d = normalizar_y_validar_dni_servicio(dni_wsp_in, telefono=tel, exigir_por_wsp=True)
+            if not ok_d:
+                return {"status": "ERROR", "error": err_d}
         data_norm = {
             "accion": "SOLO_WSP",
             "hab": hab,
@@ -811,18 +909,44 @@ def ejecutar_orden_sunat_wsp(
     # 3. Validación rápida EMITIR / EMITIR_Y_WSP
     else:
         tipo = str(data.get("tipo") or data.get("tipoDoc") or "BOLETA").upper().strip()
-        doc_num = re.sub(r"\D", "", str(data.get("documento") or data.get("docReceptor") or "").strip())
+        doc_raw = str(data.get("documento") or data.get("docReceptor") or "").strip()
+        dni_huesped_raw = str(data.get("dni_huesped") if data.get("dni_huesped") is not None else (data.get("dni") or "")).strip()
         cliente = str(data.get("cliente") or data.get("nombreReceptor") or "CLIENTES VARIOS").strip().upper()
         telefono = re.sub(r"\D", "", str(data.get("telefono") or "").strip())
         forzar = bool(data.get("forzar", False))
         raw_items = data.get("items") or []
+        exigir_wsp = bool(accion == "EMITIR_Y_WSP" and not modo_borrador)
 
-        if tipo == "FACTURA" and (len(doc_num) != 11 or not re.match(r"^(10|15|17|20)", doc_num)):
-            return {"status": "ERROR", "error": "Para emitir FACTURA se requiere un RUC válido de 11 dígitos (10 o 20)."}
+        if exigir_wsp and not telefono:
+            return {"status": "ERROR", "error": "Para 'Emitir y Enviar WSP' debe ingresar el número de WhatsApp del cliente."}
+
+        if tipo == "FACTURA":
+            doc_num = re.sub(r"\D", "", doc_raw)
+            if len(doc_num) != 11 or not re.match(r"^(10|15|17|20)", doc_num):
+                return {"status": "ERROR", "error": "Para emitir FACTURA se requiere un RUC válido de 11 dígitos (10 o 20)."}
+            dni_para_validar = dni_huesped_raw
+            if not dni_para_validar and doc_num.startswith("10"):
+                dni_para_validar = doc_num[2:10]
+            ok_dni, dni_huesped_norm, err_dni = normalizar_y_validar_dni_servicio(
+                dni_para_validar,
+                telefono=telefono,
+                exigir_por_wsp=exigir_wsp,
+            )
+            if not ok_dni:
+                return {"status": "ERROR", "error": err_dni}
+        else:
+            dni_fuente = doc_raw if doc_raw else dni_huesped_raw
+            ok_dni, doc_num, err_dni = normalizar_y_validar_dni_servicio(
+                dni_fuente,
+                telefono=telefono,
+                exigir_por_wsp=exigir_wsp,
+            )
+            if not ok_dni:
+                return {"status": "ERROR", "error": err_dni}
+            dni_huesped_norm = doc_num
+
         if not raw_items:
             return {"status": "ERROR", "error": "Debe incluir al menos un ítem para emitir en SUNAT."}
-        if accion == "EMITIR_Y_WSP" and not modo_borrador and not telefono:
-            return {"status": "ERROR", "error": "Para 'Emitir y Enviar WSP' debe ingresar el número de WhatsApp del cliente."}
 
         items_normalizados = []
         total_monto = 0.0
@@ -860,6 +984,7 @@ def ejecutar_orden_sunat_wsp(
             "modoBorrador": modo_borrador,
             "tipo": tipo,
             "documento": doc_num,
+            "dni_huesped": dni_huesped_norm,
             "cliente": cliente,
             "telefono": telefono,
             "items": items_normalizados,

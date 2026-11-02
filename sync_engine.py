@@ -1421,15 +1421,17 @@ def process_sync_queue() -> Dict[str, Any]:
                         ws_bd, int(payload.get("sheet_row") or 0), payload.get("id_timestamp_str") or ""
                     )
                     if t_row >= 2:
-                        ws_bd.batch_update(
-                            [
-                                {"range": f"U{t_row}", "values": [[payload["adic_comp"]]]},
-                                {"range": f"AF{t_row}:AJ{t_row}", "values": [payload["bloque_afaj"]]},
-                                {"range": f"AQ{t_row}", "values": [[payload["empresa"]]]},
-                                {"range": f"AX{t_row}:AY{t_row}", "values": [[payload["celular"], payload["ruc"]]]},
-                            ],
-                            value_input_option="USER_ENTERED",
-                        )
+                        lotes_fact = [
+                            {"range": f"U{t_row}", "values": [[payload["adic_comp"]]]},
+                            {"range": f"AF{t_row}:AJ{t_row}", "values": [payload["bloque_afaj"]]},
+                            {"range": f"AQ{t_row}", "values": [[payload["empresa"]]]},
+                            {"range": f"AX{t_row}:AY{t_row}", "values": [[payload["celular"], payload["ruc"]]]},
+                        ]
+                        if payload.get("dni_actualizado") and payload.get("dni"):
+                            dni_str = str(payload["dni"]).strip()
+                            dni_cell = f"'{dni_str}" if dni_str.startswith("0") else dni_str
+                            lotes_fact.append({"range": f"E{t_row}", "values": [[dni_cell]]})
+                        ws_bd.batch_update(lotes_fact, value_input_option="USER_ENTERED")
                     with db_transaction() as c_up:
                         c_up.execute("UPDATE estancias SET dirty = 0 WHERE estancia_uuid = ?", (item["entity_uuid"],))
 

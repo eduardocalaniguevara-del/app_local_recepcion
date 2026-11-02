@@ -73,11 +73,147 @@
   // 1. GESTIÓN DE ÍTEMS Y DESGLOSE OP. GRAVADA + IGV 10.5% + IMPORTE TOTAL
   // =========================================================================
 
+  const MESES_ES_SUNAT = [
+    "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO",
+    "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"
+  ];
+  let _timerDniModalLookup = null;
+
+  function _formatearFechaAlojamientoTexto(fechaRaw) {
+    const s = String(fechaRaw || "").trim();
+    if (!s || s === "-") return "HOY";
+    let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (m) {
+      const dia = parseInt(m[1], 10);
+      const mesIdx = parseInt(m[2], 10) - 1;
+      if (dia >= 1 && dia <= 31 && mesIdx >= 0 && mesIdx < 12) {
+        return `${dia} DE ${MESES_ES_SUNAT[mesIdx]}`;
+      }
+    }
+    m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) {
+      const dia = parseInt(m[3], 10);
+      const mesIdx = parseInt(m[2], 10) - 1;
+      if (dia >= 1 && dia <= 31 && mesIdx >= 0 && mesIdx < 12) {
+        return `${dia} DE ${MESES_ES_SUNAT[mesIdx]}`;
+      }
+    }
+    return s.toUpperCase();
+  }
+
+  /**
+   * Valida y normaliza DNI (7 dígitos -> 8 dígitos con '0' adelante):
+   * - Si ingresó algún DNI con longitud inválida (ej. 4 dígitos), bloquea.
+   * - Si tiene número de celular registrado o solicita envío WSP, es OBLIGATORIO tener DNI válido (7 u 8 dígitos).
+   */
+  window.validarDniConCelularModal = function (rawDni, rawCelular, esFact, ruc, exigirPorWsp) {
+    const cel = String(rawCelular || "").replace(/\D/g, "").trim();
+    const token = String(rawDni || "").split(/[\/,;]+/)[0].trim();
+    const esVacio = !token || token === "-" || token.toUpperCase() === "SIN DOCUMENTO";
+    let dniDig = esVacio ? "" : token.replace(/\D/g, "");
+    if (dniDig.length === 7) {
+      dniDig = "0" + dniDig;
+    }
+    const rucClean = String(ruc || "").replace(/\D/g, "");
+    if (esFact && !dniDig && /^10\d{9}$/.test(rucClean)) {
+      dniDig = rucClean.slice(2, 10);
+    }
+
+    if (!esVacio && dniDig.length !== 8) {
+      return {
+        ok: false,
+        dniNormalizado: "",
+        error:
+          `⚠️ El DNI registrado ('${token}' — ${token.replace(/\D/g, "").length} dígitos) es incorrecto.\n\n` +
+          `Debe tener 7 u 8 dígitos numéricos válidos antes de emitir o enviar.`,
+      };
+    }
+
+    if ((cel.length > 0 || exigirPorWsp) && dniDig.length !== 8) {
+      return {
+        ok: false,
+        dniNormalizado: "",
+        error:
+          `⚠️ El huésped tiene número de celular (${cel || "WhatsApp"}), por lo que es OBLIGATORIO ` +
+          `tener su DNI correcto (7 u 8 dígitos) antes de emitir o enviar la ${esFact ? "Factura" : "Boleta"}.\n\n` +
+          `Corrija el campo '🪪 DNI Huésped' en esta ventana.`,
+      };
+    }
+
+    return { ok: true, dniNormalizado: dniDig, error: "" };
+  };
+
+  function _refrescarEstadoVisualDniModal(consultarReniec) {
+    const inpDni = document.getElementById("modalFact_dni");
+    const inpCel = document.getElementById("modalFact_celular");
+    const lbl = document.getElementById("lblDniModalStatus");
+    if (!inpDni) return;
+
+    const val = String(inpDni.value || "").replace(/\D/g, "").slice(0, 8);
+    if (inpDni.value !== val) inpDni.value = val;
+    const cel = String(inpCel?.value || "").replace(/\D/g, "");
+    const esFact = String(document.getElementById("modalFact_tipo")?.value || "").toUpperCase() === "FACTURA";
+    const ruc = String(document.getElementById("modalFact_ruc")?.value || "").replace(/\D/g, "");
+    const chk = window.validarDniConCelularModal(val, cel, esFact, ruc, false);
+
+    inpDni.classList.remove("border-slate-300", "border-red-500", "bg-red-50", "border-emerald-500");
+    if (!chk.ok) {
+      inpDni.classList.add("border-red-500", "bg-red-50");
+      if (lbl) {
+        lbl.textContent = val.length > 0 ? `⚠️ ${val.length} díg.` : "⚠️ Req. DNI";
+        lbl.className = "text-[8.5px] font-black text-red-600 truncate max-w-[75px]";
+      }
+      return;
+    }
+
+    if (val.length === 7 || val.length === 8) {
+      inpDni.classList.add("border-emerald-500");
+      const dni8 = val.length === 7 ? ("0" + val) : val;
+      if (lbl) {
+        lbl.textContent = val.length === 7 ? `✅ ${dni8}` : "✅ DNI OK";
+        lbl.className = "text-[8.5px] font-bold text-emerald-700 truncate max-w-[75px]";
+      }
+      if (consultarReniec && typeof google !== "undefined" && google.script && google.script.run) {
+        clearTimeout(_timerDniModalLookup);
+        _timerDniModalLookup = setTimeout(() => {
+          google.script.run
+            .withSuccessHandler((res) => {
+              if (res && res.ok && res.nombre && lbl) {
+                lbl.textContent = "✅ " + res.nombre.split(" ")[0];
+                lbl.title = res.nombre;
+                lbl.className = "text-[8.5px] font-bold text-emerald-700 truncate max-w-[75px]";
+              }
+            })
+            .consultarDniReniec(dni8);
+        }, 320);
+      }
+    } else {
+      inpDni.classList.add("border-slate-300");
+      if (lbl) {
+        lbl.textContent = "";
+        lbl.className = "text-[8.5px] font-bold text-slate-400 truncate max-w-[75px]";
+      }
+    }
+  }
+
+  window.onInputDniModalFact = function () {
+    _refrescarEstadoVisualDniModal(true);
+  };
+
+  window.onInputCelularModalFact = function (inp) {
+    if (inp) {
+      const limpio = String(inp.value || "").replace(/[^\d+\s-]/g, "");
+      if (inp.value !== limpio) inp.value = limpio;
+    }
+    _refrescarEstadoVisualDniModal(false);
+  };
+
   window.inicializarItemsFacturacionModal = function (h, montoSolicitado, subtotalAloj, tarifaNoche) {
     _habActivaModal = String(h.hab || "");
     _tarifaRefModal = Number(tarifaNoche) > 0 ? Number(tarifaNoche) : 60;
     _focusedItemIdx = 0;
-    const defaultDesc = `DIA DE ALOJAMIENTO DEL ${h.checkIn || "HOY"}, HAB N ${h.hab}`;
+    const fechaTxt = _formatearFechaAlojamientoTexto(h.checkIn);
+    const defaultDesc = `DIA DE ALOJAMIENTO DEL ${fechaTxt}, HAB N ${h.hab}`;
     const defaultPrecio = Number(montoSolicitado) > 0
       ? Number(montoSolicitado)
       : (Number(subtotalAloj) || Number(tarifaNoche) || 0);
@@ -89,6 +225,7 @@
       },
     ];
     _renderizarTablasItems();
+    _refrescarEstadoVisualDniModal(false);
   };
 
   window.agregarFilaItemSunat = function (cant, desc, precioUnit) {
@@ -122,12 +259,30 @@
   };
 
   function _construirTextoIdentidadHuesped(h, f) {
-    const rawDni = String((f && f.dni) || (h && h.dni) || "").trim();
+    const inpDniModal = document.getElementById("modalFact_dni");
+    const modalDniVal = inpDniModal ? String(inpDniModal.value || "").trim() : "";
+    const rawDni = modalDniVal || String((f && f.dni) || (h && h.dni) || "").trim();
     const rawNom = String((h && h.huesped) || "").trim().toUpperCase();
     if ((!rawDni || rawDni === "-") && (!rawNom || rawNom === "-")) {
-      return "";
+      return { ok: true, texto: "", error: "" };
     }
-    const dnis = rawDni.split(/[\/,;]+/).map((s) => s.replace(/\D/g, "").trim()).filter(Boolean);
+    const dnisBrutos = rawDni
+      .split(/[\/,;]+/)
+      .map((s) => s.replace(/\D/g, "").trim())
+      .filter(Boolean);
+
+    for (let i = 0; i < dnisBrutos.length; i++) {
+      const tok = dnisBrutos[i];
+      if (tok.length !== 7 && tok.length !== 8) {
+        return {
+          ok: false,
+          texto: "",
+          error: `⚠️ El DNI '${tok}' (${tok.length} dígitos) es inválido. Corríjalo a 7 u 8 dígitos en el campo '🪪 DNI Huésped' antes de anexarlo.`,
+        };
+      }
+    }
+
+    const dnis = dnisBrutos.map((d) => (d.length === 7 ? "0" + d : d));
     const noms = rawNom.split(/[\/;]+/).map((s) => s.trim()).filter((s) => s && s !== "-");
 
     if (dnis.length > 1 && noms.length > 1) {
@@ -139,18 +294,18 @@
         if (d && n) pares.push(`IDENTIFICADO CON DNI ${d} Y NOMBRE ${n}`);
         else if (n) pares.push(`NOMBRE ${n}`);
       }
-      return pares.join("; ");
+      return { ok: true, texto: pares.join("; "), error: "" };
     }
 
     const dniUnico = dnis[0] || "";
     const nomUnico = noms.join(" ") || "";
     if (dniUnico && nomUnico) {
-      return `IDENTIFICADO CON DNI ${dniUnico} Y NOMBRE ${nomUnico}`;
+      return { ok: true, texto: `IDENTIFICADO CON DNI ${dniUnico} Y NOMBRE ${nomUnico}`, error: "" };
     }
     if (dniUnico) {
-      return `IDENTIFICADO CON DNI ${dniUnico}`;
+      return { ok: true, texto: `IDENTIFICADO CON DNI ${dniUnico}`, error: "" };
     }
-    return `IDENTIFICADO CON NOMBRE ${nomUnico}`;
+    return { ok: true, texto: `IDENTIFICADO CON NOMBRE ${nomUnico}`, error: "" };
   }
 
   window.adicionarIdentidadHuespedItem = function (habNum) {
@@ -158,11 +313,6 @@
     const habKey = String(habNum || _habActivaModal || "");
     const h = _obtenerHabObj(habKey);
     const f = _obtenerFactEfectiva(h);
-    const textoId = _construirTextoIdentidadHuesped(h, f);
-    if (!textoId) {
-      alert("⚠️ Esta habitación no tiene DNI ni nombre de huésped registrado.");
-      return;
-    }
     if (_itemsActuales.length === 0) return;
     const idx = (_focusedItemIdx >= 0 && _focusedItemIdx < _itemsActuales.length)
       ? _focusedItemIdx
@@ -179,9 +329,21 @@
       } else {
         item.desc = actual.replace(/\s*,?\s*IDENTIFICADO CON .*$/i, "").trim();
       }
-    } else {
-      item.desc = actual ? `${actual}, ${textoId}` : textoId;
+      _renderizarTablasItems();
+      return;
     }
+
+    const resId = _construirTextoIdentidadHuesped(h, f);
+    if (!resId.ok) {
+      alert(resId.error);
+      document.getElementById("modalFact_dni")?.focus();
+      return;
+    }
+    if (!resId.texto) {
+      alert("⚠️ Esta habitación no tiene DNI ni nombre de huésped registrado.");
+      return;
+    }
+    item.desc = actual ? `${actual}, ${resId.texto}` : resId.texto;
     _renderizarTablasItems();
   };
 
@@ -254,7 +416,7 @@
     _pintarTotalesGlobales(totalGeneral);
   }
 
-  function _pintarTotalesGlobales(totalGeneral) {
+  function _pintarTotalesGlobales(totalGeneral, skipMontoInput) {
     const totalGravado = totalGeneral / FACTOR_IGV_HOTEL;
     const totalIgv = totalGeneral - totalGravado;
 
@@ -275,11 +437,40 @@
       if (el) el.textContent = `S/ ${totalGeneral.toFixed(2)}`;
     });
 
-    const inpMontoModal = document.getElementById("modalFact_monto");
-    if (inpMontoModal && totalGeneral > 0) {
-      inpMontoModal.value = totalGeneral.toFixed(2);
+    if (!skipMontoInput) {
+      const inpMontoModal = document.getElementById("modalFact_monto");
+      if (inpMontoModal && totalGeneral > 0 && document.activeElement !== inpMontoModal) {
+        inpMontoModal.value = totalGeneral.toFixed(2);
+      }
     }
   }
+
+  window.onCambiarMontoCompModal = function (valor) {
+    if (_itemsActuales.length !== 1) return;
+    const nuevoPrecio = parseFloat(valor) || 0;
+    const cant = Math.max(1, parseInt(_itemsActuales[0].cant, 10) || 1);
+    _itemsActuales[0].precioUnit = cant > 1 ? Number((nuevoPrecio / cant).toFixed(2)) : nuevoPrecio;
+
+    const actualizarFilaPrecio = (tbodyId) => {
+      const tb = document.getElementById(tbodyId);
+      if (!tb) return;
+      const tr = tb.querySelector('tr[data-idx="0"]');
+      if (!tr) return;
+      const it = _itemsActuales[0];
+      const vUnit = ((Number(it.precioUnit) || 0) / FACTOR_IGV_HOTEL).toFixed(4);
+      const sub = (Math.max(1, it.cant) * (Number(it.precioUnit) || 0)).toFixed(2);
+      const ip = tr.querySelector(".it-precio");
+      const iv = tr.querySelector(".it-valor-unit");
+      const isub = tr.querySelector(".it-subtotal");
+      if (ip) ip.value = it.precioUnit > 0 ? it.precioUnit : "";
+      if (iv) iv.value = vUnit;
+      if (isub) isub.textContent = `S/ ${sub}`;
+    };
+
+    actualizarFilaPrecio("tbodyItemsFacturacion");
+    actualizarFilaPrecio("tbodyItemsSunatGrande");
+    _pintarTotalesGlobales(nuevoPrecio, true);
+  };
 
   function _renderizarTablasItems() {
     let totalGeneral = 0;
@@ -444,8 +635,12 @@
     const esFact = tipoSel === "FACTURA";
     const ruc = String(document.getElementById("modalFact_ruc")?.value || f.ruc || "").replace(/\D/g, "");
     const empresa = String(document.getElementById("modalFact_empresa")?.value || f.empresa || "").trim().toUpperCase();
+    const dniModalRaw = String(document.getElementById("modalFact_dni")?.value || f.dni || h.dni || "")
+      .split(/[\/,;]+/)[0]
+      .replace(/\D/g, "");
+    const dniNorm = dniModalRaw.length === 7 ? ("0" + dniModalRaw) : dniModalRaw;
     const receptorNombre = esFact ? (empresa || "PENDIENTE RAZÓN SOCIAL") : (h.huesped || "CLIENTES VARIOS");
-    const receptorDoc = esFact ? (ruc || "SIN RUC") : (f.dni || h.dni || "-");
+    const receptorDoc = esFact ? (ruc || "SIN RUC") : (dniNorm || "-");
     const hoyStr = new Date().toLocaleDateString("es-PE", { day: "2-digit", month: "2-digit", year: "numeric" });
 
     const dlg = _asegurarDialogoFormatoSunatGrande();
@@ -712,6 +907,8 @@
     const ruc = String(document.getElementById("modalFact_ruc")?.value || f.ruc || "").replace(/\D/g, "");
     const empresa = String(document.getElementById("modalFact_empresa")?.value || f.empresa || "").trim().toUpperCase();
     const celular = String(document.getElementById("modalFact_celular")?.value || f.celular || h.celular || "").replace(/\D/g, "");
+    const inpDniEl = document.getElementById("modalFact_dni");
+    const rawDniModal = inpDniEl ? inpDniEl.value : String(f.dni || h.dni || "");
     const items = window.recolectarItemsFacturacionModal();
 
     if (esFact) {
@@ -727,15 +924,32 @@
       }
     }
 
+    const exigirWsp = Boolean(accion === "EMITIR_Y_WSP" && !modoBorrador);
+    if (exigirWsp && !celular) {
+      alert("⚠️ Ingrese el número de Celular / WhatsApp del cliente para 'Emitir y Enviar WSP'.");
+      document.getElementById("modalFact_celular")?.focus();
+      return;
+    }
+
+    const chkDni = window.validarDniConCelularModal(rawDniModal, celular, esFact, ruc, exigirWsp);
+    if (!chkDni.ok) {
+      alert(chkDni.error);
+      inpDniEl?.focus();
+      return;
+    }
+
     if (items.length === 0) {
       alert("⚠️ Verifique que todos los ítems tengan descripción y Precio Unitario mayor a S/ 0.00.");
       return;
     }
 
-    if (accion === "EMITIR_Y_WSP" && !modoBorrador && !celular) {
-      alert("⚠️ Ingrese el número de Celular / WhatsApp del cliente para 'Emitir y Enviar WSP'.");
-      document.getElementById("modalFact_celular")?.focus();
-      return;
+    if (chkDni.dniNormalizado) {
+      h.dni = chkDni.dniNormalizado;
+      if (h.facturacion) h.facturacion.dni = chkDni.dniNormalizado;
+      if (inpDniEl && inpDniEl.value !== chkDni.dniNormalizado) {
+        inpDniEl.value = chkDni.dniNormalizado;
+        _refrescarEstadoVisualDniModal(false);
+      }
     }
 
     await _enviarOrdenAlServidor(
@@ -746,7 +960,8 @@
         id_estancia: f.filaNum || h.filaNum || 0,
         fila_calzado: f.filaCalzado || null,
         tipo: esFact ? "FACTURA" : "BOLETA",
-        documento: esFact ? ruc : (f.dni || h.dni || ""),
+        documento: esFact ? ruc : chkDni.dniNormalizado,
+        dni_huesped: chkDni.dniNormalizado,
         cliente: esFact ? empresa : (h.huesped || "CLIENTES VARIOS"),
         telefono: celular,
         items: items,
@@ -761,8 +976,13 @@
     const h = _obtenerHabObj(habNum);
     if (!h) return;
     const f = _obtenerFactEfectiva(h);
+    const tipoSel = String(document.getElementById("modalFact_tipo")?.value || (f.esFactura ? "Factura" : "Boleta")).toUpperCase();
+    const esFact = tipoSel === "FACTURA";
+    const ruc = String(document.getElementById("modalFact_ruc")?.value || f.ruc || "").replace(/\D/g, "");
     const celular = String(document.getElementById("modalFact_celular")?.value || f.celular || h.celular || "").replace(/\D/g, "");
     const nroCp = String(document.getElementById("modalFact_nro")?.value || f.comprobantesStr || "").trim();
+    const inpDniEl = document.getElementById("modalFact_dni");
+    const rawDniModal = inpDniEl ? inpDniEl.value : String(f.dni || h.dni || "");
 
     if (!celular) {
       alert("⚠️ Ingrese el número de WhatsApp del cliente para reenviar el comprobante.");
@@ -770,13 +990,22 @@
       return;
     }
 
+    const chkDni = window.validarDniConCelularModal(rawDniModal, celular, esFact, ruc, true);
+    if (!chkDni.ok) {
+      alert(chkDni.error);
+      inpDniEl?.focus();
+      return;
+    }
+
     await _enviarOrdenAlServidor({
       accion: "SOLO_WSP",
       hab: h.hab,
+      tipo: esFact ? "FACTURA" : "BOLETA",
       telefono: celular,
       nro_comprobante: nroCp,
-      documento: f.ruc || f.dni || h.dni || "",
-      cliente: f.empresa || h.huesped || "",
+      documento: esFact ? (ruc || chkDni.dniNormalizado) : chkDni.dniNormalizado,
+      dni_huesped: chkDni.dniNormalizado,
+      cliente: (esFact ? f.empresa : "") || h.huesped || "",
     });
   };
 
