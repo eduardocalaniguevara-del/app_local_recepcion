@@ -59,9 +59,13 @@ def _habitaciones_ocupadas_activas(fecha_iso: Optional[str] = None) -> List[Dict
 
 def consultar_dni_visita_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     datos = datos or {}
-    dni = "".join(ch for ch in str(datos.get("dni") or "").strip() if ch.isalnum())
-    if not dni:
-        return {"encontrado": False, "dni": "", "nombre": "", "rechazosPrevios": [], "visitasPrevias": 0}
+    q_raw = str(datos.get("dni") or datos.get("q") or "").strip()
+    solo_dig = "".join(ch for ch in q_raw if ch.isdigit())
+    dni = solo_dig if len(solo_dig) >= 7 else "".join(ch for ch in q_raw if ch.isalnum())
+    if len(dni) == 7 and dni.isdigit():
+        dni = dni.zfill(8)
+    if not dni and not q_raw:
+        return {"encontrado": False, "dni": "", "nombre": "", "rechazosPrevios": [], "visitasPrevias": 0, "sugerencias": []}
 
     nombre = ""
     if len(dni) == 8 and dni.isdigit():
