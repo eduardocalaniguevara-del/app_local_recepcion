@@ -366,18 +366,23 @@ def _es_fila_corrida_dia(f: Dict[str, Any]) -> bool:
     return d >= 360  # >= 6 horas continuas en el bloque 1
 
 
-def _calcular_promedios_y_desvios(filas: List[Dict[str, Any]], umbral_min: int = 30) -> Dict[str, str]:
-    """Calcula la hora promedio robusta por columna (e1, s1, e2, s2) soportando meses mixtos
-    (días continuados vs días partidos en el mismo mes) y valida concordancia cronológica."""
+def _calcular_promedios_y_desvios(filas: List[Dict[str, Any]], cfg: Optional[Dict[str, Any]] = None, umbral_min: int = 30) -> Dict[str, str]:
+    """Calcula el promedio por columna (soportando meses mixtos continuado + partido) y aplica
+    concordancia de jornada: si un día cumple su bloque/jornada exacta en orden cronológico (ej. cambiar
+    15 días a turno continuado 08:00-16:00 o partido 08:00-12:00 / 16:00-20:00 dando ~8h sin horas extras),
+    no genera falsas alertas naranjas; solo resalta cuando hay horas extras, cortes o falta de concordancia."""
+    es_noche = str((cfg or {}).get("turno") or "").upper() == "NOCHE"
+    jornada_base = 12.0 if es_noche else 8.0
+    hoy_iso = datetime.now().date().isoformat()
+
     promedios: Dict[str, str] = {}
     prom_mins: Dict[str, int] = {}
 
-    # Separar Salida 1 cuando en el mismo mes coexisten días continuados (~16:00) y partidos (~12:00)
-    s1_corrido_vals = [_minutos(str(f["s1"])) for f in filas if f.get("s1") and _es_fila_corrida_dia(f)]
-    s1_partido_vals = [_minutos(str(f["s1"])) for f in filas if f.get("s1") and not _es_fila_corrida_dia(f)]
-    usar_s1_dual = len(s1_corrido_vals) >= 2 and len(s1_partido_vals) >= 2
-    p_s1_corr = _media_robusta_min(s1_corrido_vals) if usar_s1_dual else None
-    p_s1_part = _media_robusta_min(s1_partido_vals) if usar_s1_dual else None
+    s1_corrido_vals = [_minutos(str(f["s1"])) for f in filas if not es_noche and f.get("s1") and _es_fila_corrida_dia(f)]
+    s1_partido_vals = [_minutos(str(f["s1"])) for f in filas if (es_noche or not _es_fila_corrida_dia(f)) and f.get("s1")]
+    usar_s1_dual = (not es_noche) and len(s1_corrido_vals) >= 1 and len(s1_partido_vals) >= 1
+    p_s1_corr = _media_robusta_min(s1_corrido_vals) if s1_corrido_vals else None
+    p_s1_part = _media_robusta_min(s1_partido_vals) if s1_partido_vals else None
 
     for c in CAMPOS_HORA:
         if c == "s1" and usar_s1_dual and p_s1_part is not None and p_s1_corr is not None:
@@ -393,13 +398,67 @@ def _calcular_promedios_y_desvios(filas: List[Dict[str, Any]], umbral_min: int =
 
     for f in filas:
         desv: Dict[str, Any] = {}
-        es_corr = _es_fila_corrida_dia(f)
+        e1, s1, e2, s2 = (str(f.get(k) or "").strip() for k in CAMPOS_HORA)
+        if not any((e1, s1, e2, s2)):
+            f["desvios"] = desv
+            continue
+
+        h_dia = _horas_pares(f)
+        est = str(f.get("estado") or "").strip().upper()
+        esp = round(jornada_base / 2.0, 2) if est in ("MEDIO TIEMPO", "MEDIA FALTA", "MEDIO DESCANSO") else jornada_base
+        es_hoy = bool(f.get("esHoy")) or (str(f.get("fechaIso") or "") == hoy_iso) or (f.get("fecha_dmy") == _dmy(datetime.now().date()))
+
+        # 1. Validar concordancia cronológica y pares completos (excepto si hoy sigue en turno abierto)
+        if not es_hoy:
+            if e1 and not s1 and not s2:
+                desv["e1"] = {"campo": "e1", "etiqueta": "Entrada 1", "hora": e1, "prom": promedios.get("e1") or "—", "diffMin": 0, "diffTxt": "falta salida"}
+            if e2 and not s2:
+                desv["e2"] = {"campo": "e2", "etiqueta": "Entrada 2", "hora": e2, "prom": promedios.get("e2") or "—", "diffMin": 0, "diffTxt": "falta salida"}
+        if not es_noche:
+            if e1 and s1 and _minutos(s1) <= _minutos(e1):
+                desv["s1"] = {"campo": "s1", "etiqueta": "Salida 1", "hora": s1, "prom": e1, "diffMin": _minutos(s1) - _minutos(e1), "diffTxt": "sin concordancia"}
+            if s1 and e2 and _minutos(e2) < _minutos(s1):
+                desv["e2"] = {"campo": "e2", "etiqueta": "Entrada 2", "hora": e2, "prom": s1, "diffMin": _minutos(e2) - _minutos(s1), "diffTxt": "solapa T1"}
+            if e2 and s2 and _minutos(s2) <= _minutos(e2):
+                desv["s2"] = {"campo": "s2", "etiqueta": "Salida 2", "hora": s2, "prom": e2, "diffMin": _minutos(s2) - _minutos(e2), "diffTxt": "sin concordancia"}
+
+        # 2. En turno NOCHE (12h en E1-S1), si además marca E2-S2 es un bloque extra fuera de su turno habitual
+        if es_noche and (e2 or s2) and h_dia > jornada_base + 0.5:
+            extra_m = int(round((h_dia - jornada_base) * 60))
+            txt_ex = f"+{extra_m // 60}h {extra_m % 60:02d}m" if extra_m >= 60 else f"+{extra_m}m"
+            if s2:
+                desv["s2"] = {"campo": "s2", "etiqueta": "Salida 2", "hora": s2, "prom": "turno extra", "diffMin": extra_m, "diffTxt": txt_ex}
+            elif e2:
+                desv["e2"] = {"campo": "e2", "etiqueta": "Entrada 2", "hora": e2, "prom": "turno extra", "diffMin": extra_m, "diffTxt": txt_ex}
+
+        # 3. Si la jornada del día tiene concordancia completa con sus horas esperadas (sin horas extras ni corte),
+        #    permitir tanto modalidad continuada (ej. 08:00-16:00 o 12:00-20:00 = 8h) como partida (4h + 4h = 8h) sin falso naranja.
+        sin_extras_anotadas = not bool(str(f.get("extras") or "").strip())
+        jornada_concordante = (not desv) and sin_extras_anotadas and h_dia > 0 and abs(h_dia - esp) <= 0.55
+        if jornada_concordante and not es_noche and e1 and s1 and e2 and s2:
+            b1 = (_minutos(s1) - _minutos(e1)) / 60.0
+            b2 = (_minutos(s2) - _minutos(e2)) / 60.0
+            # Si compensó un corte grande en un bloque con exceso grande en el otro, igual revisar desvío por columna
+            if not (3.25 <= b1 <= 4.75 and 3.25 <= b2 <= 4.75):
+                jornada_concordante = False
+
+        if jornada_concordante:
+            f["desvios"] = desv
+            continue
+
+        es_corr = (not es_noche) and _es_fila_corrida_dia(f)
         for c in CAMPOS_HORA:
+            if c in desv:
+                continue
             val_str = str(f.get(c) or "").strip()
             if not val_str:
                 continue
             if c == "s1" and usar_s1_dual and p_s1_part is not None and p_s1_corr is not None:
-                ref_min = p_s1_corr if es_corr else p_s1_part
+                # Si solo hubo 1 día corrido y fue con hora extra, usar E1 + 8h como referencia concordante
+                if es_corr and len(s1_corrido_vals) == 1 and e1:
+                    ref_min = (_minutos(e1) + 480) % 1440
+                else:
+                    ref_min = p_s1_corr if es_corr else p_s1_part
                 ref_hm = _fmt_hm(ref_min)
             elif c in prom_mins:
                 ref_min = prom_mins[c]
@@ -453,7 +512,7 @@ def obtener_horario_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, A
         for dd in range(1, n_dias + 1):
             f = _dmy(date(y, m, dd))
             dias.append(_fila_publica(reg.get(f) or _fila_vacia(cfg["empleado"], f), cfg, hoy, feriados))
-        promedios = _calcular_promedios_y_desvios(dias)
+        promedios = _calcular_promedios_y_desvios(dias, cfg)
         total_h = round(sum(x["horas"] for x in dias), 2)
         trab = sum(1 for x in dias if x["horas"] > 0 or x["e1"])
         return {
@@ -591,7 +650,7 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
         fp = _dmy(cur_p)
         filas_periodo.append(dict(reg.get(fp) or _fila_vacia(cfg["empleado"], fp)))
         cur_p += timedelta(days=1)
-    promedios_liq = _calcular_promedios_y_desvios(filas_periodo)
+    promedios_liq = _calcular_promedios_y_desvios(filas_periodo, cfg)
     desv_por_fecha = {x["fecha_dmy"]: x.get("desvios", {}) for x in filas_periodo}
 
     cur = desde
