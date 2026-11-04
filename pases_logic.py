@@ -38,37 +38,23 @@ def _dmy_a_iso(dmy: str) -> str:
     return dt.isoformat()
 
 
-def _habitaciones_ocupadas_activas(conn) -> List[Dict[str, Any]]:
-    """Devuelve las habitaciones actualmente ocupadas para elegirlas en 1 click."""
-    rows = conn.execute(
-        """
-        SELECT estancia_uuid, id_timestamp_str, hab, huesped, check_in_ymd, estado_estancia
-        FROM estancias
-        WHERE lower(coalesce(estado_estancia, '')) NOT LIKE '%liber%'
-          AND lower(coalesce(estado_estancia, '')) NOT LIKE '%cancel%'
-          AND lower(coalesce(estado_estancia, '')) NOT LIKE '%finaliz%'
-          AND trim(coalesce(hab, '')) != ''
-          AND trim(coalesce(huesped, '')) NOT IN ('', '-')
-        ORDER BY CAST(hab AS INTEGER) ASC, check_in_ymd DESC, sheet_row DESC
-        """
-    ).fetchall()
-    por_hab: Dict[str, Dict[str, Any]] = {}
-    hoy_ymd = int(datetime.now().strftime("%Y%m%d"))
-    min_ymd = int((datetime.now().date() - timedelta(days=25)).strftime("%Y%m%d"))
-    for r in rows:
-        hab = str(r["hab"] or "").strip()
-        if not hab or hab in por_hab:
+def _habitaciones_ocupadas_activas(fecha_iso: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Devuelve exactamente las mismas habitaciones ocupadas del Panel de Disponibilidad en esa fecha."""
+    panel = dl.obtener_datos_panel_local(fecha_iso)
+    habs_out: List[Dict[str, Any]] = []
+    for h in panel.get("habitaciones") or []:
+        est = str(h.get("estado") or "").strip().lower()
+        hab_num = str(h.get("hab") or "").strip()
+        huesped = str(h.get("huesped") or "").strip()
+        if est == "libre" or not hab_num or huesped in ("", "-"):
             continue
-        ci_ymd = int(r["check_in_ymd"] or 0)
-        if ci_ymd < min_ymd or ci_ymd > hoy_ymd + 1:
-            continue
-        por_hab[hab] = {
-            "hab": hab,
-            "huesped": str(r["huesped"] or "").strip(),
-            "estanciaUuid": str(r["estancia_uuid"] or "").strip(),
-            "idEstancia": str(r["id_timestamp_str"] or "").strip(),
-        }
-    return sorted(por_hab.values(), key=lambda x: (int(x["hab"]) if x["hab"].isdigit() else 9999, x["hab"]))
+        habs_out.append({
+            "hab": hab_num,
+            "huesped": huesped,
+            "estanciaUuid": str(h.get("estanciaUuid") or "").strip(),
+            "idEstancia": str(h.get("idEstancia") or h.get("id") or "").strip(),
+        })
+    return habs_out
 
 
 def consultar_dni_visita_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -131,7 +117,7 @@ def obtener_visitas_pases_local(datos: Optional[Dict[str, Any]] = None) -> Dict[
 
     conn = get_connection()
     try:
-        habs_activas = _habitaciones_ocupadas_activas(conn)
+        habs_activas = _habitaciones_ocupadas_activas(_dmy_a_iso(fecha_dmy))
         rows = conn.execute(
             """
             SELECT * FROM control_pases
