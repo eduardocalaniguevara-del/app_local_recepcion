@@ -336,8 +336,54 @@ def _fila_publica(r: Dict[str, Any], cfg: Dict[str, Any], hoy: date, feriados: D
         "horas": info_j["horas"], "esperado": info_j["esperado"], "diffHoras": info_j["diffHoras"],
         "tramos": info_j["tramos"], "detalleMotivo": info_j["detalleMotivo"], "tipoObs": info_j["tipoObs"],
         "extrasBase": info_j["extrasBase"], "extrasEfectivas": info_j["extrasEfectivas"], "extrasMult": info_j["extrasMult"],
+        "desvios": {},
         "esHoy": d == hoy, "futuro": d > hoy,
     }
+
+
+def _calcular_promedios_y_desvios(filas: List[Dict[str, Any]], umbral_min: int = 30) -> Dict[str, str]:
+    """Calcula la hora promedio robusta (mediana + media recortada a ±120m) por columna (e1, s1, e2, s2)
+    y marca en cada fila `desvios[c]` cuando una marcación se aleja >= umbral_min minutos del promedio."""
+    promedios: Dict[str, str] = {}
+    prom_mins: Dict[str, int] = {}
+    for c in CAMPOS_HORA:
+        vals = [_minutos(str(f.get(c) or "")) for f in filas if f.get(c)]
+        if not vals:
+            promedios[c] = ""
+            continue
+        s_vals = sorted(vals)
+        med = s_vals[len(s_vals) // 2]
+        cercanos = [x for x in vals if abs(x - med) <= 120] or vals
+        p_min = int(round(sum(cercanos) / len(cercanos)))
+        prom_mins[c] = p_min
+        promedios[c] = f"{(p_min // 60) % 24:02d}:{p_min % 60:02d}"
+
+    for f in filas:
+        desv: Dict[str, Any] = {}
+        for c in CAMPOS_HORA:
+            val_str = str(f.get(c) or "").strip()
+            if not val_str or c not in prom_mins:
+                continue
+            m_val = _minutos(val_str)
+            diff_m = m_val - prom_mins[c]
+            if diff_m > 720:
+                diff_m -= 1440
+            elif diff_m < -720:
+                diff_m += 1440
+            if abs(diff_m) >= umbral_min:
+                signo = "+" if diff_m > 0 else "−"
+                ab = abs(diff_m)
+                diff_txt = f"{signo}{ab // 60}h {ab % 60:02d}m" if ab >= 60 else f"{signo}{ab}m"
+                desv[c] = {
+                    "campo": c,
+                    "etiqueta": ETIQUETA_CAMPO.get(c, c.upper()),
+                    "hora": val_str,
+                    "prom": promedios[c],
+                    "diffMin": diff_m,
+                    "diffTxt": diff_txt,
+                }
+        f["desvios"] = desv
+    return promedios
 
 
 # ==============================================================================
@@ -353,7 +399,7 @@ def obtener_horario_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, A
     try:
         emps = _lista_empleados(conn)
         if not emps:
-            return {"empleados": [], "dias": []}
+            return {"empleados": [], "dias": [], "promedios": {}}
         nombre = str(datos.get("empleado") or emps[0]["empleado"])
         cfg = next((e for e in emps if e["empleado"].lower() == nombre.lower()), emps[0])
         feriados = feriados_peru(y)
@@ -365,6 +411,7 @@ def obtener_horario_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, A
         for dd in range(1, n_dias + 1):
             f = _dmy(date(y, m, dd))
             dias.append(_fila_publica(reg.get(f) or _fila_vacia(cfg["empleado"], f), cfg, hoy, feriados))
+        promedios = _calcular_promedios_y_desvios(dias)
         total_h = round(sum(x["horas"] for x in dias), 2)
         trab = sum(1 for x in dias if x["horas"] > 0 or x["e1"])
         return {
@@ -373,7 +420,7 @@ def obtener_horario_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, A
             "empleado": cfg["empleado"], "rol": cfg["rol"], "turno": cfg["turno"],
             "descansoDow": cfg["descanso_dow"], "descansoNombre": DOW_LARGO[int(cfg["descanso_dow"])],
             "mes": f"{y:04d}-{m:02d}", "hoyDmy": _dmy(hoy), "ahoraHM": datetime.now().strftime("%H:%M"),
-            "dias": dias, "totalHoras": total_h, "diasTrabajados": trab,
+            "dias": dias, "promedios": promedios, "totalHoras": total_h, "diasTrabajados": trab,
             "proximaMarca": _proxima_marca_txt(conn, cfg),
         }
     finally:
@@ -496,6 +543,15 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
     observaciones_horas: List[Dict[str, Any]] = []
     sin_marcar: List[str] = []
     horas_totales = 0.0
+    filas_periodo = []
+    cur_p = desde
+    while cur_p <= hasta:
+        fp = _dmy(cur_p)
+        filas_periodo.append(dict(reg.get(fp) or _fila_vacia(cfg["empleado"], fp)))
+        cur_p += timedelta(days=1)
+    promedios_liq = _calcular_promedios_y_desvios(filas_periodo)
+    desv_por_fecha = {x["fecha_dmy"]: x.get("desvios", {}) for x in filas_periodo}
+
     cur = desde
     while cur <= hasta:
         f = _dmy(cur)
@@ -552,7 +608,15 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
                 "tramos": info_j["tramos"],
                 "horasDia": h_dia,
             })
-        if info_j["tipoObs"]:
+        desv_dia = desv_por_fecha.get(f) or {}
+        if info_j["tipoObs"] or desv_dia:
+            det_motivo = info_j["detalleMotivo"]
+            if desv_dia:
+                txt_desv = ", ".join(
+                    f"{v['etiqueta']} {v['hora']} vs prom {v['prom']} ({v['diffTxt']})"
+                    for v in desv_dia.values()
+                )
+                det_motivo = f"{det_motivo} · {txt_desv}" if det_motivo else txt_desv
             observaciones_horas.append({
                 "fecha": f,
                 "dow": DOW_ES[cur.weekday()],
@@ -560,8 +624,9 @@ def _calcular_liquidacion(conn, cfg: Dict[str, Any], desde: date, hasta: date) -
                 "horas": h_dia,
                 "esperado": info_j["esperado"],
                 "diffHoras": info_j["diffHoras"],
-                "detalleMotivo": info_j["detalleMotivo"],
-                "tipoObs": info_j["tipoObs"],
+                "detalleMotivo": det_motivo,
+                "tipoObs": info_j["tipoObs"] or "DESVIO_MEDIA",
+                "desvios": desv_dia,
                 "esFeriado": bool(nom_fer_dia) or (est == "FERIADO"),
                 "feriadoNombre": nom_fer_dia,
                 "esDescanso": es_desc,

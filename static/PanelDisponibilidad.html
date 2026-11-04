@@ -634,6 +634,7 @@
       <div class="flex flex-wrap items-center gap-1.5">
         <span class="px-2 py-0.5 rounded text-[10.5px] font-black bg-purple-200 text-purple-900 border border-purple-300">🟣 Descanso</span>
         <span class="px-2 py-0.5 rounded text-[10.5px] font-black bg-green-200 text-green-900 border border-green-300">🟢 Feriado nacional</span>
+        <span class="px-2 py-0.5 rounded text-[10.5px] font-black border" style="background-color:#FED7AA; color:#9A3412; border-color:#F97316;" title="Se ilumina en naranja suave cuando la hora marcada se aleja ≥ 30 min del promedio del mes en esa columna">🟠 Hora fuera de media</span>
         <span id="horResumenPills" class="flex items-center gap-1 text-[10.5px] font-black"></span>
         <button type="button" onclick="horCargar()" class="px-2 py-1 rounded font-bold bg-slate-700 hover:bg-slate-800 text-white text-[11px] cursor-pointer transition-colors">🔄 Actualizar</button>
         <label id="btnToggleCuentas" onclick="toggleCuentasHorarioUI(event)"
@@ -654,15 +655,15 @@
            style="background-color: #FAF6F3; border-color: #DFD2C5;">
         <table class="w-full text-left text-[11px] select-none border-collapse">
           <thead class="sticky top-0 text-white font-bold uppercase tracking-tight z-10" style="background-color: #2D2623;">
-            <tr class="h-8">
-              <th class="px-2 w-[168px] border-r border-[#433A36]">Fecha</th>
-              <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Entrada 1</th>
-              <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Salida 1</th>
-              <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Entrada 2</th>
-              <th class="px-1 w-[70px] text-center border-r border-[#433A36]">Salida 2</th>
-              <th class="px-1 w-[136px] text-center border-r border-[#433A36] bg-amber-950/50" id="thHorEstado">Estado (F)</th>
-              <th class="px-1 w-[88px] text-center border-r border-[#433A36] bg-amber-950/50" id="thHorExtras" title="Ej. 4/8 o 4 (se calcula sobre S/ 50)">H. Extras (G)</th>
-              <th class="px-1 w-[48px] text-center" title="Horas marcadas ese día">Hrs</th>
+            <tr class="h-9">
+              <th class="px-2 w-[162px] border-r border-[#433A36]">Fecha</th>
+              <th class="px-1 w-[92px] text-center border-r border-[#433A36]"><div>Entrada 1</div><div id="horProm_e1" class="text-[9.5px] font-extrabold text-amber-300 normal-case leading-tight"></div></th>
+              <th class="px-1 w-[92px] text-center border-r border-[#433A36]"><div>Salida 1</div><div id="horProm_s1" class="text-[9.5px] font-extrabold text-amber-300 normal-case leading-tight"></div></th>
+              <th class="px-1 w-[92px] text-center border-r border-[#433A36]"><div>Entrada 2</div><div id="horProm_e2" class="text-[9.5px] font-extrabold text-amber-300 normal-case leading-tight"></div></th>
+              <th class="px-1 w-[92px] text-center border-r border-[#433A36]"><div>Salida 2</div><div id="horProm_s2" class="text-[9.5px] font-extrabold text-amber-300 normal-case leading-tight"></div></th>
+              <th class="px-1 w-[132px] text-center border-r border-[#433A36] bg-amber-950/50" id="thHorEstado">Estado (F)</th>
+              <th class="px-1 w-[84px] text-center border-r border-[#433A36] bg-amber-950/50" id="thHorExtras" title="Ej. 4/8 o 4 (se calcula sobre S/ 50)">H. Extras (G)</th>
+              <th class="px-1 w-[54px] text-center" title="Horas marcadas ese día">Hrs</th>
             </tr>
           </thead>
           <tbody id="horBody"></tbody>
@@ -6373,10 +6374,20 @@
     var px = document.getElementById('horProxima'); if (px) px.textContent = D.proximaMarca ? ('Próxima: ' + D.proximaMarca) : '';
     var bm = document.getElementById('btnMarcarAhora');
     if (bm) bm.title = 'Marcar ahora para ' + (D.empleado || '');
+    var proms = D.promedios || {};
+    ['e1', 's1', 'e2', 's2'].forEach(function (c) {
+      var elP = document.getElementById('horProm_' + c);
+      if (elP) elP.textContent = proms[c] ? ('Prom: ' + proms[c]) : '';
+    });
+    var totalDesvios = 0;
+    (D.dias || []).forEach(function (d) {
+      if (d.desvios) totalDesvios += Object.keys(d.desvios).length;
+    });
     var pills = document.getElementById('horResumenPills');
     if (pills) pills.innerHTML =
       '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">⏱ ' + (D.totalHoras || 0) + ' h</span>' +
-      '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">📅 ' + (D.diasTrabajados || 0) + ' días</span>';
+      '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">📅 ' + (D.diasTrabajados || 0) + ' días</span>' +
+      (totalDesvios > 0 ? '<span class="px-2 py-0.5 rounded border font-black" style="background-color:#FED7AA; color:#9A3412; border-color:#F97316;" title="Celdas marcadas con hora diferente al promedio de su columna">🟠 ' + totalDesvios + ' fuera de media</span>' : '');
 
     var body = document.getElementById('horBody');
     if (!body) return;
@@ -6392,6 +6403,7 @@
       ['LIBRE', 'Libre (compensado)'],
       ['FERIADO', 'Feriado trabajado']
     ];
+    var NOM_COL = { e1: 'Entrada 1', s1: 'Salida 1', e2: 'Entrada 2', s2: 'Salida 2' };
     body.innerHTML = (D.dias || []).map(function (d) {
       var fondo = d.feriado ? 'background-color:#BBF7D0;' : (d.esDescanso ? 'background-color:#E9D5FF;' : (d.futuro ? 'background-color:#FFFFFFAA;' : 'background-color:#FFFFFF;'));
       var marcaHoy = d.esHoy ? 'outline:2px solid #F59E0B; outline-offset:-2px;' : '';
@@ -6399,9 +6411,24 @@
       if (d.esDescanso && !d.feriado) badges += '<span class="ml-1 px-1 rounded text-[9px] font-black bg-purple-700 text-white">DESCANSO</span>';
       if (d.feriado) badges += '<span class="ml-1 px-1 rounded text-[9px] font-black bg-green-700 text-white" title="' + esc(d.feriado) + '">FERIADO</span>';
       var celdas = ['e1', 's1', 'e2', 's2'].map(function (c) {
-        return '<td class="px-0.5 text-center border-r border-[#E6DCD2]"><input type="text" inputmode="numeric" maxlength="5" placeholder="--:--" value="' + esc(d[c]) + '"' +
-          ' data-f="' + esc(d.fecha) + '" data-c="' + c + '" data-v="' + esc(d[c]) + '" onchange="horEditar(this)" onfocus="this.select()"' +
-          ' class="w-[58px] text-center font-bold rounded border border-transparent hover:border-slate-400 focus:border-blue-600 bg-transparent focus:bg-white text-slate-900 text-[11.5px] py-0.5 outline-hidden"></td>';
+        var dv = (d.desvios && d.desvios[c]) ? d.desvios[c] : null;
+        var tdStyle = dv ? 'background-color:#FED7AA; box-shadow:inset 0 0 0 1.5px #F97316;' : '';
+        var tdTitle = dv ? ('⚠️ Hora fuera de la media en ' + NOM_COL[c] + ': marcó ' + d[c] + ' vs Promedio ' + dv.prom + ' (' + dv.diffTxt + ')') : (proms[c] ? (NOM_COL[c] + ' · Promedio del mes: ' + proms[c]) : NOM_COL[c]);
+        var inpColor = dv ? 'color:#9A3412; font-weight:900;' : '';
+        var btnCls = d[c]
+          ? 'px-1 py-0.5 rounded text-[9.5px] font-black bg-slate-200/70 hover:bg-emerald-600 text-slate-600 hover:text-white transition-colors cursor-pointer shrink-0 leading-none'
+          : 'px-1 py-0.5 rounded text-[9.5px] font-black bg-emerald-100 hover:bg-emerald-600 text-emerald-800 hover:text-white border border-emerald-300 transition-colors cursor-pointer shrink-0 leading-none';
+        var btnTitle = (d[c] ? 'Actualizar ' : 'Marcar ') + NOM_COL[c] + ' con la hora actual ahora (' + esc(d.fecha.slice(0, 5)) + ')';
+        return '<td class="px-0.5 text-center border-r border-[#E6DCD2] whitespace-nowrap" style="' + tdStyle + '" title="' + esc(tdTitle) + '">' +
+          '<div class="inline-flex items-center justify-center gap-0.5">' +
+            '<input type="text" inputmode="numeric" maxlength="5" placeholder="--:--" value="' + esc(d[c]) + '"' +
+              ' data-f="' + esc(d.fecha) + '" data-c="' + c + '" data-v="' + esc(d[c]) + '" onchange="horEditar(this)" onfocus="this.select()"' +
+              ' style="' + inpColor + '"' +
+              ' class="w-[46px] text-center font-bold rounded border border-transparent hover:border-slate-400 focus:border-blue-600 bg-transparent focus:bg-white text-slate-900 text-[11.5px] py-0.5 outline-hidden">' +
+            '<button type="button" onclick="horMarcarCasilla('' + esc(d.fecha) + '','' + c + '')" class="' + btnCls + '" title="' + esc(btnTitle) + '">⏱</button>' +
+          '</div>' +
+          (dv ? '<div class="text-[8.5px] font-black leading-none pb-0.5" style="color:#9A3412;">' + esc(dv.diffTxt) + ' <span class="font-normal opacity-80">(prom ' + esc(dv.prom) + ')</span></div>' : '') +
+        '</td>';
       }).join('');
       var optsEst = ESTADOS.map(function (o) { return '<option value="' + o[0] + '"' + (d.estado === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('');
       var estCss = d.estado === 'FALTÓ' ? 'color:#B91C1C;font-weight:900;' : (d.estado === 'MEDIO TIEMPO' || d.estado === 'MEDIO DESCANSO' ? 'color:#6B21A8;font-weight:900;' : 'font-weight:700;');
@@ -6438,6 +6465,23 @@
       HOR.scrollHecho = false;
       horCargar();
     }, function (e) { if (btn) btn.disabled = false; horBanner('error', '❌ ' + horErr(e)); });
+  };
+
+  window.horMarcarCasilla = function (fechaDmy, campo) {
+    var emp = (document.getElementById('horEmpleado') || {}).value;
+    if (!emp || !fechaDmy || !campo) return;
+    var ahora = new Date();
+    var hm = String(ahora.getHours()).padStart(2, '0') + ':' + String(ahora.getMinutes()).padStart(2, '0');
+    var NOM = { e1: 'Entrada 1', s1: 'Salida 1', e2: 'Entrada 2', s2: 'Salida 2' };
+    var payload = { empleado: emp, fecha: fechaDmy, campo: campo, valor: hm, clave: HOR.clave || '' };
+    runGas('editarCeldaHorario', [payload], function () {
+      horBanner('ok', '⏱ ' + emp + ': ' + (NOM[campo] || campo) + ' marcada a las ' + hm + ' (' + fechaDmy.slice(0, 5) + ')');
+      horCargar();
+      if (HOR.cuentasAbierto) {
+        if (HOR.tab === 'LIQ') cuCargarLiquidacion();
+        else if (HOR.tab === 'AUD') cuCargarAuditoria();
+      }
+    }, function (e) { horBanner('error', '❌ ' + horErr(e)); horCargar(); });
   };
 
   window.horEditar = function (el) {
@@ -6602,6 +6646,8 @@
                 obsTxt = '<span class="font-black text-red-700">⚠️ Corte de ~' + Math.abs(ob.diffHoras).toFixed(1) + ' h</span>' + (ob.detalleMotivo ? ' (' + esc(ob.detalleMotivo) + ')' : '');
               } else if (ob.tipoObs === 'EXTRA_ANOTADA') {
                 obsTxt = '<span class="font-black text-emerald-800">✅ Extra ' + esc(ob.extrasRaw) + (ob.extrasMult > 1 ? (' × 2 = ' + ob.extrasEfectivas + ' h (Feriado)') : (' (' + ob.extrasEfectivas + ' h)')) + '</span>' + (ob.detalleMotivo ? ' · ' + esc(ob.detalleMotivo) : '');
+              } else if (ob.tipoObs === 'DESVIO_MEDIA') {
+                obsTxt = '<span class="font-black" style="color:#9A3412;">🟠 Hora fuera de promedio:</span> ' + esc(ob.detalleMotivo || '');
               } else {
                 obsTxt = '<span class="font-black text-amber-800">🔎 +' + ob.diffHoras.toFixed(1) + ' h sobre su jornada (sin extra en col. G)</span>' + (ob.detalleMotivo ? ' · ' + esc(ob.detalleMotivo) : '');
               }
