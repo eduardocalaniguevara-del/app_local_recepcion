@@ -6425,7 +6425,7 @@
               ' data-f="' + esc(d.fecha) + '" data-c="' + c + '" data-v="' + esc(d[c]) + '" onchange="horEditar(this)" onfocus="this.select()"' +
               ' style="' + inpColor + '"' +
               ' class="w-[46px] text-center font-bold rounded border border-transparent hover:border-slate-400 focus:border-blue-600 bg-transparent focus:bg-white text-slate-900 text-[11.5px] py-0.5 outline-hidden">' +
-            '<button type="button" onclick="horMarcarCasilla('' + esc(d.fecha) + '','' + c + '')" class="' + btnCls + '" title="' + esc(btnTitle) + '">⏱</button>' +
+            '<button type="button" data-f="' + esc(d.fecha) + '" data-c="' + c + '" onclick="horMarcarCasilla(this.getAttribute(&quot;data-f&quot;),this.getAttribute(&quot;data-c&quot;))" class="' + btnCls + '" title="' + esc(btnTitle) + '">⏱</button>' +
           '</div>' +
           (dv ? '<div class="text-[8.5px] font-black leading-none pb-0.5" style="color:#9A3412;">' + esc(dv.diffTxt) + ' <span class="font-normal opacity-80">(prom ' + esc(dv.prom) + ')</span></div>' : '') +
         '</td>';

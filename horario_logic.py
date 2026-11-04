@@ -341,31 +341,73 @@ def _fila_publica(r: Dict[str, Any], cfg: Dict[str, Any], hoy: date, feriados: D
     }
 
 
+def _media_robusta_min(vals: List[int]) -> Optional[int]:
+    if not vals:
+        return None
+    s_vals = sorted(vals)
+    med = s_vals[len(s_vals) // 2]
+    cercanos = [x for x in vals if abs(x - med) <= 120] or vals
+    return int(round(sum(cercanos) / len(cercanos)))
+
+
+def _fmt_hm(p_min: int) -> str:
+    return f"{(p_min // 60) % 24:02d}:{p_min % 60:02d}"
+
+
+def _es_fila_corrida_dia(f: Dict[str, Any]) -> bool:
+    """Detecta si un día fue trabajado en horario continuado (E1–S1 >= 6h sin E2/S2) en vez de partido."""
+    if f.get("e2") or f.get("s2"):
+        return False
+    if not f.get("e1") or not f.get("s1"):
+        return False
+    d = _minutos(str(f["s1"])) - _minutos(str(f["e1"]))
+    if d <= 0:
+        d += 1440
+    return d >= 360  # >= 6 horas continuas en el bloque 1
+
+
 def _calcular_promedios_y_desvios(filas: List[Dict[str, Any]], umbral_min: int = 30) -> Dict[str, str]:
-    """Calcula la hora promedio robusta (mediana + media recortada a ±120m) por columna (e1, s1, e2, s2)
-    y marca en cada fila `desvios[c]` cuando una marcación se aleja >= umbral_min minutos del promedio."""
+    """Calcula la hora promedio robusta por columna (e1, s1, e2, s2) soportando meses mixtos
+    (días continuados vs días partidos en el mismo mes) y valida concordancia cronológica."""
     promedios: Dict[str, str] = {}
     prom_mins: Dict[str, int] = {}
+
+    # Separar Salida 1 cuando en el mismo mes coexisten días continuados (~16:00) y partidos (~12:00)
+    s1_corrido_vals = [_minutos(str(f["s1"])) for f in filas if f.get("s1") and _es_fila_corrida_dia(f)]
+    s1_partido_vals = [_minutos(str(f["s1"])) for f in filas if f.get("s1") and not _es_fila_corrida_dia(f)]
+    usar_s1_dual = len(s1_corrido_vals) >= 2 and len(s1_partido_vals) >= 2
+    p_s1_corr = _media_robusta_min(s1_corrido_vals) if usar_s1_dual else None
+    p_s1_part = _media_robusta_min(s1_partido_vals) if usar_s1_dual else None
+
     for c in CAMPOS_HORA:
+        if c == "s1" and usar_s1_dual and p_s1_part is not None and p_s1_corr is not None:
+            promedios["s1"] = f"{_fmt_hm(p_s1_part)}/{_fmt_hm(p_s1_corr)}"
+            continue
         vals = [_minutos(str(f.get(c) or "")) for f in filas if f.get(c)]
-        if not vals:
+        p_min = _media_robusta_min(vals)
+        if p_min is None:
             promedios[c] = ""
             continue
-        s_vals = sorted(vals)
-        med = s_vals[len(s_vals) // 2]
-        cercanos = [x for x in vals if abs(x - med) <= 120] or vals
-        p_min = int(round(sum(cercanos) / len(cercanos)))
         prom_mins[c] = p_min
-        promedios[c] = f"{(p_min // 60) % 24:02d}:{p_min % 60:02d}"
+        promedios[c] = _fmt_hm(p_min)
 
     for f in filas:
         desv: Dict[str, Any] = {}
+        es_corr = _es_fila_corrida_dia(f)
         for c in CAMPOS_HORA:
             val_str = str(f.get(c) or "").strip()
-            if not val_str or c not in prom_mins:
+            if not val_str:
+                continue
+            if c == "s1" and usar_s1_dual and p_s1_part is not None and p_s1_corr is not None:
+                ref_min = p_s1_corr if es_corr else p_s1_part
+                ref_hm = _fmt_hm(ref_min)
+            elif c in prom_mins:
+                ref_min = prom_mins[c]
+                ref_hm = promedios[c]
+            else:
                 continue
             m_val = _minutos(val_str)
-            diff_m = m_val - prom_mins[c]
+            diff_m = m_val - ref_min
             if diff_m > 720:
                 diff_m -= 1440
             elif diff_m < -720:
@@ -378,7 +420,7 @@ def _calcular_promedios_y_desvios(filas: List[Dict[str, Any]], umbral_min: int =
                     "campo": c,
                     "etiqueta": ETIQUETA_CAMPO.get(c, c.upper()),
                     "hora": val_str,
-                    "prom": promedios[c],
+                    "prom": ref_hm,
                     "diffMin": diff_m,
                     "diffTxt": diff_txt,
                 }
