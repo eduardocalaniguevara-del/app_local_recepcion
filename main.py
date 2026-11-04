@@ -653,6 +653,9 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
         elif method_name == "consultarDniVisita":
             import pases_logic as pl
             res = pl.consultar_dni_visita_local(args[0] if args else {})
+        elif method_name == "obtenerCuentaDetalladaHab":
+            import pases_logic as pl
+            res = pl.obtener_cuenta_detallada_hab_local(args[0] if args else {})
         else:
             raise HTTPException(status_code=404, detail=f"Método RPC no soportado: {method_name}")
 

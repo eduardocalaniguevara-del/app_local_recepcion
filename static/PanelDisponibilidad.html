@@ -222,13 +222,20 @@
       </button>
     </div>
 
-    <!-- Botón de Visita / Pase exactamente encima del carrito 🛒 de Venta Tienda -->
-    <button type="button" id="btnVisitasPases" onclick="abrirModalVisitasPases(event)"
-            title="Control de Visitas / Pases del día (Cargo a la cuenta S/ 10 + registro privado de DNI y hora)"
-            class="ml-auto shrink-0 px-2.5 py-1 rounded-lg font-black bg-teal-700 hover:bg-teal-800 text-white text-xs shadow-xs border border-teal-900 inline-flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105">
-      <span>🚶 Visita</span>
-      <span id="badgeVisitasHoy" class="bg-white text-teal-900 px-1.5 py-0.2 rounded text-[11px] font-black leading-tight">0</span>
-    </button>
+    <!-- Botones de Visita y Cuentas por Habitación exactamente encima del carrito 🛒 de Venta Tienda -->
+    <div class="ml-auto shrink-0 inline-flex items-center gap-1.5">
+      <button type="button" id="btnVisitasPases" onclick="abrirModalVisitasPases(event)"
+              title="Control de Visitas del día (Servicio Adicional: Visita S/ 10 + registro privado de DNI y hora)"
+              class="px-2.5 py-1 rounded-lg font-black bg-teal-700 hover:bg-teal-800 text-white text-xs shadow-xs border border-teal-900 inline-flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105">
+        <span>🚶 Visita</span>
+        <span id="badgeVisitasHoy" class="bg-white text-teal-900 px-1.5 py-0.2 rounded text-[11px] font-black leading-tight">0</span>
+      </button>
+      <button type="button" id="btnCuentasHab" onclick="abrirModalCuentasHab(event)"
+              title="Cuentas detalladas por habitación (huéspedes de varios días: pagos por día, tipo de pago y adicionales detallados)"
+              class="px-2.5 py-1 rounded-lg font-black bg-amber-800 hover:bg-amber-900 text-white text-xs shadow-xs border border-amber-950 inline-flex items-center gap-1 cursor-pointer transition-all hover:scale-105">
+        <span>📋 Cuentas</span>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -1007,15 +1014,14 @@
     </form>
   </dialog>
 
-  <!-- DIÁLOGO MODAL: CONTRASEÑA DE CUENTAS / PAGOS (la clave nunca se muestra) -->
-  <!-- DIÁLOGO MODAL: CONTROL DE VISITAS / PASES (CORTE 12:00 M. + RECHAZADO EN TABLA SIN BORRAR) -->
+  <!-- DIÁLOGO MODAL: CONTROL DE VISITAS (SERVICIO ADICIONAL = VISITA + BUSCADOR RÁPIDO HAB EJ. 206 + CORTE 12:00 M.) -->
   <dialog id="dialogVisitasPases" closedby="any" aria-labelledby="tituloDialogVisitas"
-          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[610px] max-w-[96vw] bg-[#FAF6F3] text-slate-800 m-auto">
+          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[630px] max-w-[96vw] bg-[#FAF6F3] text-slate-800 m-auto">
     <div class="bg-[#2D2623] text-white px-3.5 py-2.5 flex items-center justify-between gap-2 rounded-t-xl">
       <div class="flex items-center gap-2 flex-wrap">
-        <span class="font-black text-sm text-amber-300">🚶 Control de Visitas / Pases</span>
+        <span id="tituloDialogVisitas" class="font-black text-sm text-amber-300">🚶 Control de Visitas</span>
         <span class="px-1.5 py-0.5 rounded text-[9.5px] font-extrabold bg-amber-500/20 text-amber-200 border border-amber-400/30" title="El conteo diario corta cada mediodía (12:00 m. a 11:59 a.m. del día siguiente)">🕛 Corte 12:00 m.</span>
-        <span class="px-1.5 py-0.5 rounded text-[9.5px] font-extrabold bg-white/10 text-emerald-300 border border-white/15" title="Los DNIs quedan guardados solo aquí; en la cuenta solo sube el adicional">🔒 DNI Privado</span>
+        <span class="px-1.5 py-0.5 rounded text-[9.5px] font-extrabold bg-white/10 text-emerald-300 border border-white/15" title="En la cuenta se registra como Servicio Adicional: Visita">➕ Adicional: Visita</span>
       </div>
       <div class="flex items-center gap-1">
         <button type="button" onclick="vpCambiarDia(-1)" class="px-1.5 py-0.5 rounded bg-white/15 hover:bg-white/25 text-white font-black text-xs cursor-pointer" title="Día anterior (Corte 12:00 m.)">◀</button>
@@ -1027,14 +1033,20 @@
     </div>
 
     <div class="p-3 space-y-2.5 max-h-[84vh] overflow-y-auto">
-      <!-- 1. Formulario de registro: 1° Habitación -> 2° DNI (con buscador) -> Nombre -> Aceptar y Cargar -->
+      <!-- 1. Formulario rápido: 1° Habitación (escribe 206 directo) -> 2° DNI (con buscador) -> Nombre -> Aceptar y Cargar -->
       <div class="bg-white rounded-lg border border-[#D8C7B8] p-2.5 shadow-2xs space-y-2">
         <div class="grid grid-cols-12 gap-2 items-end">
           <div class="col-span-5 sm:col-span-4">
-            <label for="vpHab" class="block text-[10.5px] font-black text-slate-700 uppercase mb-0.5">1° Habitación Ocupada</label>
-            <select id="vpHab" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-white font-black text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600">
-              <option value="">— Selecciona Hab. —</option>
-            </select>
+            <div class="flex items-center justify-between mb-0.5 gap-1">
+              <label for="vpHab" class="block text-[10.5px] font-black text-slate-700 uppercase">1° Hab. Ocupada</label>
+              <span id="vpHabHuespedLbl" class="text-[9.5px] font-black text-teal-800 truncate max-w-[115px]"></span>
+            </div>
+            <input type="text" id="vpHab" list="vpHabDatalist" inputmode="numeric" maxlength="6" autocomplete="off"
+                   oninput="vpAlEscribirHab(this.value)"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();var d=document.getElementById('vpDni');if(d)d.focus();}"
+                   placeholder="Escribe ej. 206..."
+                   class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-black text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600">
+            <datalist id="vpHabDatalist"></datalist>
           </div>
           <div class="col-span-7 sm:col-span-5">
             <label for="vpDni" class="block text-[10.5px] font-black text-slate-700 uppercase mb-0.5">2° DNI Visita (Buscador)</label>
@@ -1052,11 +1064,15 @@
             </div>
           </div>
           <div class="col-span-4 sm:col-span-3">
-            <label for="vpMonto" class="block text-[10.5px] font-black text-slate-700 uppercase mb-0.5" title="Se carga siempre a la cuenta de la habitación como Servicio Adicional">Cargo Cuenta (S/)</label>
+            <label for="vpMonto" class="block text-[10.5px] font-black text-slate-700 uppercase mb-0.5" title="Se carga siempre a la cuenta de la habitación como Servicio Adicional: Visita">Cargo Visita (S/)</label>
             <input type="text" id="vpMonto" inputmode="decimal" value="10"
                    class="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-amber-50/60 font-black text-xs text-right text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600">
           </div>
-          <div class="col-span-8 sm:col-span-12">
+          <!-- Botones rápidos de habitaciones ocupadas para elegir con 1 clic o escribiendo 206 -->
+          <div class="col-span-12">
+            <div class="flex items-center gap-1 flex-wrap" id="vpChipsHabsOcupadas"></div>
+          </div>
+          <div class="col-span-12">
             <label for="vpNombre" class="block text-[10px] font-black text-teal-900 uppercase mb-0.5">👤 Nombre de la Visita (sale automático al buscar DNI o escríbelo)</label>
             <input type="text" id="vpNombre" maxlength="90" autocomplete="off"
                    placeholder="Nombre completo del visitante..."
@@ -1068,21 +1084,21 @@
 
         <button type="button" id="btnVpAceptar" onclick="vpRegistrar()"
                 class="w-full py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-xs cursor-pointer transition-colors flex items-center justify-center gap-1.5">
-          <span>✅ Aceptar Pase y Cargar S/ 10 a la Cuenta</span>
+          <span>✅ Aceptar Visita y Cargar S/ 10 a la Cuenta (Servicio Adicional: Visita)</span>
         </button>
         <div id="vpStatusMsg" class="hidden px-2.5 py-1 rounded text-[11px] font-extrabold"></div>
       </div>
 
-      <!-- 2. Pases por Día (Corte cada mediodía 12:00 m. -> 11:59 a.m.) -->
+      <!-- 2. Visitas por Día (Corte cada mediodía 12:00 m. -> 11:59 a.m.) -->
       <div class="bg-white rounded-lg border border-[#D8C7B8] p-2 space-y-1.5">
         <div class="flex items-center justify-between text-[10.5px]">
-          <span class="font-black text-slate-800 uppercase">📅 Pases por Día (Corte cada mediodía 12:00 m.)</span>
+          <span class="font-black text-slate-800 uppercase">📅 Visitas por Día (Corte cada mediodía 12:00 m.)</span>
           <span id="vpLblRangoCorte" class="font-extrabold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 text-[10px]">12:00 m. → 11:59 a.m.</span>
         </div>
         <div id="vpTiraDias" class="flex items-center gap-1.5 overflow-x-auto pb-0.5"></div>
         <div class="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-100 text-[11px]">
           <div class="flex flex-wrap items-center gap-1.5">
-            <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black">✅ Pases activos: <span id="vpCntAceptados">0</span></span>
+            <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black">✅ Visitas activas: <span id="vpCntAceptados">0</span></span>
             <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300 font-black">🚫 Rechazados: <span id="vpCntRechazados">0</span></span>
             <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 font-black">🛏️ Cargado a cuentas: S/ <span id="vpCntMonto">0.00</span></span>
           </div>
@@ -1094,7 +1110,7 @@
       <div class="bg-white rounded-lg border border-[#D8C7B8] overflow-hidden">
         <div class="bg-slate-800 text-white px-2.5 py-1 text-[10.5px] font-black uppercase tracking-wide flex justify-between items-center">
           <span>📋 Registro del Día (<span id="vpLblFechaTabla">Hoy</span>)</span>
-          <span class="text-[9.5px] font-normal text-amber-200">Si un pase registrado es rechazado, márcalo con «🚫 Rechazar» (no se borra)</span>
+          <span class="text-[9.5px] font-normal text-amber-200">Si una visita registrada es rechazada, márcala con «🚫 Rechazar» (no se borra)</span>
         </div>
         <div class="max-h-60 overflow-y-auto">
           <table class="w-full text-left text-[11px] border-collapse">
@@ -1116,119 +1132,93 @@
     </div>
   </dialog>
 
-  <!-- DIÁLOGO MODAL: CONTRASEÑA DE CUENTAS / PAGOS (la clave nunca se muestra) -->
-  <!-- DIÁLOGO MODAL: CONTROL DE VISITAS / PASES (DNI PRIVADO + CARGO S/ 10 A CUENTA) -->
-  <dialog id="dialogVisitasPases" closedby="any" aria-labelledby="tituloDialogVisitas"
-          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[560px] max-w-[96vw] bg-[#FAF6F3] text-slate-800 m-auto">
-    <div class="bg-[#2D2623] text-white px-3.5 py-2.5 flex items-center justify-between gap-2 rounded-t-xl">
-      <div class="flex items-center gap-2">
-        <span class="font-black text-sm text-amber-300">🚶 Control de Visitas / Pases</span>
-        <span class="px-1.5 py-0.5 rounded text-[9.5px] font-extrabold bg-white/10 text-emerald-300 border border-white/15" title="Los DNIs quedan guardados solo aquí; en la cuenta solo sube el adicional">🔒 DNI Privado</span>
+  <!-- DIÁLOGO MODAL: ESTADO DE CUENTA DETALLADO POR HABITACIÓN (HUÉSPEDES QUE VAN VARIOS DÍAS) -->
+  <dialog id="dialogCuentasHab" closedby="any" aria-labelledby="tituloDialogCuentasHab"
+          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[940px] max-w-[97vw] bg-[#FAF6F3] text-slate-800 m-auto">
+    <div class="bg-[#2D2623] text-white px-4 py-2.5 flex items-center justify-between gap-2 rounded-t-xl">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span id="tituloDialogCuentasHab" class="font-black text-sm text-amber-300">📋 Estado de Cuenta Detallado por Habitación (Varios Días)</span>
+        <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-white/10 text-amber-200 border border-white/15">Desglose diario de Hospedaje + Adicionales + Pagos y Medio de Pago</span>
       </div>
-      <div class="flex items-center gap-1">
-        <button type="button" onclick="vpCambiarDia(-1)" class="px-1.5 py-0.5 rounded bg-white/15 hover:bg-white/25 text-white font-black text-xs cursor-pointer" title="Día anterior">◀</button>
-        <input type="date" id="vpFechaInput" onchange="vpCargar(this.value)" class="px-1.5 py-0.5 rounded bg-white text-slate-900 font-black text-xs cursor-pointer border border-slate-300">
-        <button type="button" onclick="vpCambiarDia(1)" class="px-1.5 py-0.5 rounded bg-white/15 hover:bg-white/25 text-white font-black text-xs cursor-pointer" title="Día siguiente">▶</button>
-        <button type="button" onclick="cerrarModalVisitasPases()" class="ml-1.5 text-slate-300 hover:text-white font-black text-sm w-6 h-6 rounded hover:bg-red-600 cursor-pointer">✕</button>
-      </div>
+      <button type="button" onclick="cerrarModalCuentasHab()" class="text-slate-300 hover:text-white font-black text-sm w-6 h-6 rounded hover:bg-red-600 cursor-pointer">✕</button>
     </div>
 
-    <div class="p-3 space-y-2.5 max-h-[82vh] overflow-y-auto">
-      <!-- 1. Formulario rápido: 1° Habitación -> 2° DNI -> Aceptar (+S/10 a cuenta) o Rechazado -->
+    <div class="p-3.5 space-y-3 max-h-[86vh] overflow-y-auto text-xs">
+      <!-- Buscador rápido por número de habitación (ej. 206) + Chips de habitaciones ocupadas -->
       <div class="bg-white rounded-lg border border-[#D8C7B8] p-2.5 shadow-2xs space-y-2">
-        <div class="grid grid-cols-12 gap-2 items-end">
-          <div class="col-span-5 sm:col-span-4">
-            <label for="vpHab" class="block text-[10.5px] font-black text-slate-700 uppercase mb-0.5">1° Habitación Ocupada</label>
-            <select id="vpHab" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-white font-black text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600">
-              <option value="">— Selecciona Hab. —</option>
-            </select>
-          </div>
-          <div class="col-span-7 sm:col-span-5">
-            <label for="vpDni" class="block text-[10.5px] font-black text-slate-700 uppercase mb-0.5">2° DNI Visita (Buscador RENIEC / Padrón)</label>
-            <div class="flex items-center gap-1">
-              <input type="text" id="vpDni" inputmode="numeric" maxlength="15" autocomplete="off"
-                     oninput="vpAlEscribirDni(this.value)"
-                     onkeydown="if(event.key==='Enter'){event.preventDefault();vpBuscarDniAhora();}"
-                     placeholder="Escribe DNI (8 dígitos)..."
-                     class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-black text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600">
-              <button type="button" id="btnVpBuscarDni" onclick="vpBuscarDniAhora()"
-                      title="Buscar DNI en Padrón Local / RENIEC"
-                      class="px-2.5 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-black text-xs shadow-2xs cursor-pointer shrink-0 transition-colors">
-                🔍
-              </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <label for="chHabInput" class="font-black text-[11px] text-slate-800 uppercase">🔍 Habitación (escribe ej. 206):</label>
+          <input type="text" id="chHabInput" list="chHabDatalist" inputmode="numeric" maxlength="6" autocomplete="off"
+                 oninput="chAlEscribirHab(this.value)"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();chCargar(this.value);}"
+                 placeholder="Ej. 206..."
+                 class="w-28 px-2.5 py-1 rounded-lg border border-amber-400 bg-amber-50/50 focus:bg-white font-black text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-600">
+          <datalist id="chHabDatalist"></datalist>
+          <button type="button" onclick="chCargar(document.getElementById('chHabInput').value)"
+                  class="px-3 py-1 rounded-lg bg-amber-800 hover:bg-amber-900 text-white font-black text-xs cursor-pointer">
+            Ver Cuenta
+          </button>
+          <div id="chHeaderHuesped" class="ml-auto font-black text-xs text-slate-900 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 hidden"></div>
+        </div>
+        <div class="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-100">
+          <span class="text-[10px] font-extrabold text-slate-500 uppercase">Habitaciones ocupadas:</span>
+          <div id="chChipsHabs" class="flex items-center gap-1.5 flex-wrap"></div>
+        </div>
+      </div>
+
+      <div id="chStatusMsg" class="hidden px-3 py-2 rounded-lg text-xs font-extrabold border"></div>
+
+      <!-- Contenedor principal de la cuenta detallada -->
+      <div id="chContenidoCuenta" class="space-y-3 hidden">
+        <!-- 1. Tarjetas de Resumen General Acumulado -->
+        <div id="chCardsResumen" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
+
+        <!-- 2. Dos columnas: Lista de Pagos Hechos (con Tipo de Pago) + Lista de Adicionales Detallados -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+          <div class="bg-white rounded-lg border border-emerald-300 overflow-hidden shadow-2xs">
+            <div class="bg-emerald-900 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between">
+              <span>💳 Pagos Realizados por Día y Tipo de Pago</span>
+              <span id="chBadgeTotPagos" class="px-1.5 py-0.5 rounded bg-white/15 text-emerald-100 text-[10px]">S/ 0.00</span>
             </div>
+            <div id="chListaPagos" class="p-2 max-h-52 overflow-y-auto divide-y divide-slate-100 text-[11px]"></div>
           </div>
-          <div class="col-span-4 sm:col-span-3">
-            <label for="vpMonto" class="block text-[10.5px] font-black text-slate-700 uppercase mb-0.5" title="Se carga siempre a la cuenta de la habitación como Servicio Adicional">Cargo Cuenta (S/)</label>
-            <input type="text" id="vpMonto" inputmode="decimal" value="10"
-                   class="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-amber-50/60 font-black text-xs text-right text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600">
-          </div>
-          <div class="col-span-8 sm:col-span-7">
-            <label for="vpNombre" class="block text-[10px] font-black text-teal-900 uppercase mb-0.5">👤 Nombre de la Visita (sale automático por DNI o escríbelo)</label>
-            <input type="text" id="vpNombre" maxlength="90" autocomplete="off"
-                   placeholder="Nombre completo del visitante..."
-                   class="w-full px-2.5 py-1.5 rounded-lg border border-teal-300 bg-teal-50/50 focus:bg-white font-black text-xs text-slate-900 uppercase focus:outline-hidden focus:ring-2 focus:ring-teal-600">
-          </div>
-          <div class="col-span-12 sm:col-span-5">
-            <label for="vpMotivo" class="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">Nota / Motivo si es rechazado</label>
-            <input type="text" id="vpMotivo" maxlength="80" autocomplete="off"
-                   placeholder="Opcional (ej. Sin DNI, no autorizado...)"
-                   class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white text-[11px] font-semibold text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-slate-400">
+
+          <div class="bg-white rounded-lg border border-amber-300 overflow-hidden shadow-2xs">
+            <div class="bg-amber-900 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between">
+              <span>➕ Adicionales Registrados (Tienda / Visitas / Otros)</span>
+              <span id="chBadgeTotAdic" class="px-1.5 py-0.5 rounded bg-white/15 text-amber-100 text-[10px]">S/ 0.00</span>
+            </div>
+            <div id="chListaAdicionales" class="p-2 max-h-52 overflow-y-auto divide-y divide-slate-100 text-[11px]"></div>
           </div>
         </div>
 
-        <div id="vpInfoDniBox" class="hidden px-2.5 py-1.5 rounded-lg text-[11px] font-bold border"></div>
-
-        <div class="grid grid-cols-12 gap-2 pt-0.5">
-          <button type="button" id="btnVpAceptar" onclick="vpRegistrar('ACEPTADO')"
-                  class="col-span-8 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-xs cursor-pointer transition-colors flex items-center justify-center gap-1.5">
-            <span>✅ Aceptar y Cargar a Cuenta</span>
-          </button>
-          <button type="button" id="btnVpRechazar" onclick="vpRegistrar('RECHAZADO')"
-                  class="col-span-4 py-2 px-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-xs shadow-xs cursor-pointer transition-colors flex items-center justify-center gap-1"
-                  title="Registra intento rechazado en el día (sin cobrar S/ 10)">
-            <span>🚫 Rechazado</span>
-          </button>
-        </div>
-        <div id="vpStatusMsg" class="hidden px-2.5 py-1 rounded text-[11px] font-extrabold"></div>
-      </div>
-
-      <!-- 2. Conteo en vivo del día -->
-      <div class="flex flex-wrap items-center justify-between gap-1.5 bg-white rounded-lg border border-[#D8C7B8] px-2.5 py-1.5 text-[11px]">
-        <div class="flex flex-wrap items-center gap-1.5">
-          <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black">✅ Pases hoy: <span id="vpCntAceptados">0</span></span>
-          <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300 font-black">🚫 Rechazados: <span id="vpCntRechazados">0</span></span>
-          <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 font-black">🛏️ Cargado: S/ <span id="vpCntMonto">0.00</span></span>
-        </div>
-        <div id="vpPillsPorHab" class="flex flex-wrap items-center gap-1"></div>
-      </div>
-
-      <!-- 3. Pequeño registro del día con la hora -->
-      <div class="bg-white rounded-lg border border-[#D8C7B8] overflow-hidden">
-        <div class="bg-slate-800 text-white px-2.5 py-1 text-[10.5px] font-black uppercase tracking-wide flex justify-between items-center">
-          <span>📋 Registro del Día (<span id="vpLblFechaTabla">Hoy</span>)</span>
-          <span class="text-[9.5px] font-normal text-slate-300">Oculto en Registro de Pagos / Estancias</span>
-        </div>
-        <div class="max-h-56 overflow-y-auto">
-          <table class="w-full text-left text-[11px] border-collapse">
-            <thead>
-              <tr class="bg-slate-100 text-slate-700 font-black border-b border-slate-200">
-                <th class="px-2 py-1 w-14">Hora</th>
-                <th class="px-2 py-1 w-14 text-center">Hab.</th>
-                <th class="px-2 py-1">DNI / Visitante (Interno)</th>
-                <th class="px-2 py-1 w-32 text-center">Estado / Cargo</th>
-                <th class="px-1.5 py-1 w-8 text-center"></th>
-              </tr>
-            </thead>
-            <tbody id="vpTablaBody" class="divide-y divide-slate-100">
-              <tr><td colspan="5" class="py-4 text-center text-slate-400 font-semibold">Sin visitas registradas en esta fecha.</td></tr>
-            </tbody>
-          </table>
+        <!-- 3. Desglose Día por Día (de Día 1 hasta Hoy) -->
+        <div class="bg-white rounded-lg border border-[#D8C7B8] overflow-hidden shadow-2xs">
+          <div class="bg-slate-800 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between">
+            <span>📅 Desglose Día por Día (Estancia Continua)</span>
+            <span id="chSubtituloDias" class="text-[10px] font-bold text-amber-200"></span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-[11px] border-collapse">
+              <thead>
+                <tr class="bg-slate-100 text-slate-700 font-black border-b border-slate-200 text-[10.5px]">
+                  <th class="px-2.5 py-1.5 w-28">Día / Fecha</th>
+                  <th class="px-2 py-1.5 w-16 text-center">Hab.</th>
+                  <th class="px-2 py-1.5 w-24 text-right">Hospedaje</th>
+                  <th class="px-2.5 py-1.5">Adicionales del Día (Detalle)</th>
+                  <th class="px-2.5 py-1.5">Pagos del Día (Medio de Pago)</th>
+                  <th class="px-2.5 py-1.5 w-28 text-right">Saldo del Día</th>
+                </tr>
+              </thead>
+              <tbody id="chTablaDiasBody" class="divide-y divide-slate-200"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
   </dialog>
 
+  <!-- DIÁLOGO MODAL: CONTRASEÑA DE CUENTAS / PAGOS (la clave nunca se muestra) -->
   <dialog id="dialogClaveCuentas" closedby="any" aria-labelledby="tituloDialogClaveCu"
           class="rounded-xl shadow-2xl border border-slate-300 p-0 w-80 max-w-[92vw] bg-white text-slate-800 m-auto">
     <form onsubmit="confirmarClaveCuentasUI(event)" class="p-4 space-y-3" autocomplete="off">
@@ -8347,7 +8337,8 @@
 </script>
 <script>
 (function () {
-  var VP = { fechaIso: '', hoyCorteIso: '', dniTimer: null, nombreDetectado: '' };
+  var VP = { fechaIso: '', hoyCorteIso: '', dniTimer: null, nombreDetectado: '', habsOcupadas: [] };
+  var CH = { habActual: '', timer: null, habsOcupadas: [] };
 
   function vpEsc(s) {
     return String(s == null ? '' : s)
@@ -8382,7 +8373,7 @@
     b.textContent = r > 0 ? (a + ' · ' + r + '🚫') : String(a);
     var btn = document.getElementById('btnVisitasPases');
     if (btn) {
-      btn.title = 'Visitas del turno actual (Corte 12:00 m.): ' + a + ' pases activos' + (r > 0 ? (' y ' + r + ' rechazados') : '');
+      btn.title = 'Visitas del turno actual (Corte 12:00 m.): ' + a + ' activas' + (r > 0 ? (' y ' + r + ' rechazadas') : '');
     }
   };
 
@@ -8419,11 +8410,53 @@
     vpCargar(y + '-' + m + '-' + d);
   };
 
+  function vpActualizarEtiquetaHab(habVal) {
+    var v = String(habVal || '').trim();
+    var lbl = document.getElementById('vpHabHuespedLbl');
+    var match = null;
+    (VP.habsOcupadas || []).forEach(function (h) {
+      if (String(h.hab) === v) match = h;
+    });
+    if (lbl) {
+      lbl.textContent = match ? ('✓ ' + match.huesped.split(' ').slice(0, 2).join(' ')) : (v ? '⚠️ No ocupada' : '');
+      lbl.className = 'text-[9.5px] font-black truncate max-w-[130px] ' + (match ? 'text-teal-800' : 'text-rose-700');
+    }
+    var chips = document.getElementById('vpChipsHabsOcupadas');
+    if (chips) {
+      chips.innerHTML = (VP.habsOcupadas || []).map(function (h) {
+        var act = String(h.hab) === v;
+        var nomCorto = String(h.huesped || '').split(' ').slice(0, 2).join(' ');
+        var tagVis = h.pasesHoy > 0 ? (' · ' + h.pasesHoy + '🚶') : '';
+        var cls = act
+          ? 'px-2 py-0.5 rounded-md bg-teal-800 text-white border border-teal-950 font-black text-[10px] cursor-pointer shadow-2xs'
+          : 'px-2 py-0.5 rounded-md bg-slate-100 hover:bg-teal-50 text-slate-800 border border-slate-300 font-bold text-[10px] cursor-pointer';
+        return '<button type="button" data-hab="' + vpEsc(h.hab) + '" onclick="vpSeleccionarHabChip(this.getAttribute(&quot;data-hab&quot;))" class="' + cls + '" title="Hab. ' + vpEsc(h.hab) + ' — ' + vpEsc(h.huesped) + '">' +
+          '<b>' + vpEsc(h.hab) + '</b> <span class="opacity-85">' + vpEsc(nomCorto) + vpEsc(tagVis) + '</span>' +
+        '</button>';
+      }).join('');
+    }
+  }
+
+  window.vpSeleccionarHabChip = function (hab) {
+    var inp = document.getElementById('vpHab');
+    if (inp) inp.value = String(hab || '');
+    vpActualizarEtiquetaHab(hab);
+    var d = document.getElementById('vpDni');
+    if (d) d.focus();
+  };
+
+  window.vpAlEscribirHab = function (val) {
+    var limpio = String(val || '').replace(/[^0-9A-Za-z]/g, '').trim();
+    vpActualizarEtiquetaHab(limpio);
+  };
+
   window.vpCargar = function (fechaIsoODmy) {
     vpRpc('obtenerVisitasPases', [{ fecha: fechaIsoODmy || '' }], function (res) {
       if (!res) return;
       VP.fechaIso = res.fechaIso || '';
       VP.hoyCorteIso = res.hoyCorteIso || '';
+      VP.habsOcupadas = res.habitacionesOcupadas || [];
+
       var inpF = document.getElementById('vpFechaInput');
       if (inpF && res.fechaIso) inpF.value = res.fechaIso;
       var lblFT = document.getElementById('vpLblFechaTabla');
@@ -8431,17 +8464,19 @@
       var lblRango = document.getElementById('vpLblRangoCorte');
       if (lblRango) lblRango.textContent = '🕛 ' + (res.rangoCorteTxt || '12:00 m. → 11:59 a.m.');
 
-      var selHab = document.getElementById('vpHab');
-      if (selHab) {
-        var prevVal = VP.habPre || selHab.value || '';
+      var inpHab = document.getElementById('vpHab');
+      var dlHab = document.getElementById('vpHabDatalist');
+      if (dlHab) {
+        dlHab.innerHTML = VP.habsOcupadas.map(function (h) {
+          var tagPases = h.pasesHoy > 0 ? (' · [' + h.pasesHoy + (h.pasesHoy === 1 ? ' visita]' : ' visitas]')) : '';
+          return '<option value="' + vpEsc(h.hab) + '">Hab. ' + vpEsc(h.hab) + ' — ' + vpEsc(h.huesped) + vpEsc(tagPases) + '</option>';
+        }).join('');
+      }
+      if (inpHab) {
+        var prevVal = VP.habPre || inpHab.value || '';
         VP.habPre = '';
-        var opts = ['<option value="">— Selecciona Hab. ocupada —</option>'];
-        (res.habitacionesOcupadas || []).forEach(function (h) {
-          var tagPases = h.pasesHoy > 0 ? (' · [' + h.pasesHoy + (h.pasesHoy === 1 ? ' pase]' : ' pases]')) : '';
-          opts.push('<option value="' + vpEsc(h.hab) + '">Hab. ' + vpEsc(h.hab) + ' — ' + vpEsc(h.huesped) + vpEsc(tagPases) + '</option>');
-        });
-        selHab.innerHTML = opts.join('');
-        if (prevVal) selHab.value = prevVal;
+        if (prevVal) inpHab.value = prevVal;
+        vpActualizarEtiquetaHab(inpHab.value);
       }
 
       var rsm = res.resumen || {};
@@ -8453,7 +8488,6 @@
         actualizarBadgeVisitasUI(rsm.aceptados || 0, rsm.rechazados || 0);
       }
 
-      // Renderizar tira de Pases por Día (cada día con su corte 12:00 m.)
       var tira = document.getElementById('vpTiraDias');
       if (tira) {
         tira.innerHTML = (res.historialPorDia || []).map(function (d) {
@@ -8464,7 +8498,7 @@
           var tagRech = d.rechazados > 0 ? (' · <span class="' + (activo ? 'text-rose-200' : 'text-rose-700') + '">' + d.rechazados + '🚫</span>') : '';
           return '<button type="button" data-f="' + vpEsc(d.fechaIso) + '" onclick="vpCargar(this.getAttribute(&quot;data-f&quot;))" class="' + cls + '" title="Corte: ' + vpEsc(d.rangoCorte) + '">' +
             '<span>' + vpEsc(d.dow) + ' ' + vpEsc(d.fechaDmy.slice(0, 5)) + ': </span>' +
-            '<span class="font-black">' + d.aceptados + (d.aceptados === 1 ? ' pase' : ' pases') + '</span>' +
+            '<span class="font-black">' + d.aceptados + (d.aceptados === 1 ? ' visita' : ' visitas') + '</span>' +
             tagRech +
           '</button>';
         }).join('');
@@ -8488,12 +8522,12 @@
             var rowBg = esRech ? 'bg-rose-50/90 text-rose-950' : 'bg-white hover:bg-slate-50';
             var badgeEst = esRech
               ? '<span class="px-1.5 py-0.5 rounded bg-rose-600 text-white font-black text-[10px]" title="Rechazado (no se cobra en la cuenta)">🚫 RECHAZADO</span>'
-              : '<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-[10px]">✅ +S/ ' + Number(it.monto || 10).toFixed(0) + ' cuenta</span>';
+              : '<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-[10px]">✅ +S/ ' + Number(it.monto || 10).toFixed(0) + ' (Visita)</span>';
             var subNom = it.nombreVisita ? (' <span class="' + (esRech ? 'text-rose-900 font-bold' : 'text-slate-700 font-bold') + '">· ' + vpEsc(it.nombreVisita) + '</span>') : '';
             var subMot = it.motivo ? ('<div class="text-[9.5px] font-bold ' + (esRech ? 'text-rose-700' : 'text-slate-500') + '">Motivo: ' + vpEsc(it.motivo) + '</div>') : '';
             var btnAccion = esRech
-              ? '<button type="button" data-id="' + vpEsc(it.paseUuid) + '" onclick="vpCambiarEstado(this.getAttribute(&quot;data-id&quot;), &quot;ACEPTADO&quot;)" class="px-2 py-0.5 rounded bg-slate-200 hover:bg-emerald-600 text-slate-700 hover:text-white font-black text-[10px] cursor-pointer transition-colors" title="Reactivar pase y volver a cargar S/ 10 a la cuenta">↩️ Reactivar</button>'
-              : '<button type="button" data-id="' + vpEsc(it.paseUuid) + '" onclick="vpCambiarEstado(this.getAttribute(&quot;data-id&quot;), &quot;RECHAZADO&quot;)" class="px-2 py-0.5 rounded bg-rose-100 hover:bg-rose-600 text-rose-800 hover:text-white border border-rose-300 font-black text-[10px] cursor-pointer transition-colors" title="Marcar este pase registrado como Rechazado (no se borra de la lista y descuenta los S/ 10 de la cuenta)">🚫 Rechazar</button>';
+              ? '<button type="button" data-id="' + vpEsc(it.paseUuid) + '" onclick="vpCambiarEstado(this.getAttribute(&quot;data-id&quot;), &quot;ACEPTADO&quot;)" class="px-2 py-0.5 rounded bg-slate-200 hover:bg-emerald-600 text-slate-700 hover:text-white font-black text-[10px] cursor-pointer transition-colors" title="Reactivar visita y volver a cargar S/ 10 a la cuenta">↩️ Reactivar</button>'
+              : '<button type="button" data-id="' + vpEsc(it.paseUuid) + '" onclick="vpCambiarEstado(this.getAttribute(&quot;data-id&quot;), &quot;RECHAZADO&quot;)" class="px-2 py-0.5 rounded bg-rose-100 hover:bg-rose-600 text-rose-800 hover:text-white border border-rose-300 font-black text-[10px] cursor-pointer transition-colors" title="Marcar esta visita registrada como Rechazada (no se borra de la lista y descuenta los S/ 10 de la cuenta)">🚫 Rechazar</button>';
             return '<tr class="' + rowBg + '">' +
               '<td class="px-2 py-1.5 font-black whitespace-nowrap">' + vpEsc(it.hora) + '</td>' +
               '<td class="px-2 py-1.5 text-center font-black">' + vpEsc(it.hab) + '</td>' +
@@ -8528,7 +8562,7 @@
       } else {
         partes.push('ℹ️ DNI no hallado en RENIEC (puedes escribir el nombre manualmente arriba)');
       }
-      if (r.visitasPrevias > 0) partes.push('· <b>' + r.visitasPrevias + (r.visitasPrevias === 1 ? ' pase previo' : ' pases previos') + '</b>');
+      if (r.visitasPrevias > 0) partes.push('· <b>' + r.visitasPrevias + (r.visitasPrevias === 1 ? ' visita previa' : ' visitas previas') + '</b>');
       if (r.rechazosPrevios && r.rechazosPrevios.length > 0) {
         var ult = r.rechazosPrevios[0];
         box.className = 'px-2.5 py-1.5 rounded-lg text-[11px] font-bold border bg-rose-50 text-rose-900 border-rose-300';
@@ -8575,18 +8609,18 @@
   };
 
   window.vpRegistrar = function () {
-    var selHab = document.getElementById('vpHab');
+    var inpHab = document.getElementById('vpHab');
     var inpDni = document.getElementById('vpDni');
     var inpNom = document.getElementById('vpNombre');
     var inpMonto = document.getElementById('vpMonto');
     var inpFecha = document.getElementById('vpFechaInput');
 
-    var hab = selHab ? selHab.value : '';
+    var hab = inpHab ? String(inpHab.value || '').replace(/[^0-9A-Za-z]/g, '').trim() : '';
     var dni = inpDni ? inpDni.value.trim() : '';
     var nomManual = inpNom ? inpNom.value.trim() : '';
     var monto = inpMonto ? inpMonto.value.trim() : '10';
 
-    if (!hab || hab === '-') { vpMsg('error', '⚠️ Primero elige la habitación ocupada.'); if (selHab) selHab.focus(); return; }
+    if (!hab || hab === '-') { vpMsg('error', '⚠️ Primero escribe o elige la habitación ocupada (ej. 206).'); if (inpHab) inpHab.focus(); return; }
     if (!dni) { vpMsg('error', '⚠️ Escribe el DNI de la visita.'); if (inpDni) inpDni.focus(); return; }
 
     var btnA = document.getElementById('btnVpAceptar');
@@ -8605,7 +8639,7 @@
       VP.nombreDetectado = '';
       var infoBox = document.getElementById('vpInfoDniBox');
       if (infoBox) { infoBox.classList.add('hidden'); infoBox.innerHTML = ''; }
-      vpMsg('ok', (res && res.mensaje) || '✅ Pase registrado');
+      vpMsg('ok', (res && res.mensaje) || '✅ Visita registrada');
       vpCargar((inpFecha && inpFecha.value) ? inpFecha.value : '');
       if (typeof recargarDatos === 'function') recargarDatos();
     }, function (e) {
@@ -8618,7 +8652,7 @@
     if (!paseUuid) return;
     var motivo = '';
     if (nuevoEstado === 'RECHAZADO') {
-      var m = prompt('Motivo por el que se rechaza este pase registrado (se mantendrá visible en la lista como RECHAZADO y se descontará de la cuenta):', 'Rechazado');
+      var m = prompt('Motivo por el que se rechaza esta visita registrada (se mantendrá visible en la lista como RECHAZADO y se descontará de la cuenta):', 'Rechazado');
       if (m === null) return;
       motivo = String(m || '').trim() || 'Rechazado';
     }
@@ -8631,6 +8665,279 @@
       vpMsg('error', '❌ ' + (e.message || String(e)));
     });
   };
+
+  // ============================================================================
+  // CUENTAS DETALLADAS POR HABITACIÓN (HUÉSPEDES QUE VAN VARIOS DÍAS)
+  // ============================================================================
+  function chSoles(n) {
+    return 'S/ ' + Number(n || 0).toFixed(2);
+  }
+
+  function chBadgeMedioPago(medio) {
+    var m = String(medio || '').toLowerCase();
+    if (m.indexOf('efectivo') >= 0) {
+      return '<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-[10px]">💵 ' + vpEsc(medio) + '</span>';
+    }
+    if (m.indexOf('yape') >= 0 || m.indexOf('plin') >= 0) {
+      return '<span class="px-1.5 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-300 font-black text-[10px]">📱 ' + vpEsc(medio) + '</span>';
+    }
+    return '<span class="px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 border border-sky-300 font-black text-[10px]">💳 ' + vpEsc(medio || 'Otro') + '</span>';
+  }
+
+  window.abrirModalCuentasHab = function (ev, habPre) {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+    var dlg = document.getElementById('dialogCuentasHab');
+    if (!dlg) return;
+    if (typeof dlg.showModal === 'function' && !dlg.open) dlg.showModal();
+    var inp = document.getElementById('chHabInput');
+    var h = habPre ? String(habPre) : (inp && inp.value ? inp.value : '');
+    chCargar(h);
+  };
+
+  window.cerrarModalCuentasHab = function () {
+    var dlg = document.getElementById('dialogCuentasHab');
+    if (dlg && dlg.open) dlg.close();
+  };
+
+  window.chAlEscribirHab = function (val) {
+    if (CH.timer) clearTimeout(CH.timer);
+    var limpio = String(val || '').replace(/[^0-9A-Za-z]/g, '').trim();
+    if (!limpio) return;
+    var existe = (CH.habsOcupadas || []).some(function (x) { return String(x.hab) === limpio; });
+    if (existe || limpio.length >= 3) {
+      CH.timer = setTimeout(function () { chCargar(limpio); }, 140);
+    }
+  };
+
+  window.chCargar = function (hab) {
+    var limpio = String(hab || '').replace(/[^0-9A-Za-z]/g, '').trim();
+    var inp = document.getElementById('chHabInput');
+    if (inp && limpio) inp.value = limpio;
+
+    var msgBox = document.getElementById('chStatusMsg');
+    var cont = document.getElementById('chContenidoCuenta');
+    var hdrHuesped = document.getElementById('chHeaderHuesped');
+
+    vpRpc('obtenerCuentaDetalladaHab', [{ hab: limpio }], function (res) {
+      if (!res) return;
+      CH.habsOcupadas = res.habitacionesOcupadas || [];
+
+      var dl = document.getElementById('chHabDatalist');
+      if (dl) {
+        dl.innerHTML = CH.habsOcupadas.map(function (h) {
+          return '<option value="' + vpEsc(h.hab) + '">Hab. ' + vpEsc(h.hab) + ' — ' + vpEsc(h.huesped) + ' (Saldo: ' + chSoles(h.saldo) + ')</option>';
+        }).join('');
+      }
+
+      var chips = document.getElementById('chChipsHabs');
+      var habSel = String(res.hab || limpio || '');
+      if (inp && habSel && !inp.value) inp.value = habSel;
+
+      if (chips) {
+        chips.innerHTML = CH.habsOcupadas.map(function (h) {
+          var act = String(h.hab) === habSel;
+          var nomCorto = String(h.huesped || '').split(' ').slice(0, 2).join(' ');
+          var saldoNum = Number(h.saldo || 0);
+          var badgeSaldo = saldoNum > 0.009
+            ? (' · <span class="' + (act ? 'text-amber-200' : 'text-rose-700') + ' font-black">Debe ' + chSoles(saldoNum) + '</span>')
+            : (' · <span class="' + (act ? 'text-emerald-200' : 'text-emerald-700') + ' font-black">Al día</span>');
+          var cls = act
+            ? 'px-2.5 py-1 rounded-lg bg-amber-900 text-white border border-amber-950 font-black text-[10.5px] cursor-pointer shadow-2xs'
+            : 'px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-amber-50 text-slate-800 border border-slate-300 font-bold text-[10.5px] cursor-pointer';
+          return '<button type="button" data-hab="' + vpEsc(h.hab) + '" onclick="chCargar(this.getAttribute(&quot;data-hab&quot;))" class="' + cls + '">' +
+            '<span>Hab. <b>' + vpEsc(h.hab) + '</b> · ' + vpEsc(nomCorto) + '</span>' + badgeSaldo +
+          '</button>';
+        }).join('');
+      }
+
+      if (!res.encontrado) {
+        if (cont) cont.classList.add('hidden');
+        if (hdrHuesped) hdrHuesped.classList.add('hidden');
+        if (msgBox) {
+          msgBox.className = 'px-3 py-2 rounded-lg text-xs font-extrabold border bg-amber-50 text-amber-950 border-amber-300';
+          msgBox.textContent = res.mensaje || 'Selecciona o escribe una habitación ocupada (ej. 206).';
+          msgBox.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (msgBox) msgBox.classList.add('hidden');
+      if (cont) cont.classList.remove('hidden');
+
+      var R = res.resumen || {};
+      var habsTxt = (R.habsRecorridas && R.habsRecorridas.length > 1)
+        ? ('Habs: ' + R.habsRecorridas.join(' → '))
+        : ('Hab. ' + res.hab);
+
+      if (hdrHuesped) {
+        hdrHuesped.innerHTML = '🛏️ <b>' + vpEsc(habsTxt) + '</b> · 👤 ' + vpEsc(res.huesped) +
+          (res.dni ? (' <span class="text-slate-500 font-mono">(' + vpEsc(res.dni) + ')</span>') : '') +
+          ' · <span class="text-amber-900">' + (R.diasCount || 1) + (R.diasCount === 1 ? ' día' : ' días') + ' (' + vpEsc(R.fechaInicio || '') + ' → ' + vpEsc(R.fechaUltima || '') + ')</span>';
+        hdrHuesped.classList.remove('hidden');
+      }
+
+      var cards = document.getElementById('chCardsResumen');
+      if (cards) {
+        var saldoAct = Number(R.saldoActual || 0);
+        var clsSaldo = saldoAct > 0.009
+          ? 'bg-rose-50 border-rose-300 text-rose-950'
+          : (saldoAct < -0.009 ? 'bg-sky-50 border-sky-300 text-sky-950' : 'bg-emerald-50 border-emerald-300 text-emerald-950');
+        var txtSaldoLbl = saldoAct > 0.009 ? '⚖️ SALDO PENDIENTE' : (saldoAct < -0.009 ? '⚖️ SALDO A FAVOR' : '✅ CUENTA AL DÍA');
+        cards.innerHTML =
+          '<div class="bg-white rounded-lg border border-slate-200 p-2.5">' +
+            '<div class="text-[10px] font-black uppercase text-slate-500">📅 Días / Noches</div>' +
+            '<div class="text-base font-black text-slate-900 mt-0.5">' + (R.diasCount || 1) + ' día(s) · ' + (R.totalNoches || 1) + ' noche(s)</div>' +
+            '<div class="text-[10px] font-bold text-slate-600 mt-0.5">' + vpEsc(habsTxt) + '</div>' +
+          '</div>' +
+          '<div class="bg-white rounded-lg border border-slate-200 p-2.5">' +
+            '<div class="text-[10px] font-black uppercase text-slate-500">🛏️ Total Hospedaje</div>' +
+            '<div class="text-base font-black text-slate-900 mt-0.5">' + chSoles(R.totalAlojamiento) + '</div>' +
+            (Number(R.deudaInicialArrastrada || 0) > 0
+              ? '<div class="text-[10px] font-bold text-amber-800 mt-0.5">+ Deuda ant. inicial: ' + chSoles(R.deudaInicialArrastrada) + '</div>'
+              : '<div class="text-[10px] font-bold text-slate-500 mt-0.5">Desde ' + vpEsc(R.fechaInicio || '') + '</div>') +
+          '</div>' +
+          '<div class="bg-amber-50/60 rounded-lg border border-amber-200 p-2.5">' +
+            '<div class="text-[10px] font-black uppercase text-amber-900">➕ Total Adicionales</div>' +
+            '<div class="text-base font-black text-amber-950 mt-0.5">' + chSoles(R.totalAdicionales) + '</div>' +
+            '<div class="text-[10px] font-bold text-amber-900 mt-0.5">🛒 Tienda: ' + chSoles(R.totalTienda) + ' · 🚶 Visita/Serv: ' + chSoles(R.totalServicios) + '</div>' +
+          '</div>' +
+          '<div class="bg-emerald-50/70 rounded-lg border border-emerald-200 p-2.5">' +
+            '<div class="text-[10px] font-black uppercase text-emerald-900">💰 Total Pagado</div>' +
+            '<div class="text-base font-black text-emerald-950 mt-0.5">' + chSoles(R.totalPagado) + '</div>' +
+            '<div class="text-[10px] font-bold text-emerald-900 mt-0.5">💵 Efec: ' + chSoles(R.pagadoEfectivo) + ' · 📱 Yape: ' + chSoles(R.pagadoYape) + (Number(R.pagadoVisaBanco || 0) > 0 ? (' · 💳 VISA: ' + chSoles(R.pagadoVisaBanco)) : '') + '</div>' +
+          '</div>' +
+          '<div class="rounded-lg border p-2.5 ' + clsSaldo + '">' +
+            '<div class="text-[10px] font-black uppercase">' + txtSaldoLbl + '</div>' +
+            '<div class="text-lg font-black mt-0.5">' + chSoles(Math.abs(saldoAct)) + '</div>' +
+            '<div class="text-[10px] font-bold mt-0.5">Cargos: ' + chSoles(R.granTotalCargos) + ' − Pagos: ' + chSoles(R.totalPagado) + '</div>' +
+          '</div>';
+      }
+
+      // Lista de Pagos realizados
+      var bPagos = document.getElementById('chBadgeTotPagos');
+      if (bPagos) bPagos.textContent = (res.todosLosPagos || []).length + ' pago(s) · ' + chSoles(R.totalPagado);
+      var lPagos = document.getElementById('chListaPagos');
+      if (lPagos) {
+        var arrP = res.todosLosPagos || [];
+        if (!arrP.length) {
+          lPagos.innerHTML = '<div class="py-4 text-center text-slate-400 font-semibold">No registra pagos en estos días.</div>';
+        } else {
+          lPagos.innerHTML = arrP.map(function (p) {
+            var opTxt = p.nroOperacion ? (' <span class="font-mono text-[10px] text-slate-500">[Op: ' + vpEsc(p.nroOperacion) + ']</span>') : '';
+            var neg = Number(p.monto || 0) < 0;
+            return '<div class="py-1.5 px-1 flex items-center justify-between gap-2 hover:bg-slate-50">' +
+              '<div class="min-w-0">' +
+                '<div class="flex items-center gap-1.5 flex-wrap">' +
+                  '<span class="font-black text-slate-900">' + vpEsc(p.fecha) + (p.hora ? (' ' + vpEsc(p.hora)) : '') + '</span>' +
+                  '<span class="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-bold text-[9.5px]">Hab. ' + vpEsc(p.hab) + '</span>' +
+                  chBadgeMedioPago(p.medioPago) +
+                '</div>' +
+                '<div class="text-[10px] text-slate-600 font-semibold mt-0.5">' + vpEsc(p.concepto || p.tipoPago || 'Pago') + opTxt + '</div>' +
+              '</div>' +
+              '<div class="font-black text-xs whitespace-nowrap ' + (neg ? 'text-rose-700' : 'text-emerald-900') + '">' + chSoles(p.monto) + '</div>' +
+            '</div>';
+          }).join('');
+        }
+      }
+
+      // Lista de Adicionales registrados
+      var bAdic = document.getElementById('chBadgeTotAdic');
+      if (bAdic) bAdic.textContent = (res.todosLosAdicionales || []).length + ' ítem(s) · ' + chSoles(R.totalAdicionales);
+      var lAdic = document.getElementById('chListaAdicionales');
+      if (lAdic) {
+        var arrA = res.todosLosAdicionales || [];
+        if (!arrA.length) {
+          lAdic.innerHTML = '<div class="py-4 text-center text-slate-400 font-semibold">Sin adicionales de tienda ni visitas en estos días.</div>';
+        } else {
+          lAdic.innerHTML = arrA.map(function (a) {
+            var badgeCat = a.categoria === 'Tienda'
+              ? '<span class="px-1.5 py-0.2 rounded bg-pink-100 text-pink-900 border border-pink-200 font-black text-[9.5px]">🛒 Tienda</span>'
+              : '<span class="px-1.5 py-0.2 rounded bg-teal-100 text-teal-900 border border-teal-200 font-black text-[9.5px]">🚶 ' + vpEsc(a.categoria || 'Adicional') + '</span>';
+            return '<div class="py-1.5 px-1 flex items-center justify-between gap-2 hover:bg-slate-50">' +
+              '<div class="min-w-0">' +
+                '<div class="flex items-center gap-1.5 flex-wrap">' +
+                  '<span class="font-black text-slate-900">' + vpEsc(a.fecha) + (a.hora ? (' ' + vpEsc(a.hora)) : '') + '</span>' +
+                  '<span class="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-bold text-[9.5px]">Hab. ' + vpEsc(a.hab) + '</span>' +
+                  badgeCat +
+                '</div>' +
+                '<div class="text-[10.5px] text-slate-800 font-bold mt-0.5">' + vpEsc(a.descripcion) + '</div>' +
+              '</div>' +
+              '<div class="font-black text-xs text-amber-950 whitespace-nowrap">' + chSoles(a.monto) + '</div>' +
+            '</div>';
+          }).join('');
+        }
+      }
+
+      // Tabla de Desglose Día por Día
+      var subD = document.getElementById('chSubtituloDias');
+      if (subD) subD.textContent = (R.diasCount || 1) + ' registro(s) encadenados · ' + (R.fechaInicio || '') + ' al ' + (R.fechaUltima || '');
+      var tbodyD = document.getElementById('chTablaDiasBody');
+      if (tbodyD) {
+        tbodyD.innerHTML = (res.dias || []).map(function (d) {
+          var adicHtml = '';
+          if (d.adicionalesDetalle && d.adicionalesDetalle.length) {
+            adicHtml = d.adicionalesDetalle.map(function (ad) {
+              var ico = ad.categoria === 'Tienda' ? '🛒' : '🚶';
+              return '<div class="flex items-center justify-between gap-2 py-0.5">' +
+                '<span>' + ico + ' <b>' + vpEsc(ad.descripcion) + '</b>' + (ad.hora ? (' <span class="text-slate-400 text-[10px]">(' + vpEsc(ad.hora) + ')</span>') : '') + '</span>' +
+                '<span class="font-black text-amber-900 whitespace-nowrap">' + chSoles(ad.monto) + '</span>' +
+              '</div>';
+            }).join('');
+          } else {
+            adicHtml = '<span class="text-slate-400">— Sin adicionales —</span>';
+          }
+
+          var pagosHtml = '';
+          if (d.pagosDetalle && d.pagosDetalle.length) {
+            pagosHtml = d.pagosDetalle.map(function (pg) {
+              var op = pg.nroOperacion ? (' <span class="font-mono text-[9.5px] text-slate-500">[' + vpEsc(pg.nroOperacion) + ']</span>') : '';
+              return '<div class="flex items-center justify-between gap-2 py-0.5">' +
+                '<span>' + chBadgeMedioPago(pg.medioPago) + ' <span class="text-slate-700 font-semibold">' + vpEsc(pg.concepto || pg.tipoPago) + '</span>' + (pg.hora ? (' <span class="text-slate-400 text-[10px]">(' + vpEsc(pg.hora) + ')</span>') : '') + op + '</span>' +
+                '<span class="font-black text-emerald-900 whitespace-nowrap">' + chSoles(pg.monto) + '</span>' +
+              '</div>';
+            }).join('');
+          } else {
+            pagosHtml = '<span class="text-slate-400">— Sin pagos ese día —</span>';
+          }
+
+          var sDia = Number(d.saldoFinDia || 0);
+          var badgeSaldoDia = sDia > 0.009
+            ? '<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300 font-black">Debe ' + chSoles(sDia) + '</span>'
+            : (sDia < -0.009
+              ? '<span class="px-2 py-0.5 rounded bg-sky-100 text-sky-900 border border-sky-300 font-black">A favor ' + chSoles(Math.abs(sDia)) + '</span>'
+              : '<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black">S/ 0.00</span>');
+
+          var arrastreTxt = Number(d.deudaAnterior || 0) !== 0
+            ? ('<div class="text-[10px] font-bold text-amber-800 mt-0.5">Arrastra ant.: ' + chSoles(d.deudaAnterior) + '</div>')
+            : '';
+
+          return '<tr class="hover:bg-amber-50/40 align-top">' +
+            '<td class="px-2.5 py-2 whitespace-nowrap">' +
+              '<div class="font-black text-slate-900">Día ' + d.diaNum + ' · ' + vpEsc(d.dow) + ' ' + vpEsc(d.fechaIn) + '</div>' +
+              '<div class="text-[10px] text-slate-500">Salida: ' + vpEsc(d.fechaOut || '-') + (d.horaIn ? (' · ' + vpEsc(d.horaIn)) : '') + '</div>' +
+            '</td>' +
+            '<td class="px-2 py-2 text-center font-black text-slate-900">' + vpEsc(d.hab) + '</td>' +
+            '<td class="px-2 py-2 text-right whitespace-nowrap">' +
+              '<div class="font-black text-slate-900">' + chSoles(d.alojamiento) + '</div>' +
+              '<div class="text-[9.5px] text-slate-500">' + d.noches + 'n × ' + chSoles(d.tarifa) + '</div>' +
+              arrastreTxt +
+            '</td>' +
+            '<td class="px-2.5 py-2">' + adicHtml + '</td>' +
+            '<td class="px-2.5 py-2">' + pagosHtml + '</td>' +
+            '<td class="px-2.5 py-2 text-right whitespace-nowrap">' + badgeSaldoDia + '</td>' +
+          '</tr>';
+        }).join('');
+      }
+    }, function (e) {
+      if (msgBox) {
+        msgBox.className = 'px-3 py-2 rounded-lg text-xs font-extrabold border bg-rose-50 text-rose-900 border-rose-300';
+        msgBox.textContent = '❌ ' + (e.message || String(e));
+        msgBox.classList.remove('hidden');
+      }
+    });
+  };
+
+  setTimeout(function () { vpCargar(''); }, 900);
 })();
 </script>
 </body>

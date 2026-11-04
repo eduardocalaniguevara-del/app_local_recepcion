@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-pases_logic.py — Control Interno de Visitas / Pases por Día (Corte 12:00 m.)
-============================================================================
-- El día operativo de pases corta cada mediodía (12:00 m. a 11:59 a.m. del día siguiente).
-- Todo pase se registra primero como ACEPTADO (+S/ 10 cargado a la cuenta como Servicio Adicional = 'Pase').
-- Una vez registrado en la tabla, puede marcarse como RECHAZADO:
-  * NO se borra del registro del día (queda visible en rojo como 🚫 RECHAZADO).
-  * Descuenta automáticamente los S/ 10.00 de la cuenta de la habitación.
+pases_logic.py — Control Interno de Visitas (Corte 12:00 m.) + Cuentas Multi-Día por Habitación
+===============================================================================================
+1. El día operativo de visitas corta cada mediodía (12:00 m. a 11:59 a.m. del día siguiente).
+2. Todo pase aceptado se carga a la cuenta como Servicio Adicional = 'Visita' (S/ 10 por defecto).
+3. El estado RECHAZADO se aplica sobre un registro existente en la tabla (sin borrarlo) y descuenta
+   automáticamente los S/ 10 de la cuenta.
+4. `obtener_cuenta_detallada_hab_local`: reconstruye la cadena completa de días de cualquier habitación
+   ocupada (huéspedes que van pasando varios días), detallando día por día hospedaje, adicionales
+   (tienda, visitas, servicios, comprobante) y pagos realizados con su medio de pago.
 """
 
 import uuid
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from database import db_transaction, get_connection
 import domain_logic as dl
@@ -27,9 +29,7 @@ DOW_CORTA = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 
 
 def fecha_corte_mediodia_actual(ahora: Optional[datetime] = None) -> str:
-    """El corte diario es a las 12:00 m. (mediodía):
-    - Antes de las 12:00 m. pertenece al ciclo iniciado ayer a las 12:00 m.
-    - Desde las 12:00 m. en adelante pertenece al ciclo de hoy (12:00 m. -> mañana 11:59 a.m.)."""
+    """El corte diario es a las 12:00 m. (mediodía)."""
     dt = ahora or datetime.now()
     d_base = dt.date() - timedelta(days=1) if dt.hour < 12 else dt.date()
     return d_base.strftime("%d/%m/%Y")
@@ -74,8 +74,11 @@ def _habitaciones_ocupadas_activas(fecha_iso: Optional[str] = None) -> List[Dict
             "huesped": huesped,
             "estanciaUuid": str(h.get("estanciaUuid") or "").strip(),
             "idEstancia": str(h.get("idEstancia") or h.get("id") or "").strip(),
+            "saldo": round(float(h.get("saldo") or 0.0), 2),
+            "adicional": round(float(h.get("adicional") or 0.0), 2),
+            "tipoAdicional": str(h.get("tipoAdicional") or ""),
         })
-    return habs_out
+    return sorted(habs_out, key=lambda x: (int(x["hab"]) if x["hab"].isdigit() else 9999, x["hab"]))
 
 
 def consultar_dni_visita_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -142,7 +145,6 @@ def obtener_visitas_pases_local(datos: Optional[Dict[str, Any]] = None) -> Dict[
 
     conn = get_connection()
     try:
-        # Para elegir habitación ocupada, usamos siempre las habitaciones ocupadas actuales (o de la fecha si es pasada)
         iso_panel = None if fecha_dmy == hoy_corte_dmy else _dmy_a_iso(fecha_dmy)
         habs_activas = _habitaciones_ocupadas_activas(iso_panel)
         rows = conn.execute(
@@ -193,7 +195,6 @@ def obtener_visitas_pases_local(datos: Optional[Dict[str, Any]] = None) -> Dict[
             for k, v in sorted(conteo_hab.items(), key=lambda x: (int(x[0]) if x[0].isdigit() else 9999, x[0]))
         ]
 
-        # Resumen de pases por día (últimos días con corte 12:00 m.)
         rows_dias = conn.execute(
             """
             SELECT fecha_dmy, ymd,
@@ -218,7 +219,6 @@ def obtener_visitas_pases_local(datos: Optional[Dict[str, Any]] = None) -> Dict[
             }
             for rd in rows_dias if rd["fecha_dmy"]
         }
-        # Asegurar que el día de corte actual y la fecha seleccionada siempre aparezcan en la tira por día
         for f_aseg in (hoy_corte_dmy, fecha_dmy):
             if f_aseg not in mapa_dias:
                 dt_a = _dmy_a_date(f_aseg)
@@ -263,8 +263,7 @@ def obtener_visitas_pases_local(datos: Optional[Dict[str, Any]] = None) -> Dict[
 
 
 def registrar_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Registra el pase inicialmente como ACEPTADO (+S/ 10 a la cuenta de la habitación).
-    El día asignado usa el corte de mediodía (12:00 m.)."""
+    """Registra la visita inicialmente como ACEPTADO (+S/ 10 a la cuenta con tipoAdicional = 'Visita')."""
     datos = datos or {}
     hab = str(datos.get("hab") or "").strip()
     dni_raw = str(datos.get("dni") or "").strip()
@@ -278,7 +277,7 @@ def registrar_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> Dict[
     hora = str(datos.get("hora") or "").strip() or datetime.now().strftime("%H:%M")
 
     if not hab or hab == "-":
-        raise ValueError("Selecciona primero la habitación ocupada.")
+        raise ValueError("Selecciona o escribe primero el número de la habitación ocupada (ej. 206).")
     if not dni_raw:
         raise ValueError("Ingresa el DNI de la visita.")
 
@@ -305,7 +304,7 @@ def registrar_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> Dict[
     finally:
         conn_chk.close()
 
-    # Cargar S/ 10 a la cuenta de la habitación como Servicio Adicional ('Pase') sin exponer DNI
+    # Cargar S/ 10 a la cuenta de la habitación como Servicio Adicional ('Visita') sin exponer DNI
     dl.guardar_pago_posterior_local({
         "estanciaUuid": est_uuid,
         "id": id_estancia,
@@ -313,7 +312,7 @@ def registrar_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> Dict[
         "monto": monto,
         "concepto": "Servicio Adicional",
         "metodo": "Cargar a la Cuenta",
-        "tipoAdicional": "Pase",
+        "tipoAdicional": "Visita",
     })
 
     pase_uuid = str(uuid.uuid4())
@@ -351,14 +350,12 @@ def registrar_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> Dict[
 
     vista = obtener_visitas_pases_local({"fecha": fecha_dmy})
     vista["exito"] = True
-    vista["mensaje"] = f"✅ Pase registrado en Hab. {hab} (+S/ {monto:.2f} cargado a la cuenta)"
+    vista["mensaje"] = f"✅ Visita registrada en Hab. {hab} (+S/ {monto:.2f} cargado a la cuenta)"
     return vista
 
 
 def cambiar_estado_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Marca un pase YA registrado como RECHAZADO (o lo reactiva a ACEPTADO) SIN borrarlo de la lista.
-    - Al pasar de ACEPTADO -> RECHAZADO: descuenta automáticamente el monto (S/ 10) de adic_servicios de la habitación.
-    - Al pasar de RECHAZADO -> ACEPTADO: vuelve a sumar el monto (S/ 10) a adic_servicios de la habitación."""
+    """Marca un pase YA registrado como RECHAZADO (o lo reactiva a ACEPTADO) SIN borrarlo de la lista."""
     datos = datos or {}
     pase_uuid = str(datos.get("paseUuid") or "").strip()
     nuevo_estado = str(datos.get("estado") or "RECHAZADO").strip().upper()
@@ -371,7 +368,7 @@ def cambiar_estado_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> 
     with db_transaction() as conn:
         row = conn.execute("SELECT * FROM control_pases WHERE pase_uuid = ?", (pase_uuid,)).fetchone()
         if not row:
-            raise ValueError("El registro de pase no existe.")
+            raise ValueError("El registro de visita no existe.")
 
         estado_ant = str(row["estado"] or "ACEPTADO").upper()
         fecha_dmy = str(row["fecha_dmy"] or fecha_corte_mediodia_actual())
@@ -395,14 +392,22 @@ def cambiar_estado_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> 
                     (est_uuid, pase_uuid),
                 ).fetchone()
                 tipo_adic_actual = str(st["tipo_adicional"] or "").strip()
+                # Normalizar cualquier etiqueta 'Pase' previa a 'Visita'
+                tags_base = [
+                    ("Visita" if t.strip().lower() == "pase" else t.strip())
+                    for t in tipo_adic_actual.split(",") if t.strip()
+                ]
+                tags_unicos = []
+                for t in tags_base:
+                    if t.lower() not in [x.lower() for x in tags_unicos]:
+                        tags_unicos.append(t)
+
                 if nuevo_estado == "RECHAZADO" and (not otros_activos or int(otros_activos["c"] or 0) == 0) and nuevo_adic == 0:
-                    tags = [t.strip() for t in tipo_adic_actual.split(",") if t.strip() and t.strip().lower() != "pase"]
-                    tipo_adic_actual = ", ".join(tags)
+                    tags_unicos = [t for t in tags_unicos if t.lower() not in ("visita", "pase")]
                 elif nuevo_estado == "ACEPTADO":
-                    tags = [t.strip() for t in tipo_adic_actual.split(",") if t.strip()]
-                    if "pase" not in [x.lower() for x in tags]:
-                        tags.append("Pase")
-                    tipo_adic_actual = ", ".join(tags)
+                    if "visita" not in [x.lower() for x in tags_unicos]:
+                        tags_unicos.append("Visita")
+                tipo_adic_actual = ", ".join(tags_unicos)
 
                 conn.execute(
                     "UPDATE estancias SET adic_servicios = ?, tipo_adicional = ?, dirty = 1, updated_at = ? WHERE estancia_uuid = ?",
@@ -442,7 +447,6 @@ def cambiar_estado_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> 
             "UPDATE control_pases SET estado = ?, monto = ?, motivo_rechazo = ?, synced = 0 WHERE pase_uuid = ?",
             (nuevo_estado, monto_reg, motivo_final, pase_uuid),
         )
-        # Actualizar o insertar en import_Control_Pases
         dl._encolar_operacion(
             conn,
             "PASE_UPSERT",
@@ -471,15 +475,419 @@ def cambiar_estado_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> 
     vista = obtener_visitas_pases_local({"fecha": fecha_dmy})
     vista["exito"] = True
     vista["mensaje"] = (
-        f"🚫 Pase en Hab. {hab} marcado como RECHAZADO (queda en el registro y se descontó S/ {monto_reg:.2f} de la cuenta)."
+        f"🚫 Visita en Hab. {hab} marcada como RECHAZADA (permanece en la lista y se descontó S/ {monto_reg:.2f} de la cuenta)."
         if nuevo_estado == "RECHAZADO"
-        else f"✅ Pase en Hab. {hab} reactivado (+S/ {monto_reg:.2f} cargado a la cuenta)."
+        else f"✅ Visita en Hab. {hab} reactivada (+S/ {monto_reg:.2f} cargado a la cuenta)."
     )
     return vista
 
 
 def eliminar_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Por compatibilidad si algún llamado invoca eliminarVisitaPase, lo marca como RECHAZADO sin borrarlo."""
     datos = dict(datos or {})
     datos["estado"] = "RECHAZADO"
     return cambiar_estado_visita_pase_local(datos)
+
+
+# ==============================================================================
+# CUENTAS DETALLADAS MULTI-DÍA POR HABITACIÓN (HUÉSPEDES QUE VAN VARIOS DÍAS)
+# ==============================================================================
+
+def _saldo_fin_estancia(r: Dict[str, Any]) -> float:
+    noches = max(1, int(r.get("noches") or 1))
+    aloj = round(noches * float(r.get("tarifa") or 0.0), 2)
+    cargos = (
+        aloj
+        + float(r.get("adic_snacks") or 0.0)
+        + float(r.get("adic_servicios") or 0.0)
+        + float(r.get("adic_comp") or 0.0)
+        + float(r.get("deuda_anterior") or 0.0)
+    )
+    pagos = (
+        float(r.get("pago_ini_efec") or 0.0)
+        + float(r.get("pago_ini_yape") or 0.0)
+        + float(r.get("pago_post_efec") or 0.0)
+        + float(r.get("pago_post_yape") or 0.0)
+        + float(r.get("pago_visa") or 0.0)
+    )
+    return round(cargos - pagos, 2)
+
+
+def _reconstruir_cadena_estancia(conn, st_actual: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Sigue hacia atrás todos los días consecutivos de esa estancia (por parent_uuid y/o por
+    coincidencia exacta de huésped/DNI + arrastre de saldo/habitación/tarifa)."""
+    dni = str(st_actual.get("dni") or "").strip()
+    huesped = str(st_actual.get("huesped") or "").strip()
+
+    if dni and dni not in ("-", "0"):
+        cand_rows = conn.execute(
+            """
+            SELECT * FROM estancias
+            WHERE (dni = ? OR lower(trim(huesped)) = lower(trim(?)))
+              AND lower(coalesce(estado_estancia, '')) NOT LIKE '%cancel%'
+            ORDER BY ymd_in DESC, sheet_row DESC
+            """,
+            (dni, huesped),
+        ).fetchall()
+    else:
+        cand_rows = conn.execute(
+            """
+            SELECT * FROM estancias
+            WHERE lower(trim(huesped)) = lower(trim(?))
+              AND lower(coalesce(estado_estancia, '')) NOT LIKE '%cancel%'
+            ORDER BY ymd_in DESC, sheet_row DESC
+            """,
+            (huesped,),
+        ).fetchall()
+
+    por_uuid = {str(r["estancia_uuid"]): dict(r) for r in cand_rows}
+    todos = [dict(r) for r in cand_rows]
+
+    cadena = [dict(st_actual)]
+    usados: Set[str] = {str(st_actual["estancia_uuid"])}
+    cur = dict(st_actual)
+
+    for _ in range(60):
+        p_uuid = str(cur.get("parent_uuid") or "").strip()
+        elegido = None
+        if p_uuid and p_uuid in por_uuid and p_uuid not in usados:
+            elegido = por_uuid[p_uuid]
+        else:
+            cur_in_d = _dmy_a_date(cur["fecha_in_dmy"])
+            deuda_arr = round(float(cur.get("deuda_anterior") or 0.0), 2)
+            cur_hab = str(cur.get("hab") or "").strip()
+            cur_tar = round(float(cur.get("tarifa") or 0.0), 2)
+
+            posibles = []
+            for cand in todos:
+                cu = str(cand["estancia_uuid"])
+                if cu in usados:
+                    continue
+                c_in = _dmy_a_date(cand["fecha_in_dmy"])
+                c_out = _dmy_a_date(cand["fecha_out_dmy"]) if cand.get("fecha_out_dmy") else (c_in + timedelta(days=1))
+                # Debe ser el día inmediatamente anterior (salida = entrada actual, o entrada = entrada actual - 1 día)
+                if c_out != cur_in_d and (cur_in_d - c_in).days != 1:
+                    continue
+                s_fin = _saldo_fin_estancia(cand)
+                hab_c = str(cand.get("hab") or "").strip()
+                tar_c = round(float(cand.get("tarifa") or 0.0), 2)
+                est_c = str(cand.get("estado_estancia") or "").lower()
+
+                # Si un mismo huésped tiene 2 habitaciones en simultáneo (ej. 303 y 306->206),
+                # desempatar por coincidencia exacta de saldo arrastrado, misma habitación y misma tarifa.
+                score = 0
+                if abs(s_fin - deuda_arr) <= 0.1:
+                    score += 100
+                if hab_c == cur_hab:
+                    score += 50
+                if abs(tar_c - cur_tar) <= 0.1:
+                    score += 30
+                if "contin" in est_c:
+                    score += 20
+                # Si la deuda arrastrada > 0 y no coincide ni el saldo ni la habitación ni la tarifa, pertenece a otra habitación simultánea
+                if score < 50:
+                    continue
+                posibles.append((score, int(cand.get("sheet_row") or 0), cand))
+
+            if posibles:
+                posibles.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                elegido = posibles[0][2]
+
+        if not elegido:
+            break
+        usados.add(str(elegido["estancia_uuid"]))
+        cadena.append(elegido)
+        cur = elegido
+
+    cadena.reverse()  # Orden cronológico: Día 1 -> Hoy
+    return cadena
+
+
+def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Devuelve la lista de habitaciones ocupadas (con cuántos días acumulados llevan) y el estado
+    de cuenta día por día de la habitación seleccionada."""
+    datos = datos or {}
+    hab_req = str(datos.get("hab") or "").strip()
+
+    conn = get_connection()
+    try:
+        habs_activas = _habitaciones_ocupadas_activas(None)
+        resumen_habs = []
+        cadenas_por_hab: Dict[str, List[Dict[str, Any]]] = {}
+
+        for h in habs_activas:
+            try:
+                st_h = dl._buscar_estancia_local(conn, estancia_uuid=h["estanciaUuid"], id_busq=h["idEstancia"], hab=h["hab"])
+                cad_h = _reconstruir_cadena_estancia(conn, dict(st_h))
+            except Exception:
+                cad_h = []
+            cadenas_por_hab[h["hab"]] = cad_h
+            dias_cnt = sum(max(1, int(x.get("noches") or 1)) for x in cad_h) if cad_h else 1
+            resumen_habs.append({
+                "hab": h["hab"],
+                "huesped": h["huesped"],
+                "dias": dias_cnt,
+                "registrosCadena": len(cad_h),
+                "desdeDmy": cad_h[0]["fecha_in_dmy"] if cad_h else "",
+                "saldo": h["saldo"],
+            })
+
+        # Ordenar priorizando las que llevan varios días o tienen saldo, y por número de habitación
+        if not hab_req and resumen_habs:
+            multi = [x for x in resumen_habs if x["dias"] > 1]
+            hab_req = multi[0]["hab"] if multi else resumen_habs[0]["hab"]
+
+        if not hab_req:
+            return {"habitaciones": resumen_habs, "habSeleccionada": "", "cuenta": None}
+
+        if hab_req in cadenas_por_hab and cadenas_por_hab[hab_req]:
+            cadena = cadenas_por_hab[hab_req]
+        else:
+            st_sel = dl._buscar_estancia_local(conn, hab=hab_req)
+            cadena = _reconstruir_cadena_estancia(conn, dict(st_sel))
+
+        dias_detalle = []
+        todos_pagos = []
+        todos_adicionales = []
+
+        tot_noches = 0
+        tot_aloj = 0.0
+        tot_tienda_cargada = 0.0
+        tot_tienda_pagada = 0.0
+        tot_serv = 0.0
+        tot_comp = 0.0
+        tot_pagado_efec = 0.0
+        tot_pagado_yape = 0.0
+        tot_pagado_visa = 0.0
+        habs_recorridas = []
+
+        for idx_d, st in enumerate(cadena, start=1):
+            est_uuid = str(st["estancia_uuid"] or "")
+            id_ts = str(st["id_timestamp_str"] or "")
+            f_in = str(st["fecha_in_dmy"] or "")
+            f_out = str(st["fecha_out_dmy"] or "")
+            hab_d = str(st["hab"] or "")
+            if hab_d and hab_d not in habs_recorridas:
+                habs_recorridas.append(hab_d)
+
+            noches_d = max(1, int(st["noches"] or 1))
+            tarifa_d = round(float(st["tarifa"] or 0.0), 2)
+            aloj_d = round(noches_d * tarifa_d, 2)
+            snacks_d = round(float(st["adic_snacks"] or 0.0), 2)
+            serv_d = round(float(st["adic_servicios"] or 0.0), 2)
+            comp_d = round(float(st["adic_comp"] or 0.0), 2)
+            tipo_adic_d = str(st["tipo_adicional"] or "").strip()
+            if tipo_adic_d.lower() == "pase":
+                tipo_adic_d = "Visita"
+            deuda_ant_d = round(float(st["deuda_anterior"] or 0.0), 2)
+
+            ini_e = round(float(st["pago_ini_efec"] or 0.0), 2)
+            ini_y = round(float(st["pago_ini_yape"] or 0.0), 2)
+            post_e = round(float(st["pago_post_efec"] or 0.0), 2)
+            post_y = round(float(st["pago_post_yape"] or 0.0), 2)
+            visa_d = round(float(st["pago_visa"] or 0.0), 2)
+            pagado_dia_est = round(ini_e + ini_y + post_e + post_y + visa_d, 2)
+
+            tot_noches += noches_d
+            tot_aloj = round(tot_aloj + aloj_d, 2)
+            tot_tienda_cargada = round(tot_tienda_cargada + snacks_d, 2)
+            tot_serv = round(tot_serv + serv_d, 2)
+            tot_comp = round(tot_comp + comp_d, 2)
+            tot_pagado_efec = round(tot_pagado_efec + ini_e + post_e, 2)
+            tot_pagado_yape = round(tot_pagado_yape + ini_y + post_y, 2)
+            tot_pagado_visa = round(tot_pagado_visa + visa_d, 2)
+
+            # 1. Pagos detallados registrados para esta estancia
+            rows_p = conn.execute(
+                """
+                SELECT fecha_iso, monto, medio_pago, tipo_pago, concepto, nro_operacion
+                FROM pagos
+                WHERE (id_estancia = ? AND trim(id_estancia) != '')
+                   OR (estancia_uuid = ? AND trim(estancia_uuid) != '')
+                ORDER BY sheet_row ASC, fecha_iso ASC
+                """,
+                (id_ts, est_uuid),
+            ).fetchall()
+
+            pagos_dia_lista = []
+            suma_rows_p = 0.0
+            for rp in rows_p:
+                m_p = round(float(rp["monto"] or 0.0), 2)
+                suma_rows_p = round(suma_rows_p + m_p, 2)
+                f_iso_p = str(rp["fecha_iso"] or "")
+                hora_p = f_iso_p.split(" ")[1][:5] if " " in f_iso_p else ""
+                item_p = {
+                    "fecha": f_in,
+                    "fechaHora": f_iso_p,
+                    "hora": hora_p,
+                    "hab": hab_d,
+                    "monto": m_p,
+                    "medio": str(rp["medio_pago"] or "Efectivo"),
+                    "tipo": str(rp["tipo_pago"] or ""),
+                    "concepto": str(rp["concepto"] or "Pago"),
+                    "nroOp": str(rp["nro_operacion"] or ""),
+                }
+                pagos_dia_lista.append(item_p)
+                todos_pagos.append(item_p)
+
+            # Si en la estancia hay montos pagados en columnas de Registro_Estancias que no tenían fila en `pagos`, sintetizarlos para que cuadre al 100%
+            if abs(pagado_dia_est - suma_rows_p) >= 0.05 and not pagos_dia_lista:
+                for lbl_m, val_m, op_m in (
+                    ("Efectivo", round(ini_e + post_e, 2), ""),
+                    ("Yape", round(ini_y + post_y, 2), str(st.get("nro_op_yape") or "")),
+                    (str(st.get("cuenta_destino") or "VISA/Banco"), visa_d, ""),
+                ):
+                    if val_m != 0:
+                        item_s = {
+                            "fecha": f_in,
+                            "fechaHora": f"{f_in} {st.get('hora_registro') or ''}".strip(),
+                            "hora": str(st.get("hora_registro") or ""),
+                            "hab": hab_d,
+                            "monto": val_m,
+                            "medio": lbl_m,
+                            "tipo": "Registrado en Estancia",
+                            "concepto": "Pago de Estancia",
+                            "nroOp": op_m,
+                        }
+                        pagos_dia_lista.append(item_s)
+                        todos_pagos.append(item_s)
+
+            # 2. Adicionales de Tienda y Servicios de ese día
+            rows_t = conn.execute(
+                """
+                SELECT fecha_iso, fecha_dmy, producto, cantidad, metodo_pago, precio_unit, subtotal, nro_op_yape
+                FROM ventas_tienda
+                WHERE (id_estancia = ? AND trim(id_estancia) != '')
+                   OR (estancia_uuid = ? AND trim(estancia_uuid) != '')
+                ORDER BY sheet_row ASC, fecha_iso ASC
+                """,
+                (id_ts, est_uuid),
+            ).fetchall()
+
+            adicionales_dia_lista = []
+            for rt in rows_t:
+                sub_t = round(float(rt["subtotal"] or 0.0), 2)
+                met_t = str(rt["metodo_pago"] or "")
+                es_cargado_t = "cargar" in met_t.lower() or "cuenta" in met_t.lower() or "habitac" in met_t.lower()
+                if not es_cargado_t:
+                    tot_tienda_pagada = round(tot_tienda_pagada + sub_t, 2)
+                f_iso_t = str(rt["fecha_iso"] or "")
+                hora_t = f_iso_t.split(" ")[1][:5] if " " in f_iso_t else ""
+                item_ad = {
+                    "fecha": str(rt["fecha_dmy"] or f_in),
+                    "hora": hora_t,
+                    "hab": hab_d,
+                    "categoria": "Tienda",
+                    "descripcion": f"{int(rt['cantidad'] or 1)}x {rt['producto']}",
+                    "monto": sub_t,
+                    "modo": "Cargado a cuenta" if es_cargado_t else f"Pagado ({met_t})",
+                    "cargadoACuenta": es_cargado_t,
+                }
+                adicionales_dia_lista.append(item_ad)
+                todos_adicionales.append(item_ad)
+
+            if serv_d > 0:
+                # Revisar si tiene visitas registradas en control_pases para mostrar la hora
+                vis_rows = conn.execute(
+                    "SELECT hora, monto FROM control_pases WHERE estancia_uuid = ? AND estado = 'ACEPTADO' ORDER BY hora ASC",
+                    (est_uuid,),
+                ).fetchall()
+                horas_vis = ", ".join(str(vr["hora"]) for vr in vis_rows if vr["hora"])
+                desc_serv = f"Servicio Adicional ({tipo_adic_d or 'Visita / Otros'})"
+                if horas_vis:
+                    desc_serv += f" · Hora: {horas_vis}"
+                item_sv = {
+                    "fecha": f_in,
+                    "hora": horas_vis or str(st.get("hora_registro") or ""),
+                    "hab": hab_d,
+                    "categoria": "Servicio / Visita",
+                    "descripcion": desc_serv,
+                    "monto": serv_d,
+                    "modo": "En cuenta de estancia",
+                    "cargadoACuenta": True,
+                }
+                adicionales_dia_lista.append(item_sv)
+                todos_adicionales.append(item_sv)
+
+            if comp_d > 0:
+                item_cp = {
+                    "fecha": f_in,
+                    "hora": "",
+                    "hab": hab_d,
+                    "categoria": "Comprobante",
+                    "descripcion": f"Adicional por Comprobante ({st.get('tipo_comp') or 'Factura/Boleta'})",
+                    "monto": comp_d,
+                    "modo": "En cuenta de estancia",
+                    "cargadoACuenta": True,
+                }
+                adicionales_dia_lista.append(item_cp)
+                todos_adicionales.append(item_cp)
+
+            cargos_propios_dia = round(aloj_d + snacks_d + serv_d + comp_d, 2)
+            saldo_cierre_dia = _saldo_fin_estancia(st)
+            dt_in = _dmy_a_date(f_in)
+
+            dias_detalle.append({
+                "numDia": idx_d,
+                "fechaIn": f_in,
+                "fechaOut": f_out,
+                "dow": DOW_CORTA[dt_in.weekday()],
+                "hab": hab_d,
+                "noches": noches_d,
+                "tarifa": tarifa_d,
+                "alojamiento": aloj_d,
+                "adicSnacks": snacks_d,
+                "adicServicios": serv_d,
+                "adicComp": comp_d,
+                "tipoAdicional": tipo_adic_d,
+                "deudaAnterior": deuda_ant_d,
+                "cargosPropiosDia": cargos_propios_dia,
+                "pagadoDia": pagado_dia_est,
+                "pagadoEfec": round(ini_e + post_e, 2),
+                "pagadoYape": round(ini_y + post_y, 2),
+                "pagadoVisa": visa_d,
+                "saldoCierreDia": saldo_cierre_dia,
+                "estadoEstancia": str(st.get("estado_estancia") or ""),
+                "pagos": pagos_dia_lista,
+                "adicionales": adicionales_dia_lista,
+            })
+
+        ult = cadena[-1]
+        prim = cadena[0]
+        deuda_inicial_cadena = round(float(prim.get("deuda_anterior") or 0.0), 2)
+        tot_adicionales_cuenta = round(tot_tienda_cargada + tot_serv + tot_comp, 2)
+        tot_cargos_cadena = round(deuda_inicial_cadena + tot_aloj + tot_adicionales_cuenta, 2)
+        tot_pagado_cadena = round(tot_pagado_efec + tot_pagado_yape + tot_pagado_visa, 2)
+        saldo_final_actual = _saldo_fin_estancia(ult)
+
+        return {
+            "habitaciones": resumen_habs,
+            "habSeleccionada": hab_req,
+            "cuenta": {
+                "habActual": str(ult.get("hab") or hab_req),
+                "habsRecorridas": " → ".join(habs_recorridas),
+                "huesped": str(ult.get("huesped") or ""),
+                "dni": str(ult.get("dni") or ""),
+                "empresa": str(ult.get("empresa") or ""),
+                "desdeDmy": str(prim.get("fecha_in_dmy") or ""),
+                "hastaDmy": str(ult.get("fecha_out_dmy") or ""),
+                "totalDias": tot_noches,
+                "deudaInicialArrastrada": deuda_inicial_cadena,
+                "totalAlojamiento": tot_aloj,
+                "totalTiendaCargada": tot_tienda_cargada,
+                "totalTiendaPagada": tot_tienda_pagada,
+                "totalServicios": tot_serv,
+                "totalComp": tot_comp,
+                "totalAdicionalesCuenta": tot_adicionales_cuenta,
+                "totalCargos": tot_cargos_cadena,
+                "totalPagado": tot_pagado_cadena,
+                "pagadoEfectivo": tot_pagado_efec,
+                "pagadoYape": tot_pagado_yape,
+                "pagadoVisa": tot_pagado_visa,
+                "saldoActual": saldo_final_actual,
+                "dias": dias_detalle,
+                "todosPagos": todos_pagos,
+                "todosAdicionales": todos_adicionales,
+            },
+        }
+    finally:
+        conn.close()
