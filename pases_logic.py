@@ -699,7 +699,7 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
 
         for idx_d, st in enumerate(cadena, start=1):
             est_uuid = str(st.get("estancia_uuid") or "")
-            id_ts = str(st.get("id_timestamp") or "")
+            id_ts = str(st.get("id_timestamp_str") or "")
             hab_d = str(st.get("hab") or "")
             if hab_d and hab_d not in habs_recorridas:
                 habs_recorridas.append(hab_d)
