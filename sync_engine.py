@@ -1598,7 +1598,17 @@ def process_sync_queue() -> Dict[str, Any]:
                     from pases_logic import PASES_CABECERA
                     if hor_cache.get("ws_pases") is None:
                         hor_cache["ws_pases"] = _asegurar_hoja_horario(sh, "import_Control_Pases", PASES_CABECERA)
-                    _append_fila_idempotente(hor_cache["ws_pases"], payload["pase_uuid"], payload["fila"], "N", value_input_option="RAW")
+                    ws_p = hor_cache["ws_pases"]
+                    col_a_p = ws_p.col_values(1) or []
+                    row_idx_p = None
+                    for idx_p, val_p in enumerate(col_a_p[1:], start=2):
+                        if str(val_p).strip() == str(payload.get("pase_uuid") or "").strip():
+                            row_idx_p = idx_p
+                            break
+                    if row_idx_p:
+                        ws_p.update(range_name=f"A{row_idx_p}:N{row_idx_p}", values=[payload["fila"]], value_input_option="RAW")
+                    else:
+                        _append_fila_idempotente(ws_p, payload["pase_uuid"], payload["fila"], "N", value_input_option="RAW")
                     with db_transaction() as c_up:
                         c_up.execute("UPDATE control_pases SET synced = 1 WHERE pase_uuid = ?", (payload["pase_uuid"],))
 

@@ -185,6 +185,7 @@ WRITE_METHODS = {
     "guardarPersonalConfig",
     "guardarLiquidacionHorario",
     "registrarVisitaPase",
+    "cambiarEstadoVisitaPase",
     "eliminarVisitaPase",
     "guardarCheckInDesdeApp",
     "procesarCheckInApp",
@@ -643,6 +644,9 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
         elif method_name == "registrarVisitaPase":
             import pases_logic as pl
             res = pl.registrar_visita_pase_local(args[0] if args else {})
+        elif method_name == "cambiarEstadoVisitaPase":
+            import pases_logic as pl
+            res = pl.cambiar_estado_visita_pase_local(args[0] if args else {})
         elif method_name == "eliminarVisitaPase":
             import pases_logic as pl
             res = pl.eliminar_visita_pase_local(args[0] if args else {})

@@ -1016,7 +1016,9 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
         vis_hoy_cnt = 0
         vis_rech_cnt = 0
         try:
-            ymd_v = fecha_dmy_a_ymd(fecha_vis)
+            import pases_logic as _pl
+            f_corte_v = _pl.fecha_corte_mediodia_actual() if fecha_vis == datetime.now().strftime("%d/%m/%Y") else fecha_vis
+            ymd_v = fecha_dmy_a_ymd(f_corte_v)
             r_vp = conn.execute(
                 "SELECT SUM(CASE WHEN estado = 'ACEPTADO' THEN 1 ELSE 0 END) AS a, "
                 "SUM(CASE WHEN estado = 'RECHAZADO' THEN 1 ELSE 0 END) AS r "
