@@ -735,11 +735,11 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
             # 1. Pagos de ese día en Registro_Pagos
             rows_p = conn.execute(
                 """
-                SELECT fecha_hora, hab, monto, medio_pago, tipo_pago, concepto, nro_operacion
+                SELECT fecha_iso, hab, monto, medio_pago, tipo_pago, concepto, nro_operacion
                 FROM pagos
                 WHERE (id_estancia = ? AND trim(id_estancia) != '')
                    OR (estancia_uuid = ? AND trim(estancia_uuid) != '')
-                ORDER BY sheet_row ASC, fecha_hora ASC
+                ORDER BY sheet_row ASC, fecha_iso ASC
                 """,
                 (id_ts, est_uuid),
             ).fetchall()
@@ -749,9 +749,10 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
             for rp in rows_p:
                 m_val = round(float(rp["monto"] or 0.0), 2)
                 suma_rows_p = round(suma_rows_p + m_val, 2)
-                fh = str(rp["fecha_hora"] or "")
+                fh = str(rp["fecha_iso"] or "")
                 hora_p = fh.split(" ")[1][:5] if " " in fh else ""
-                fecha_p = fh.split(" ")[0] if " " in fh else f_in
+                fecha_p_raw = fh.split(" ")[0] if " " in fh else f_in
+                fecha_p = _fecha_a_dmy(fecha_p_raw) if fecha_p_raw else f_in
                 item_p = {
                     "fecha": fecha_p,
                     "hora": hora_p,
