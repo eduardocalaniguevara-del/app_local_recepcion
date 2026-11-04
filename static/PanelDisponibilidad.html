@@ -221,6 +221,14 @@
         <span>📲 Tablet S8+</span>
       </button>
     </div>
+
+    <!-- Botón de Visita / Pase exactamente encima del carrito 🛒 de Venta Tienda -->
+    <button type="button" id="btnVisitasPases" onclick="abrirModalVisitasPases(event)"
+            title="Control de Visitas / Pases del día (Cargo a la cuenta S/ 10 + registro privado de DNI y hora)"
+            class="ml-auto shrink-0 px-2.5 py-1 rounded-lg font-black bg-teal-700 hover:bg-teal-800 text-white text-xs shadow-xs border border-teal-900 inline-flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105">
+      <span>🚶 Visita</span>
+      <span id="badgeVisitasHoy" class="bg-white text-teal-900 px-1.5 py-0.2 rounded text-[11px] font-black leading-tight">0</span>
+    </button>
   </div>
 </div>
 
@@ -1000,6 +1008,103 @@
   </dialog>
 
   <!-- DIÁLOGO MODAL: CONTRASEÑA DE CUENTAS / PAGOS (la clave nunca se muestra) -->
+  <!-- DIÁLOGO MODAL: CONTROL DE VISITAS / PASES (DNI PRIVADO + CARGO S/ 10 A CUENTA) -->
+  <dialog id="dialogVisitasPases" closedby="any" aria-labelledby="tituloDialogVisitas"
+          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[560px] max-w-[96vw] bg-[#FAF6F3] text-slate-800 m-auto">
+    <div class="bg-[#2D2623] text-white px-3.5 py-2.5 flex items-center justify-between gap-2 rounded-t-xl">
+      <div class="flex items-center gap-2">
+        <span class="font-black text-sm text-amber-300">🚶 Control de Visitas / Pases</span>
+        <span class="px-1.5 py-0.5 rounded text-[9.5px] font-extrabold bg-white/10 text-emerald-300 border border-white/15" title="Los DNIs quedan guardados solo aquí; en la cuenta solo sube el adicional">🔒 DNI Privado</span>
+      </div>
+      <div class="flex items-center gap-1">
+        <button type="button" onclick="vpCambiarDia(-1)" class="px-1.5 py-0.5 rounded bg-white/15 hover:bg-white/25 text-white font-black text-xs cursor-pointer" title="Día anterior">◀</button>
+        <input type="date" id="vpFechaInput" onchange="vpCargar(this.value)" class="px-1.5 py-0.5 rounded bg-white text-slate-900 font-black text-xs cursor-pointer border border-slate-300">
+        <button type="button" onclick="vpCambiarDia(1)" class="px-1.5 py-0.5 rounded bg-white/15 hover:bg-white/25 text-white font-black text-xs cursor-pointer" title="Día siguiente">▶</button>
+        <button type="button" onclick="cerrarModalVisitasPases()" class="ml-1.5 text-slate-300 hover:text-white font-black text-sm w-6 h-6 rounded hover:bg-red-600 cursor-pointer">✕</button>
+      </div>
+    </div>
+
+    <div class="p-3 space-y-2.5 max-h-[82vh] overflow-y-auto">
+      <!-- 1. Formulario rápido: 1° Habitación -> 2° DNI -> Aceptar (+S/10 a cuenta) o Rechazado -->
+      <div class="bg-white rounded-lg border border-[#D8C7B8] p-2.5 shadow-2xs space-y-2">
+        <div class="grid grid-cols-12 gap-2 items-end">
+          <div class="col-span-6 sm:col-span-5">
+            <label for="vpHab" class="block text-[10.5px] font-black text-slate-700 uppercase mb-0.5">1° Habitación Ocupada</label>
+            <select id="vpHab" class="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-white font-black text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600">
+              <option value="">— Selecciona Hab. —</option>
+            </select>
+          </div>
+          <div class="col-span-6 sm:col-span-4">
+            <label for="vpDni" class="block text-[10.5px] font-black text-slate-700 uppercase mb-0.5">2° DNI Visita</label>
+            <input type="text" id="vpDni" inputmode="numeric" maxlength="20" autocomplete="off"
+                   oninput="vpAlEscribirDni(this.value)"
+                   placeholder="8 dígitos..."
+                   class="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-black text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600">
+          </div>
+          <div class="col-span-5 sm:col-span-3">
+            <label for="vpMonto" class="block text-[10.5px] font-black text-slate-700 uppercase mb-0.5" title="Se carga siempre a la cuenta de la habitación como Servicio Adicional">Cargo Cuenta (S/)</label>
+            <input type="text" id="vpMonto" inputmode="decimal" value="10"
+                   class="w-full px-2 py-1.5 rounded-lg border border-slate-300 bg-amber-50/60 font-black text-xs text-right text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600">
+          </div>
+          <div class="col-span-7 sm:col-span-12">
+            <input type="text" id="vpMotivo" maxlength="80" autocomplete="off"
+                   placeholder="Nota opcional o motivo si es rechazado (ej. Sin DNI físico, no autorizado...)"
+                   class="w-full px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white text-[11px] font-semibold text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-slate-400">
+          </div>
+        </div>
+
+        <div id="vpInfoDniBox" class="hidden px-2.5 py-1.5 rounded-lg text-[11px] font-bold border"></div>
+
+        <div class="grid grid-cols-12 gap-2 pt-0.5">
+          <button type="button" id="btnVpAceptar" onclick="vpRegistrar('ACEPTADO')"
+                  class="col-span-8 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-xs cursor-pointer transition-colors flex items-center justify-center gap-1.5">
+            <span>✅ Aceptar y Cargar a Cuenta</span>
+          </button>
+          <button type="button" id="btnVpRechazar" onclick="vpRegistrar('RECHAZADO')"
+                  class="col-span-4 py-2 px-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-xs shadow-xs cursor-pointer transition-colors flex items-center justify-center gap-1"
+                  title="Registra intento rechazado en el día (sin cobrar S/ 10)">
+            <span>🚫 Rechazado</span>
+          </button>
+        </div>
+        <div id="vpStatusMsg" class="hidden px-2.5 py-1 rounded text-[11px] font-extrabold"></div>
+      </div>
+
+      <!-- 2. Conteo en vivo del día -->
+      <div class="flex flex-wrap items-center justify-between gap-1.5 bg-white rounded-lg border border-[#D8C7B8] px-2.5 py-1.5 text-[11px]">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black">✅ Pases hoy: <span id="vpCntAceptados">0</span></span>
+          <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300 font-black">🚫 Rechazados: <span id="vpCntRechazados">0</span></span>
+          <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 font-black">🛏️ Cargado: S/ <span id="vpCntMonto">0.00</span></span>
+        </div>
+        <div id="vpPillsPorHab" class="flex flex-wrap items-center gap-1"></div>
+      </div>
+
+      <!-- 3. Pequeño registro del día con la hora -->
+      <div class="bg-white rounded-lg border border-[#D8C7B8] overflow-hidden">
+        <div class="bg-slate-800 text-white px-2.5 py-1 text-[10.5px] font-black uppercase tracking-wide flex justify-between items-center">
+          <span>📋 Registro del Día (<span id="vpLblFechaTabla">Hoy</span>)</span>
+          <span class="text-[9.5px] font-normal text-slate-300">Oculto en Registro de Pagos / Estancias</span>
+        </div>
+        <div class="max-h-56 overflow-y-auto">
+          <table class="w-full text-left text-[11px] border-collapse">
+            <thead>
+              <tr class="bg-slate-100 text-slate-700 font-black border-b border-slate-200">
+                <th class="px-2 py-1 w-14">Hora</th>
+                <th class="px-2 py-1 w-14 text-center">Hab.</th>
+                <th class="px-2 py-1">DNI / Visitante (Interno)</th>
+                <th class="px-2 py-1 w-32 text-center">Estado / Cargo</th>
+                <th class="px-1.5 py-1 w-8 text-center"></th>
+              </tr>
+            </thead>
+            <tbody id="vpTablaBody" class="divide-y divide-slate-100">
+              <tr><td colspan="5" class="py-4 text-center text-slate-400 font-semibold">Sin visitas registradas en esta fecha.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <dialog id="dialogClaveCuentas" closedby="any" aria-labelledby="tituloDialogClaveCu"
           class="rounded-xl shadow-2xl border border-slate-300 p-0 w-80 max-w-[92vw] bg-white text-slate-800 m-auto">
     <form onsubmit="confirmarClaveCuentasUI(event)" class="p-4 space-y-3" autocomplete="off">
@@ -1965,6 +2070,7 @@
               if (res.fechaHoyISO) fechaHoyServidorISO = res.fechaHoyISO;
               if (res.fechaVisualizada) sincronizarInputFecha(res.fechaVisualizada);
               if (res.totalCaja !== undefined) lblCaja.textContent = res.totalCaja;
+              if (res.visitasHoyCount !== undefined && typeof actualizarBadgeVisitasUI === "function") actualizarBadgeVisitasUI(res.visitasHoyCount, res.visitasRechazadasHoy);
               enriquecerOcupadaAyerDesdeCache(isoFecha);
               actualizarResaltadoFechaPanel(isoFecha);
             }
@@ -4484,6 +4590,7 @@
                 sincronizarInputFecha(res.fechaVisualizada);
               }
               if (lblCaja && res.totalCaja !== undefined) lblCaja.textContent = res.totalCaja;
+              if (res.visitasHoyCount !== undefined && typeof actualizarBadgeVisitasUI === "function") actualizarBadgeVisitasUI(res.visitasHoyCount, res.visitasRechazadasHoy);
               enriquecerOcupadaAyerDesdeCache(window.fechaActivaPanelISO || (inputFecha && inputFecha.value));
               actualizarResaltadoFechaPanel(window.fechaActivaPanelISO || (inputFecha && inputFecha.value));
             }
@@ -8112,6 +8219,240 @@
 
   setTimeout(refrescarEstadoControlTablet, 1200);
   setInterval(refrescarEstadoControlTablet, 3500);
+})();
+</script>
+<script>
+(function () {
+  var VP = { fechaIso: '', dniTimer: null, nombreDetectado: '' };
+
+  function vpEsc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function vpRpc(fn, args, ok, fail) {
+    if (window.google && google.script && google.script.run) {
+      var r = google.script.run.withSuccessHandler(ok).withFailureHandler(fail || function (e) { vpMsg('error', e.message || String(e)); });
+      r[fn].apply(r, args || []);
+    }
+  }
+
+  function vpMsg(tipo, texto) {
+    var box = document.getElementById('vpStatusMsg');
+    if (!box) return;
+    if (!texto) { box.classList.add('hidden'); box.textContent = ''; return; }
+    box.className = 'px-2.5 py-1 rounded text-[11px] font-extrabold border ' +
+      (tipo === 'ok' ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-rose-50 text-rose-900 border-rose-300');
+    box.textContent = texto;
+    box.classList.remove('hidden');
+  }
+
+  window.actualizarBadgeVisitasUI = function (aceptados, rechazados) {
+    var b = document.getElementById('badgeVisitasHoy');
+    if (!b) return;
+    var a = Number(aceptados || 0);
+    var r = Number(rechazados || 0);
+    b.textContent = r > 0 ? (a + ' · ' + r + '🚫') : String(a);
+    var btn = document.getElementById('btnVisitasPases');
+    if (btn) {
+      btn.title = 'Visitas del día: ' + a + ' pases aceptados' + (r > 0 ? (' y ' + r + ' rechazados') : '') + ' (Clic para abrir)';
+    }
+  };
+
+  window.abrirModalVisitasPases = function (ev, habPreseleccionada) {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+    var dlg = document.getElementById('dialogVisitasPases');
+    if (!dlg) return;
+    vpMsg('', '');
+    var infoBox = document.getElementById('vpInfoDniBox');
+    if (infoBox) { infoBox.classList.add('hidden'); infoBox.innerHTML = ''; }
+    var inpFechaPanel = document.getElementById('inputFecha');
+    var fIso = (inpFechaPanel && inpFechaPanel.value) ? inpFechaPanel.value : new Date().toISOString().slice(0, 10);
+    VP.habPre = habPreseleccionada ? String(habPreseleccionada) : '';
+    if (typeof dlg.showModal === 'function' && !dlg.open) dlg.showModal();
+    vpCargar(fIso);
+  };
+
+  window.cerrarModalVisitasPases = function () {
+    var dlg = document.getElementById('dialogVisitasPases');
+    if (dlg && dlg.open) dlg.close();
+  };
+
+  window.vpCambiarDia = function (delta) {
+    var inp = document.getElementById('vpFechaInput');
+    var base = (inp && inp.value) ? inp.value : new Date().toISOString().slice(0, 10);
+    var p = base.split('-');
+    var dt = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    dt.setDate(dt.getDate() + Number(delta || 0));
+    var y = dt.getFullYear();
+    var m = String(dt.getMonth() + 1).padStart(2, '0');
+    var d = String(dt.getDate()).padStart(2, '0');
+    vpCargar(y + '-' + m + '-' + d);
+  };
+
+  window.vpCargar = function (fechaIsoODmy) {
+    vpRpc('obtenerVisitasPases', [{ fecha: fechaIsoODmy || '' }], function (res) {
+      if (!res) return;
+      VP.fechaIso = res.fechaIso || '';
+      var inpF = document.getElementById('vpFechaInput');
+      if (inpF && res.fechaIso) inpF.value = res.fechaIso;
+      var lblFT = document.getElementById('vpLblFechaTabla');
+      if (lblFT) lblFT.textContent = res.fechaDmy || '';
+
+      var selHab = document.getElementById('vpHab');
+      if (selHab) {
+        var prevVal = VP.habPre || selHab.value || '';
+        VP.habPre = '';
+        var opts = ['<option value="">— Selecciona Hab. ocupada —</option>'];
+        (res.habitacionesOcupadas || []).forEach(function (h) {
+          var tagPases = h.pasesHoy > 0 ? (' · [' + h.pasesHoy + (h.pasesHoy === 1 ? ' pase hoy]' : ' pases hoy]')) : '';
+          opts.push('<option value="' + vpEsc(h.hab) + '">Hab. ' + vpEsc(h.hab) + ' — ' + vpEsc(h.huesped) + vpEsc(tagPases) + '</option>');
+        });
+        opts.push('<option value="-">🚪 Sin hab. (Solo anotar rechazo)</option>');
+        selHab.innerHTML = opts.join('');
+        if (prevVal) selHab.value = prevVal;
+      }
+
+      var rsm = res.resumen || {};
+      var elA = document.getElementById('vpCntAceptados'); if (elA) elA.textContent = String(rsm.aceptados || 0);
+      var elR = document.getElementById('vpCntRechazados'); if (elR) elR.textContent = String(rsm.rechazados || 0);
+      var elM = document.getElementById('vpCntMonto'); if (elM) elM.textContent = Number(rsm.totalCargo || 0).toFixed(2);
+
+      var inpPanel = document.getElementById('inputFecha');
+      if (!inpPanel || !inpPanel.value || inpPanel.value === res.fechaIso) {
+        actualizarBadgeVisitasUI(rsm.aceptados || 0, rsm.rechazados || 0);
+      }
+
+      var pills = document.getElementById('vpPillsPorHab');
+      if (pills) {
+        pills.innerHTML = (rsm.porHab || []).map(function (x) {
+          return '<span class="px-1.5 py-0.5 rounded bg-teal-50 text-teal-900 border border-teal-200 font-black text-[10px]">Hab ' + vpEsc(x.hab) + ': ' + x.conteo + '</span>';
+        }).join('');
+      }
+
+      var tbody = document.getElementById('vpTablaBody');
+      if (tbody) {
+        var lista = res.registros || [];
+        if (!lista.length) {
+          tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-slate-400 font-semibold">Sin visitas registradas en esta fecha.</td></tr>';
+        } else {
+          tbody.innerHTML = lista.map(function (it) {
+            var esRech = it.estado === 'RECHAZADO';
+            var rowBg = esRech ? 'bg-rose-50/70' : 'bg-white hover:bg-slate-50';
+            var badgeEst = esRech
+              ? '<span class="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300 font-black text-[10px]">🚫 Rechazado</span>'
+              : '<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black text-[10px]">✅ +S/ ' + Number(it.monto || 0).toFixed(0) + ' cuenta</span>';
+            var subNom = it.nombreVisita ? (' <span class="text-slate-600 font-semibold">· ' + vpEsc(it.nombreVisita) + '</span>') : '';
+            var subMot = it.motivo ? ('<div class="text-[9.5px] font-bold ' + (esRech ? 'text-rose-700' : 'text-slate-500') + '">' + vpEsc(it.motivo) + '</div>') : '';
+            return '<tr class="' + rowBg + '">' +
+              '<td class="px-2 py-1.5 font-black text-slate-800 whitespace-nowrap">' + vpEsc(it.hora) + '</td>' +
+              '<td class="px-2 py-1.5 text-center font-black text-slate-900">' + vpEsc(it.hab) + '</td>' +
+              '<td class="px-2 py-1.5"><div class="font-black text-slate-900 font-mono text-[11px]">' + vpEsc(it.dni) + subNom + '</div>' + subMot + '</td>' +
+              '<td class="px-2 py-1.5 text-center whitespace-nowrap">' + badgeEst + '</td>' +
+              '<td class="px-1.5 py-1.5 text-center"><button type="button" data-id="' + vpEsc(it.paseUuid) + '" onclick="vpEliminar(this.getAttribute(&quot;data-id&quot;))" class="text-slate-400 hover:text-rose-600 font-black text-xs cursor-pointer" title="Borrar registro (si era pase aceptado, descuenta los S/ 10 de la cuenta)">🗑️</button></td>' +
+            '</tr>';
+          }).join('');
+        }
+      }
+    });
+  };
+
+  window.vpAlEscribirDni = function (val) {
+    VP.nombreDetectado = '';
+    var box = document.getElementById('vpInfoDniBox');
+    if (VP.dniTimer) clearTimeout(VP.dniTimer);
+    var limpio = String(val || '').replace(/[^0-9A-Za-z]/g, '');
+    if (limpio.length < 8) {
+      if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+      return;
+    }
+    VP.dniTimer = setTimeout(function () {
+      vpRpc('consultarDniVisita', [{ dni: limpio }], function (r) {
+        if (!r || !box) return;
+        VP.nombreDetectado = r.nombre || '';
+        var partes = [];
+        if (r.nombre) partes.push('👤 <b>' + vpEsc(r.nombre) + '</b>');
+        if (r.visitasPrevias > 0) partes.push('(' + r.visitasPrevias + (r.visitasPrevias === 1 ? ' pase previo' : ' pases previos') + ')');
+        if (r.rechazosPrevios && r.rechazosPrevios.length > 0) {
+          var ult = r.rechazosPrevios[0];
+          box.className = 'px-2.5 py-1.5 rounded-lg text-[11px] font-bold border bg-rose-50 text-rose-900 border-rose-300';
+          partes.push('<div class="mt-0.5 text-rose-800 font-black">⚠️ Tuvo ' + r.rechazosPrevios.length + ' rechazo(s) previo(s) — Último: ' + vpEsc(ult.fecha) + ' (' + vpEsc(ult.motivo || 'Rechazado') + ')</div>');
+          box.innerHTML = partes.join(' ');
+          box.classList.remove('hidden');
+        } else if (partes.length > 0) {
+          box.className = 'px-2.5 py-1.5 rounded-lg text-[11px] font-bold border bg-teal-50 text-teal-900 border-teal-200';
+          box.innerHTML = partes.join(' ');
+          box.classList.remove('hidden');
+        } else {
+          box.classList.add('hidden');
+        }
+      }, function () {});
+    }, 240);
+  };
+
+  window.vpRegistrar = function (estado) {
+    var selHab = document.getElementById('vpHab');
+    var inpDni = document.getElementById('vpDni');
+    var inpMonto = document.getElementById('vpMonto');
+    var inpMotivo = document.getElementById('vpMotivo');
+    var inpFecha = document.getElementById('vpFechaInput');
+
+    var hab = selHab ? selHab.value : '';
+    var dni = inpDni ? inpDni.value.trim() : '';
+    var monto = inpMonto ? inpMonto.value.trim() : '10';
+    var motivo = inpMotivo ? inpMotivo.value.trim() : '';
+
+    if (estado === 'ACEPTADO') {
+      if (!hab || hab === '-') { vpMsg('error', '⚠️ Primero elige la habitación ocupada.'); if (selHab) selHab.focus(); return; }
+      if (!dni) { vpMsg('error', '⚠️ Escribe el DNI de la visita.'); if (inpDni) inpDni.focus(); return; }
+    }
+
+    var btnA = document.getElementById('btnVpAceptar');
+    var btnR = document.getElementById('btnVpRechazar');
+    if (btnA) btnA.disabled = true;
+    if (btnR) btnR.disabled = true;
+
+    vpRpc('registrarVisitaPase', [{
+      estado: estado,
+      hab: hab,
+      dni: dni,
+      nombreVisita: VP.nombreDetectado || '',
+      monto: monto,
+      motivo: motivo,
+      fecha: (inpFecha && inpFecha.value) ? inpFecha.value : ''
+    }], function (res) {
+      if (btnA) btnA.disabled = false;
+      if (btnR) btnR.disabled = false;
+      if (inpDni) inpDni.value = '';
+      if (inpMotivo) inpMotivo.value = '';
+      VP.nombreDetectado = '';
+      var infoBox = document.getElementById('vpInfoDniBox');
+      if (infoBox) { infoBox.classList.add('hidden'); infoBox.innerHTML = ''; }
+      vpMsg('ok', (res && res.mensaje) || '✅ Registrado');
+      vpCargar((inpFecha && inpFecha.value) ? inpFecha.value : '');
+      if (typeof recargarDatos === 'function') recargarDatos();
+    }, function (e) {
+      if (btnA) btnA.disabled = false;
+      if (btnR) btnR.disabled = false;
+      vpMsg('error', '❌ ' + (e.message || String(e)));
+    });
+  };
+
+  window.vpEliminar = function (paseUuid) {
+    if (!paseUuid) return;
+    if (!confirm('¿Eliminar este registro de visita? (Si fue un pase aceptado, también se descontará el cargo de la cuenta de la habitación).')) return;
+    var inpFecha = document.getElementById('vpFechaInput');
+    vpRpc('eliminarVisitaPase', [{ paseUuid: paseUuid }], function (res) {
+      vpMsg('ok', (res && res.mensaje) || '🗑️ Eliminado');
+      vpCargar((inpFecha && inpFecha.value) ? inpFecha.value : '');
+      if (typeof recargarDatos === 'function') recargarDatos();
+    }, function (e) {
+      vpMsg('error', '❌ ' + (e.message || String(e)));
+    });
+  };
 })();
 </script>
 </body>

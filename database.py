@@ -408,6 +408,28 @@ def init_db() -> None:
                     valor      TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
                 );
+
+                -- 11. Control interno de Visitas / Pases (privado, sin exponer DNI en Registro_Estancias/Pagos)
+                CREATE TABLE IF NOT EXISTS control_pases (
+                    pase_uuid       TEXT PRIMARY KEY,
+                    fecha_dmy       TEXT NOT NULL,
+                    ymd             INTEGER NOT NULL DEFAULT 0,
+                    hora            TEXT NOT NULL DEFAULT '',
+                    hab             TEXT NOT NULL DEFAULT '',
+                    estancia_uuid   TEXT NOT NULL DEFAULT '',
+                    id_estancia     TEXT NOT NULL DEFAULT '',
+                    huesped_titular TEXT NOT NULL DEFAULT '',
+                    dni_visita      TEXT NOT NULL DEFAULT '',
+                    nombre_visita   TEXT NOT NULL DEFAULT '',
+                    estado          TEXT NOT NULL DEFAULT 'ACEPTADO',
+                    monto           REAL NOT NULL DEFAULT 10.0,
+                    motivo_rechazo  TEXT NOT NULL DEFAULT '',
+                    equipo          TEXT NOT NULL DEFAULT '',
+                    created_at      TEXT NOT NULL DEFAULT '',
+                    synced          INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_pases_ymd ON control_pases(ymd);
+                CREATE INDEX IF NOT EXISTS idx_pases_dni ON control_pases(dni_visita);
                 """
             )
             # Migración única: el panel de colores queda desvinculado de Sheets; se parte limpio.

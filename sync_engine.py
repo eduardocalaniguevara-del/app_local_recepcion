@@ -171,6 +171,9 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
         if "import_Horario_Audit" in tabs:
             ranges_step1.append("'import_Horario_Audit'!A2:H6000")
             keys_step1.append("horario_audit")
+        if "import_Control_Pases" in tabs:
+            ranges_step1.append("'import_Control_Pases'!A2:N8000")
+            keys_step1.append("control_pases")
 
         res_step1 = sh.values_batch_get(ranges_step1)
         vrs1 = res_step1.get("valueRanges", []) if isinstance(res_step1, dict) else []
@@ -202,6 +205,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
         almacen_rows = step1_dict.get("almacen", [])
         horario_rows = step1_dict.get("horario", [])
         horario_audit_rows = step1_dict.get("horario_audit", [])
+        control_pases_rows = step1_dict.get("control_pases", [])
 
         total_rows_bd = max(len(col_a_bd), 1)
         last_t = len(col_t)
@@ -1070,6 +1074,42 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                          _hm_pull(ar_h[4]), _hm_pull(ar_h[5]), str(ar_h[6] or "").strip(),
                          str(ar_h[7] or "") if len(ar_h) > 7 else ""),
                     )
+            if control_pases_rows:
+                pend_pase_ops = conn.execute(
+                    "SELECT 1 FROM sync_queue WHERE op_type IN ('PASE_UPSERT', 'PASE_DELETE') AND status != 'SYNCED' LIMIT 1"
+                ).fetchone()
+                ids_rem_pases = set()
+                for pr_c in control_pases_rows:
+                    if len(pr_c) < 10 or not str(pr_c[0] or "").strip():
+                        continue
+                    pu_id = str(pr_c[0]).strip()
+                    ids_rem_pases.add(pu_id)
+                    loc_p = conn.execute("SELECT synced FROM control_pases WHERE pase_uuid = ?", (pu_id,)).fetchone()
+                    if loc_p and int(loc_p["synced"] or 0) == 0:
+                        continue
+                    f_p = normalizar_fecha_dmy(pr_c[1])
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO control_pases (
+                            pase_uuid, fecha_dmy, ymd, hora, hab, estancia_uuid, id_estancia,
+                            huesped_titular, dni_visita, nombre_visita, estado, monto,
+                            motivo_rechazo, equipo, created_at, synced
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                        """,
+                        (
+                            pu_id, f_p, fecha_dmy_a_ymd(f_p), _hm_pull(pr_c[2]),
+                            str(pr_c[3] or "").strip(), str(pr_c[4] or "").strip(), str(pr_c[5] or "").strip(),
+                            str(pr_c[6] or "").strip(), str(pr_c[7] or "").strip(), str(pr_c[8] or "").strip(),
+                            str(pr_c[9] or "ACEPTADO").strip().upper(), parse_moneda(pr_c[10]) if len(pr_c) > 10 else 0.0,
+                            str(pr_c[11] or "").strip() if len(pr_c) > 11 else "",
+                            str(pr_c[12] or "").strip() if len(pr_c) > 12 else "",
+                            str(pr_c[13] or "").strip() if len(pr_c) > 13 else "",
+                        ),
+                    )
+                if not pend_pase_ops:
+                    for old_cp in conn.execute("SELECT pase_uuid FROM control_pases WHERE synced = 1").fetchall():
+                        if str(old_cp["pase_uuid"]) not in ids_rem_pases:
+                            conn.execute("DELETE FROM control_pases WHERE pase_uuid = ?", (old_cp["pase_uuid"],))
 
         return {
             "status": "OK",
@@ -1553,6 +1593,25 @@ def process_sync_queue() -> Dict[str, Any]:
                     _append_fila_idempotente(hor_cache["ws_aud"], payload["audit_uuid"], payload["fila"], "H", value_input_option="RAW")
                     with db_transaction() as c_up:
                         c_up.execute("UPDATE horario_auditoria SET synced = 1 WHERE audit_uuid = ?", (payload["audit_uuid"],))
+
+                elif op_type == "PASE_UPSERT":
+                    from pases_logic import PASES_CABECERA
+                    if hor_cache.get("ws_pases") is None:
+                        hor_cache["ws_pases"] = _asegurar_hoja_horario(sh, "import_Control_Pases", PASES_CABECERA)
+                    _append_fila_idempotente(hor_cache["ws_pases"], payload["pase_uuid"], payload["fila"], "N", value_input_option="RAW")
+                    with db_transaction() as c_up:
+                        c_up.execute("UPDATE control_pases SET synced = 1 WHERE pase_uuid = ?", (payload["pase_uuid"],))
+
+                elif op_type == "PASE_DELETE":
+                    from pases_logic import PASES_CABECERA
+                    if hor_cache.get("ws_pases") is None:
+                        hor_cache["ws_pases"] = _asegurar_hoja_horario(sh, "import_Control_Pases", PASES_CABECERA)
+                    ws_p = hor_cache["ws_pases"]
+                    col_a_p = ws_p.col_values(1) or []
+                    for idx_p, val_p in enumerate(col_a_p[1:], start=2):
+                        if str(val_p).strip() == str(payload.get("pase_uuid") or "").strip():
+                            ws_p.delete_rows(idx_p)
+                            break
 
                 elif op_type == "MODIFICAR":
                     t_row = _resolver_fila_estancia_en_sheets(

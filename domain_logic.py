@@ -1013,6 +1013,21 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
                 })
 
         sync_info = obtener_estado_red_cola(conn)
+        vis_hoy_cnt = 0
+        vis_rech_cnt = 0
+        try:
+            ymd_v = fecha_dmy_a_ymd(fecha_vis)
+            r_vp = conn.execute(
+                "SELECT SUM(CASE WHEN estado = 'ACEPTADO' THEN 1 ELSE 0 END) AS a, "
+                "SUM(CASE WHEN estado = 'RECHAZADO' THEN 1 ELSE 0 END) AS r "
+                "FROM control_pases WHERE ymd = ?",
+                (ymd_v,),
+            ).fetchone()
+            if r_vp:
+                vis_hoy_cnt = int(r_vp["a"] or 0)
+                vis_rech_cnt = int(r_vp["r"] or 0)
+        except Exception:
+            pass
         return {
             "nombreHotel": NOMBRE_HOTEL,
             "coloresGlobales": colores_panel["globales"],
@@ -1020,6 +1035,8 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
             "fechaHoyISO": fecha_hoy_iso_val,
             "fechaVisualizada": fecha_vis,
             "totalCaja": total_caja,
+            "visitasHoyCount": vis_hoy_cnt,
+            "visitasRechazadasHoy": vis_rech_cnt,
             "habitaciones": habitaciones,
             "plantillaHabs": plantilla_habs,
             "estanciasCache": estancias_cache,

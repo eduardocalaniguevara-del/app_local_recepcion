@@ -184,6 +184,8 @@ WRITE_METHODS = {
     "editarCeldaHorario",
     "guardarPersonalConfig",
     "guardarLiquidacionHorario",
+    "registrarVisitaPase",
+    "eliminarVisitaPase",
     "guardarCheckInDesdeApp",
     "procesarCheckInApp",
     "guardarPagoPosteriorDesdeApp",
@@ -635,6 +637,18 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             res = tm.obtener_panel_control_tablet()
         elif method_name == "actualizarControlRemotoTablet":
             res = tm.actualizar_control_remoto_tablet(args[0] if args else {})
+        elif method_name == "obtenerVisitasPases":
+            import pases_logic as pl
+            res = pl.obtener_visitas_pases_local(args[0] if args else {})
+        elif method_name == "registrarVisitaPase":
+            import pases_logic as pl
+            res = pl.registrar_visita_pase_local(args[0] if args else {})
+        elif method_name == "eliminarVisitaPase":
+            import pases_logic as pl
+            res = pl.eliminar_visita_pase_local(args[0] if args else {})
+        elif method_name == "consultarDniVisita":
+            import pases_logic as pl
+            res = pl.consultar_dni_visita_local(args[0] if args else {})
         else:
             raise HTTPException(status_code=404, detail=f"Método RPC no soportado: {method_name}")
 
