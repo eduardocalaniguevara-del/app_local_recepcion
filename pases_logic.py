@@ -1235,24 +1235,16 @@ def enviar_wsp_cuenta_hab_local(datos: Optional[Dict[str, Any]] = None) -> Dict[
     )
 
     mensaje = (
-        f"📋 *{NOMBRE_HOTEL} — ESTADO DE CUENTA HAB. {info['hab']}*
-"
-        f"👤 *Huésped:* {info['huesped']}
-"
+        f"📋 *{NOMBRE_HOTEL} — ESTADO DE CUENTA HAB. {info['hab']}*\n"
+        f"👤 *Huésped:* {info['huesped']}\n"
         f"📅 *Día de Ingreso:* {info.get('fechaIngresoInicial') or R.get('fechaInicio')} "
-        f"({R.get('diasCount', 1)} noches jaladas hasta {R.get('fechaUltima')})
-"
-        f"🛏️ *Hospedaje:* S/ {float(R.get('totalAlojamiento') or 0.0):.2f}
-"
+        f"({R.get('diasCount', 1)} noches jaladas hasta {R.get('fechaUltima')})\n"
+        f"🛏️ *Hospedaje:* S/ {float(R.get('totalAlojamiento') or 0.0):.2f}\n"
         f"➕ *Adicionales:* S/ {float(R.get('totalAdicionales') or 0.0):.2f} "
-        f"(Tienda: S/ {float(R.get('totalTienda') or 0.0):.2f} | Visitas/Serv: S/ {float(R.get('totalServicios') or 0.0):.2f})
-"
+        f"(Tienda: S/ {float(R.get('totalTienda') or 0.0):.2f} | Visitas/Serv: S/ {float(R.get('totalServicios') or 0.0):.2f})\n"
         f"💰 *Total Pagado:* S/ {float(R.get('totalPagado') or 0.0):.2f} "
-        f"(Efec: S/ {float(R.get('pagadoEfectivo') or 0.0):.2f} | Yape: S/ {float(R.get('pagadoYape') or 0.0):.2f})
-"
-        f"⚖️ *{estado_saldo}*
-
-"
+        f"(Efec: S/ {float(R.get('pagadoEfectivo') or 0.0):.2f} | Yape: S/ {float(R.get('pagadoYape') or 0.0):.2f})\n"
+        f"⚖️ *{estado_saldo}*\n\n"
         f"Se adjunta el PDF con el desglose detallado día por día."
     )
 
