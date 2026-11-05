@@ -2320,8 +2320,13 @@
       }
 
       const payloadCont = {
-        filaAnterior: est.fila,
-        idAnterior: est.id,
+        estanciaUuid: est.estanciaUuid || '',
+        filaAnterior: est.fila || 0,
+        idAnterior: est.id || '',
+        habAnterior: est.hab || '',
+        fechaInAnterior: est.fechaIn || '',
+        dniAnterior: est.dni || '',
+        huespedAnterior: est.nombre || '',
         habNueva: contHabNueva.value,
         tarifaNueva: parseFloat(contTarifaNueva.value) || Number(est.tarifa) || 0,
         fechaInNueva: contFechaIn.value,
@@ -2369,17 +2374,21 @@
       }
       if (ctx.tab === 'continuar') {
         tabBtnContinuar.click();
+        estanciaActivaSelect.value = '';
+        contHabBuscar.value = '';
+        resumenContinuarBox.style.display = 'none';
         const hab = String(ctx.hab || '').trim();
+        const checkInCtx = String(ctx.checkIn || '').trim();
         if (hab && ESTANCIAS_ACTIVAS && ESTANCIAS_ACTIVAS.length > 0) {
           let idx = -1;
-          if (ctx.estanciaUuid) {
-            idx = ESTANCIAS_ACTIVAS.findIndex((e) => e.estanciaUuid && String(e.estanciaUuid) === String(ctx.estanciaUuid));
+          if (checkInCtx) {
+            idx = ESTANCIAS_ACTIVAS.findIndex((e) => String(e.hab).trim() === hab && String(e.fechaIn || '').trim() === checkInCtx);
+          }
+          if (idx === -1 && ctx.estanciaUuid) {
+            idx = ESTANCIAS_ACTIVAS.findIndex((e) => String(e.hab).trim() === hab && e.estanciaUuid && String(e.estanciaUuid) === String(ctx.estanciaUuid));
           }
           if (idx === -1 && ctx.idEstancia) {
-            idx = ESTANCIAS_ACTIVAS.findIndex((e) => e.id && String(e.id) === String(ctx.idEstancia));
-          }
-          if (idx === -1 && ctx.fila) {
-            idx = ESTANCIAS_ACTIVAS.findIndex((e) => e.fila && Number(e.fila) === Number(ctx.fila));
+            idx = ESTANCIAS_ACTIVAS.findIndex((e) => String(e.hab).trim() === hab && e.id && String(e.id) === String(ctx.idEstancia));
           }
           if (idx === -1) {
             idx = ESTANCIAS_ACTIVAS.findIndex((e) => String(e.hab).trim() === hab);
@@ -2393,6 +2402,7 @@
             if (blq) blq.style.display = 'none';
             if (btnM) btnM.style.display = 'inline';
           } else {
+            contHabBuscar.value = hab;
             mostrarBusquedaManualContinuar();
           }
         } else if (!hab) {

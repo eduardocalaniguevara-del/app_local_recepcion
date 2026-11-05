@@ -926,6 +926,8 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
                     "estado": "libre",
                     "ocupadaAyer": bool(st_ayer),
                     "huespedAyer": st_ayer["huesped"] if st_ayer else "",
+                    "dniAyer": str(st_ayer["dni"] or "") if st_ayer else "",
+                    "checkInAyer": str(st_ayer["checkIn"] or "") if st_ayer else "",
                     "filaAyer": int(st_ayer["fila"] or 0) if st_ayer else 0,
                     "idAyer": str(st_ayer["id"] or "") if st_ayer else "",
                     "estanciaUuidAyer": str(st_ayer["estanciaUuid"] or "") if st_ayer else "",
@@ -1814,24 +1816,78 @@ def guardar_gasto_local(datos: Dict[str, Any]) -> Dict[str, Any]:
 
 def continuar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     with db_transaction() as conn:
-        old = _buscar_estancia_local(
-            conn,
-            fila=int(datos.get("filaAnterior") or 0),
-            id_busq=str(datos.get("idAnterior") or ""),
-            estancia_uuid=str(datos.get("estanciaUuid") or ""),
-            hab=str(datos.get("habAnterior") or datos.get("habNueva") or ""),
-        )
+        ahora = datetime.now()
+        f_in_nueva = normalizar_fecha_dmy(datos.get("fechaInNueva")) or hoy_dmy()
+        f_out_nueva = normalizar_fecha_dmy(datos.get("fechaOutNueva")) or (ahora + timedelta(days=1)).strftime("%d/%m/%Y")
+        ymd_in = fecha_dmy_a_ymd(f_in_nueva) or int(ahora.strftime("%Y%m%d"))
+        ymd_out = fecha_dmy_a_ymd(f_out_nueva) or (ymd_in + 1)
+
+        try:
+            dt_in_nueva = datetime.strptime(f_in_nueva, "%d/%m/%Y")
+        except Exception:
+            dt_in_nueva = ahora
+        ymd_ayer_enlace = int((dt_in_nueva - timedelta(days=1)).strftime("%Y%m%d"))
+        f_in_ant_dmy = normalizar_fecha_dmy(datos.get("fechaInAnterior"))
+        ymd_in_ant_enlace = fecha_dmy_a_ymd(f_in_ant_dmy) if f_in_ant_dmy else ymd_ayer_enlace
+
+        hab_ant = str(datos.get("habAnterior") or "").strip()
+        hab_busq = hab_ant or str(datos.get("habNueva") or "").strip()
+        est_uuid_busq = str(datos.get("estanciaUuid") or "").strip()
+        id_ant_busq = str(datos.get("idAnterior") or "").strip()
+        fila_ant_busq = int(datos.get("filaAnterior") or 0)
+
+        old = None
+        orden_reciente = "CASE WHEN sheet_row = 0 THEN 1 ELSE 0 END DESC, ymd_in DESC, sheet_row DESC, rowid DESC"
+
+        # 1. Enlace primario por Check-In anterior + Habitación de origen (y UUID si corresponde a esa hab y fecha)
+        if est_uuid_busq:
+            r_u = conn.execute("SELECT * FROM estancias WHERE estancia_uuid = ?", (est_uuid_busq,)).fetchone()
+            if r_u and (not hab_ant or str(r_u["hab"]).strip() == hab_ant) and int(r_u["ymd_in"] or 0) < ymd_in:
+                old = r_u
+
+        if not old and hab_busq:
+            r_chk = conn.execute(
+                f"""
+                SELECT * FROM estancias
+                WHERE hab = ?
+                  AND estado_estancia = 'En Curso'
+                  AND (ymd_in = ? OR ymd_in = ? OR (ymd_in < ? AND ymd_out = ?))
+                ORDER BY {orden_reciente}
+                LIMIT 1
+                """,
+                (hab_busq, ymd_in_ant_enlace, ymd_ayer_enlace, ymd_in, ymd_in),
+            ).fetchone()
+            if r_chk:
+                old = r_chk
+
+        if not old:
+            old = _buscar_estancia_local(
+                conn,
+                fila=fila_ant_busq,
+                id_busq=id_ant_busq,
+                estancia_uuid=est_uuid_busq,
+                hab=hab_busq,
+            )
+
+        if hab_ant and str(old["hab"]).strip() != hab_ant:
+            raise ValueError(
+                f"Error de enlace en Continuar Estancia: se solicitó la Hab. {hab_ant}, pero el registro apunta a Hab. {old['hab']} ({old['huesped']})."
+            )
 
         est_ant_low = str(old["estado_estancia"] or "").strip().lower()
         if "contin" in est_ant_low or "cancel" in est_ant_low:
             raise ValueError(f"La estancia de Hab. {old['hab']} ({old['huesped']}) ya fue continuada o anulada anteriormente.")
 
-        ymd_ayer_min = int((datetime.now() - timedelta(days=1)).strftime("%Y%m%d"))
-        ymd_hoy_min = int(datetime.now().strftime("%Y%m%d"))
         ymd_in_old = int(old["ymd_in"] or 0)
         ymd_out_old = int(old["ymd_out"] or 0)
-        if ymd_in_old > 0 and ymd_in_old < ymd_ayer_min and ymd_out_old < ymd_hoy_min:
-            raise ValueError(f"Por seguridad, Continuar Estancia solo permite estancias de 1 día hacia atrás (la estancia de Hab. {old['hab']} ingresó el {old['fecha_in_dmy']}).")
+        if ymd_in_old >= ymd_in:
+            raise ValueError(
+                f"La estancia de Hab. {old['hab']} ({old['huesped']}) ya tiene Check-In en la fecha {old['fecha_in_dmy']} y no puede volverse a continuar en el mismo día."
+            )
+        if ymd_in_old > 0 and ymd_in_old < ymd_ayer_enlace and ymd_out_old < ymd_in:
+            raise ValueError(
+                f"Por seguridad, Continuar Estancia solo permite enlazar con el Check-In de 1 día hacia atrás (la estancia de Hab. {old['hab']} ingresó el {old['fecha_in_dmy']})."
+            )
 
         noches_ant = max(1, int(old["noches"] or 1))
         sub_aloj_ant = round(noches_ant * float(old["tarifa"] or 0), 2)
@@ -1849,18 +1905,10 @@ def continuar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
             + float(old["pago_post_yape"] or 0)
             + float(old["pago_visa"] or 0)
         )
-        if datos.get("deudaArrastre") not in (None, ""):
-            deuda_arrastre = parse_moneda(datos.get("deudaArrastre"))
-        else:
-            deuda_arrastre = round(cargos_ant - pagos_ant, 2)
+        deuda_arrastre = round(cargos_ant - pagos_ant, 2)
 
-        ahora = datetime.now()
         id_ts_str = ahora.strftime("%d/%m/%Y %H:%M:%S")
         hora_reg = ahora.strftime("%H:%M")
-        f_in_nueva = normalizar_fecha_dmy(datos.get("fechaInNueva")) or hoy_dmy()
-        f_out_nueva = normalizar_fecha_dmy(datos.get("fechaOutNueva")) or (ahora + timedelta(days=1)).strftime("%d/%m/%Y")
-        ymd_in = fecha_dmy_a_ymd(f_in_nueva)
-        ymd_out = fecha_dmy_a_ymd(f_out_nueva) or (ymd_in + 1)
         noches_nuevas = calcular_noches(f_in_nueva, f_out_nueva)
 
         hab_nueva = str(datos.get("habNueva") or old["hab"]).strip()
@@ -2874,12 +2922,16 @@ def obtener_datos_iniciales_checkin_local() -> Dict[str, Any]:
                 elif item.get("empresa") and not item.get("ruc") and item["empresa"] in ruc_por_emp:
                     item["ruc"] = ruc_por_emp[item["empresa"]]
 
-        # Blindaje estricto Continuar Estancia:
-        # 1) Solo evaluar la estancia MÁS RECIENTE de cada habitación (si ya fue Finalizada o Continuada, NO retroceder a filas viejas).
-        # 2) Solo permitir estancias de máximo 1 día hacia atrás respecto a la fecha de referencia.
+        # Blindaje estricto Continuar Estancia (Enlace por Fecha de Check-In = Ayer):
+        # 1) La fecha destino de continuación es hoy (o la fecha del panel si es futura); por tanto,
+        #    el Check-In de la estancia a continuar DEBE ser 1 día antes (ymd_ayer_ref) o multinoche que sale hoy.
+        # 2) JAMÁS incluir estancias cuyo Check-In ya sea hoy (ymd_in_st >= ymd_hoy_ref), ni dejar que
+        #    una estancia registrada hoy oculte la estancia del día anterior cuando el huésped cambia de habitación.
         try:
-            ymd_hoy_ref = int(dt_ref.strftime("%Y%m%d"))
-            ymd_ayer_ref = int((dt_ref - timedelta(days=1)).strftime("%Y%m%d"))
+            dt_hoy_real = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            dt_base_cont = max(dt_ref, dt_hoy_real)
+            ymd_hoy_ref = int(dt_base_cont.strftime("%Y%m%d"))
+            ymd_ayer_ref = int((dt_base_cont - timedelta(days=1)).strftime("%Y%m%d"))
         except Exception:
             ymd_hoy_ref = int(datetime.now().strftime("%Y%m%d"))
             ymd_ayer_ref = int((datetime.now() - timedelta(days=1)).strftime("%Y%m%d"))
@@ -2892,12 +2944,15 @@ def obtener_datos_iniciales_checkin_local() -> Dict[str, Any]:
             hab_key = str(st.get("hab") or "").strip()
             if not hab_key or hab_key in habs_ya_evaluadas:
                 continue
-            # Bloquear la habitación en su estancia más reciente (aunque esté Finalizada o Continúa, jamás retroceder a días anteriores)
+            ymd_in_st = fecha_dmy_a_ymd(st.get("checkIn", ""))
+            ymd_out_st = fecha_dmy_a_ymd(st.get("checkOut", ""))
+            # Ignorar estancias cuyo Check-In ya es hoy (o posterior): no son candidatas de ayer ni deben ocultar la estancia de ayer
+            if ymd_in_st >= ymd_hoy_ref:
+                continue
+            # Bloquear la habitación en su estancia más reciente previa a hoy (aunque esté Finalizada o Continúa, jamás retroceder a días más antiguos)
             habs_ya_evaluadas.add(hab_key)
             if st.get("esInactiva") or st.get("esContinuacionCerrada"):
                 continue
-            ymd_in_st = fecha_dmy_a_ymd(st.get("checkIn", ""))
-            ymd_out_st = fecha_dmy_a_ymd(st.get("checkOut", ""))
             if ymd_in_st > 0 and ymd_in_st < ymd_ayer_ref and ymd_out_st < ymd_hoy_ref:
                 continue
             if True:

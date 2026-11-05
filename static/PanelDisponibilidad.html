@@ -4742,6 +4742,7 @@
           fila: datosHab.filaNum || datosHab.filaAyer || 0,
           idEstancia: datosHab.id || datosHab.idAyer || '',
           estanciaUuid: datosHab.estanciaUuid || datosHab.estanciaUuidAyer || '',
+          checkIn: (datosHab.checkIn && datosHab.checkIn !== '-') ? datosHab.checkIn : (datosHab.checkInAyer || ''),
           huesped: (datosHab.huesped && datosHab.huesped !== '-') ? datosHab.huesped : (datosHab.huespedAyer || '')
         });
       } else if (tipo === 'tienda') {
