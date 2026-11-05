@@ -106,28 +106,79 @@ def consultar_dni_local_o_reniec(dni_buscado: str) -> Dict[str, Any]:
     conn = get_connection()
     try:
         pad = conn.execute("SELECT * FROM huespedes_padron WHERE dni = ?", (dni,)).fetchone()
-        if pad and pad["nombre"]:
-            return {
-                "ok": True,
-                "dni": dni,
-                "nombre": pad["nombre"],
-                "nombreCompleto": pad["nombre"],
-                "sexo": pad["sexo"] or "M",
-                "nac": pad["nac"] or "Perú",
-                "reg": pad["reg"] or "",
-                "mot": pad["mot"] or "Vacaciones, recreo u ocio",
-                "celular": pad["celular"] or "",
-                "ruc": pad["ruc"] or "",
-                "empresa": pad["empresa"] or "",
-                "visitas": int(pad["visitas"] or 1),
-                "fuente": "PADRON_LOCAL",
-            }
+        est_rows = conn.execute(
+            """
+            SELECT huesped, sexo, nac, reg, mot, hab, tarifa, empresa, celular, ruc
+            FROM estancias
+            WHERE dni = ?
+            ORDER BY ymd_in DESC, sheet_row DESC, rowid DESC
+            """,
+            (dni,),
+        ).fetchall()
+
+        if (pad and pad["nombre"]) or est_rows:
+            nombre = (pad["nombre"] if pad and pad["nombre"] else "") or (est_rows[0]["huesped"] if est_rows else "")
+            sexo = (pad["sexo"] if pad and pad["sexo"] else "") or "M"
+            nac = (pad["nac"] if pad and pad["nac"] else "") or "Perú"
+            reg = (pad["reg"] if pad and pad["reg"] else "") or ""
+            mot = (pad["mot"] if pad and pad["mot"] else "") or "Vacaciones, recreo u ocio"
+            celular = (pad["celular"] if pad and pad["celular"] else "") or ""
+            ruc = (pad["ruc"] if pad and pad["ruc"] else "") or ""
+            empresa = (pad["empresa"] if pad and pad["empresa"] else "") or ""
+            hab_frec = (pad["hab_frec"] if pad and pad["hab_frec"] else "") or ""
+            tarifa_frec = float(pad["tarifa_frec"] or 0) if pad else 0.0
+            visitas = int(pad["visitas"] or 0) if pad else len(est_rows)
+
+            for er in est_rows:
+                if not reg and (er["reg"] or "").strip():
+                    reg = str(er["reg"]).strip()
+                if not ruc and (er["ruc"] or "").strip():
+                    ruc = re.sub(r"\D", "", str(er["ruc"]).strip())
+                if not empresa and (er["empresa"] or "").strip():
+                    empresa = str(er["empresa"]).strip().upper()
+                if not celular and (er["celular"] or "").strip():
+                    celular = str(er["celular"]).strip()
+                if not hab_frec and (er["hab"] or "").strip():
+                    hab_frec = str(er["hab"]).strip()
+                if tarifa_frec <= 0 and float(er["tarifa"] or 0) > 0:
+                    tarifa_frec = float(er["tarifa"] or 0)
+
+            if ruc and not empresa:
+                emp_r = conn.execute("SELECT razon_social FROM empresas_padron WHERE ruc = ?", (ruc,)).fetchone()
+                if emp_r and emp_r["razon_social"]:
+                    empresa = str(emp_r["razon_social"]).strip().upper()
+            elif empresa and not ruc:
+                emp_r = conn.execute(
+                    "SELECT ruc FROM empresas_padron WHERE UPPER(TRIM(razon_social)) = ? LIMIT 1",
+                    (empresa.strip().upper(),),
+                ).fetchone()
+                if emp_r and emp_r["ruc"]:
+                    ruc = str(emp_r["ruc"]).strip()
+
+            if nombre:
+                return {
+                    "ok": True,
+                    "dni": dni,
+                    "nombre": nombre,
+                    "nombreCompleto": nombre,
+                    "sexo": sexo,
+                    "nac": nac,
+                    "reg": reg,
+                    "mot": mot,
+                    "celular": celular,
+                    "ruc": ruc,
+                    "empresa": empresa,
+                    "hab": hab_frec,
+                    "tarifa": tarifa_frec if tarifa_frec > 0 else "",
+                    "visitas": max(visitas, 1),
+                    "fuente": "PADRON_LOCAL",
+                }
     finally:
         conn.close()
 
     try:
         url = f"{APISPERU_DNI_URL}/{dni}?token={APISPERU_TOKEN}"
-        with httpx.Client(timeout=4.5) as client:
+        with httpx.Client(timeout=4.5, follow_redirects=True) as client:
             resp = client.get(url)
             if resp.status_code == 200:
                 data = resp.json()
@@ -159,66 +210,107 @@ def consultar_dni_local_o_reniec(dni_buscado: str) -> Dict[str, Any]:
     return {"ok": False, "dni": dni, "error": "Sin conexión o DNI no encontrado (ingrese nombre manualmente)."}
 
 
+def _guardar_empresa_padron_seguro(ruc: str, razon: str) -> None:
+    if not ruc or not razon:
+        return
+    try:
+        with db_transaction() as c_save:
+            c_save.execute(
+                """
+                INSERT INTO empresas_padron (ruc, razon_social, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(ruc) DO UPDATE SET
+                    razon_social = excluded.razon_social,
+                    updated_at = excluded.updated_at
+                """,
+                (ruc, razon, datetime.now().isoformat()),
+            )
+    except Exception:
+        pass
+
+
 def consultar_ruc_local_o_sunat(ruc_buscado: str) -> Dict[str, Any]:
     ruc = re.sub(r"\D", "", str(ruc_buscado or "").strip())
     if len(ruc) != 11 or not re.match(r"^(10|15|17|20)", ruc):
         return {"ok": False, "error": "RUC inválido (debe tener 11 dígitos e iniciar con 10 o 20)."}
 
+    # 1. Consulta en Padrón Local (empresas_padron / estancias / huespedes_padron)
+    razon_local = ""
     conn = get_connection()
     try:
-        emp = conn.execute("SELECT * FROM empresas_padron WHERE ruc = ?", (ruc,)).fetchone()
-        if emp and emp["razon_social"]:
-            return {
-                "ok": True,
-                "ruc": ruc,
-                "razonSocial": emp["razon_social"],
-                "empresa": emp["razon_social"],
-                "nombre": emp["razon_social"],
-                "estado": emp["estado"] or "ACTIVO",
-                "condicion": emp["condicion"] or "HABIDO",
-                "direccion": emp["direccion"] or "",
-                "fuente": "PADRON_LOCAL",
-            }
+        emp = conn.execute("SELECT ruc, razon_social FROM empresas_padron WHERE ruc = ?", (ruc,)).fetchone()
+        if emp and (emp["razon_social"] or "").strip():
+            razon_local = str(emp["razon_social"]).strip().upper()
+        if not razon_local:
+            est_emp = conn.execute(
+                "SELECT empresa FROM estancias WHERE ruc = ? AND trim(empresa) != '' ORDER BY ymd_in DESC, sheet_row DESC, rowid DESC LIMIT 1",
+                (ruc,),
+            ).fetchone()
+            if est_emp and (est_emp["empresa"] or "").strip():
+                razon_local = str(est_emp["empresa"]).strip().upper()
+        if not razon_local:
+            hp_emp = conn.execute(
+                "SELECT empresa FROM huespedes_padron WHERE ruc = ? AND trim(empresa) != '' LIMIT 1",
+                (ruc,),
+            ).fetchone()
+            if hp_emp and (hp_emp["empresa"] or "").strip():
+                razon_local = str(hp_emp["empresa"]).strip().upper()
+    except Exception:
+        pass
     finally:
         conn.close()
 
-    try:
-        url = f"{APISPERU_RUC_URL}/{ruc}?token={APISPERU_TOKEN}"
-        with httpx.Client(timeout=5.0) as client:
-            resp = client.get(url)
-            if resp.status_code == 200:
-                data = resp.json()
-                razon = str(data.get("razonSocial") or data.get("nombre") or "").strip().upper()
-                if razon:
-                    estado = str(data.get("estado") or "ACTIVO").strip().upper()
-                    condicion = str(data.get("condicion") or "HABIDO").strip().upper()
-                    direccion = str(data.get("direccion") or "").strip()
-                    with db_transaction() as c_save:
-                        c_save.execute(
-                            """
-                            INSERT INTO empresas_padron (ruc, razon_social, estado, condicion, direccion, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                            ON CONFLICT(ruc) DO UPDATE SET
-                                razon_social = excluded.razon_social,
-                                estado = excluded.estado,
-                                condicion = excluded.condicion,
-                                updated_at = excluded.updated_at
-                            """,
-                            (ruc, razon, estado, condicion, direccion, datetime.now().isoformat()),
-                        )
-                    return {
-                        "ok": True,
-                        "ruc": ruc,
-                        "razonSocial": razon,
-                        "empresa": razon,
-                        "nombre": razon,
-                        "estado": estado,
-                        "condicion": condicion,
-                        "direccion": direccion,
-                        "fuente": "SUNAT",
-                    }
-    except Exception:
-        pass
+    # 2. Consulta en línea SUNAT (APIsPERU principal + apis.net.pe respaldo)
+    urls_consulta = [
+        ("APISPERU", f"{APISPERU_RUC_URL}/{ruc}?token={APISPERU_TOKEN}"),
+        ("APIS_NET_PE", f"https://api.apis.net.pe/v1/ruc?numero={ruc}"),
+    ]
+    for fuente_api, url in urls_consulta:
+        try:
+            with httpx.Client(timeout=6.0, follow_redirects=True) as client:
+                resp = client.get(url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, dict):
+                        razon = str(
+                            data.get("razonSocial")
+                            or data.get("nombre")
+                            or data.get("nombre_o_razon_social")
+                            or ""
+                        ).strip().upper()
+                        if razon:
+                            estado = str(data.get("estado") or "ACTIVO").strip().upper()
+                            condicion = str(data.get("condicion") or "HABIDO").strip().upper()
+                            direccion = str(data.get("direccion") or "").strip()
+                            _guardar_empresa_padron_seguro(ruc, razon)
+                            return {
+                                "ok": True,
+                                "ruc": ruc,
+                                "razonSocial": razon,
+                                "empresa": razon,
+                                "nombre": razon,
+                                "estado": estado,
+                                "condicion": condicion,
+                                "direccion": direccion,
+                                "fuente": "SUNAT",
+                            }
+        except Exception:
+            continue
+
+    # 3. Si no hubo respuesta online pero estaba en padrón local, devolver padrón local
+    if razon_local:
+        _guardar_empresa_padron_seguro(ruc, razon_local)
+        return {
+            "ok": True,
+            "ruc": ruc,
+            "razonSocial": razon_local,
+            "empresa": razon_local,
+            "nombre": razon_local,
+            "estado": "ACTIVO",
+            "condicion": "HABIDO",
+            "direccion": "",
+            "fuente": "PADRON_LOCAL",
+        }
 
     return {"ok": False, "ruc": ruc, "error": "Sin conexión o RUC no encontrado (escriba la Razón Social manualmente)."}
 
