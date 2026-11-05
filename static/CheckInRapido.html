@@ -1437,6 +1437,10 @@
         clearTimeout(timerRuc);
         const rucVal = inpRuc.value.replace(/\D/g, '').trim();
         if (inpRuc.value !== rucVal) inpRuc.value = rucVal;
+        if (inpRuc.dataset.lastRuc !== rucVal) {
+          inpEmp.value = '';
+          inpRuc.dataset.lastRuc = rucVal;
+        }
         if (rucVal.length > 0 && marcarRadioFactura) {
           const radFact = document.querySelector('input[name="tipoC"][value="Factura"]');
           if (radFact) radFact.checked = true;

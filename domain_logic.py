@@ -691,6 +691,13 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
             if d and c and d not in mapa_celular_dni:
                 mapa_celular_dni[d] = c
 
+        mapa_emp_por_ruc: Dict[str, str] = {}
+        for ep in conn.execute("SELECT ruc, razon_social FROM empresas_padron").fetchall():
+            r_ep = str(ep["ruc"] or "").strip()
+            n_ep = str(ep["razon_social"] or "").strip()
+            if r_ep and n_ep:
+                mapa_emp_por_ruc[r_ep] = n_ep
+
         estancias_cache: List[Dict[str, Any]] = []
         mapa_bd_por_fecha: Dict[str, Dict[str, Any]] = {}
         mapa_historial_dia: Dict[str, List[Dict[str, Any]]] = {}
@@ -774,7 +781,7 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
                 "huesped": r["huesped"] or "-",
                 "dni": dni_norm,
                 "ruc": str(r["ruc"] or "").strip(),
-                "empresa": str(r["empresa"] or "").strip(),
+                "empresa": str(r["empresa"] or "").strip() or mapa_emp_por_ruc.get(str(r["ruc"] or "").strip(), ""),
                 "proyecto": str(r["proyecto"] or "").strip(),
                 "nAcomp": str(r["n_acomp"] or "").strip(),
                 "triple1": str(r["triple1"] or "").strip(),
@@ -2160,6 +2167,18 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         nro_op_yape = txt_val("nroOpYape", actual["nro_op_yape"])
         celular = txt_val("celular", actual["celular"])
         ruc = re.sub(r"\D", "", txt_val("ruc", actual["ruc"]))
+        ruc_prev_clean = re.sub(r"\D", "", str(actual["ruc"] or ""))
+        emp_prev_clean = str(actual["empresa"] or "").strip().upper()
+        if ruc and (not empresa or (ruc != ruc_prev_clean and empresa == emp_prev_clean)):
+            ep_row = conn.execute("SELECT razon_social FROM empresas_padron WHERE ruc = ?", (ruc,)).fetchone()
+            if ep_row and (ep_row["razon_social"] or "").strip():
+                empresa = str(ep_row["razon_social"]).strip().upper()
+            elif ruc != ruc_prev_clean and empresa == emp_prev_clean:
+                empresa = ""
+        elif empresa and empresa != emp_prev_clean and (not ruc or ruc == ruc_prev_clean):
+            ep_row = conn.execute("SELECT ruc FROM empresas_padron WHERE UPPER(TRIM(razon_social)) = ? LIMIT 1", (empresa,)).fetchone()
+            if ep_row and (ep_row["ruc"] or "").strip():
+                ruc = re.sub(r"\D", "", str(ep_row["ruc"]))
 
         ahora_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         pagos_ajuste = []
@@ -2540,8 +2559,14 @@ def actualizar_comprobante_desde_panel_local(datos: Dict[str, Any]) -> Dict[str,
                 dni_final = dni_norm_in
                 dni_actualizado = True
 
-        ruc_final = ruc_entrada if ruc_entrada else str(st["ruc"] or "").strip()
-        emp_final = emp_entrada if emp_entrada else str(st["empresa"] or "").strip()
+        ruc_prev_st = re.sub(r"\D", "", str(st["ruc"] or "").strip())
+        emp_prev_st = str(st["empresa"] or "").strip().upper()
+        ruc_final = ruc_entrada if ruc_entrada else ruc_prev_st
+        emp_final = emp_entrada if emp_entrada else ("" if (ruc_entrada and ruc_entrada != ruc_prev_st) else emp_prev_st)
+        if ruc_final and (not emp_final or (ruc_final != ruc_prev_st and emp_final == emp_prev_st)):
+            ep_r = conn.execute("SELECT razon_social FROM empresas_padron WHERE ruc = ?", (ruc_final,)).fetchone()
+            if ep_r and (ep_r["razon_social"] or "").strip():
+                emp_final = str(ep_r["razon_social"]).strip().upper()
 
         if nuevo_tipo == "Factura":
             if not ruc_final or len(ruc_final) != 11 or not re.match(r"^(10|15|17|20)", ruc_final):

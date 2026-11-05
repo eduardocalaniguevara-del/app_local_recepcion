@@ -2768,13 +2768,14 @@
             document.getElementById("mod_estadoComp").value = est.estadoComp || "";
             document.getElementById("mod_nroComp").value = est.nroComp || "";
             document.getElementById("mod_montoFact").value = est.montoFact !== undefined && est.montoFact !== "" ? est.montoFact : "";
-            const rucInicial = est.ruc || est.rucSugerido || "";
-            const empInicial = est.empresa || est.empresaSugerida || "";
+            const rucInicial = est.ruc || "";
+            const empInicial = est.empresa || "";
             const inpModRuc = document.getElementById("mod_ruc");
             const inpModEmp = document.getElementById("mod_empresa");
             const lblModRuc = document.getElementById("lblModRuc");
             if (inpModRuc) {
               inpModRuc.value = rucInicial;
+              inpModRuc.dataset.lastRuc = rucInicial;
               inpModRuc.readOnly = false;
               inpModRuc.disabled = false;
             }
@@ -2784,12 +2785,18 @@
               inpModEmp.disabled = false;
             }
             if (lblModRuc) {
-              if (!est.ruc && !est.empresa && (est.rucSugerido || est.empresaSugerida)) {
-                lblModRuc.className = "text-[9.5px] font-bold text-sky-700 mt-0.5";
-                lblModRuc.textContent = "💡 RUC/Empresa recuperados del historial del huésped (puedes editarlos)";
-              } else if (rucInicial || empInicial) {
+              if (rucInicial && empInicial) {
                 lblModRuc.className = "text-[9.5px] font-bold text-emerald-700 mt-0.5";
                 lblModRuc.textContent = "✅ RUC y Empresa listos para editar";
+              } else if (rucInicial && !empInicial && rucInicial.length === 11) {
+                lblModRuc.className = "text-[9.5px] font-bold text-amber-700 mt-0.5";
+                lblModRuc.textContent = "⏳ Buscando razón social del RUC...";
+                setTimeout(function() {
+                  buscarRucEnPanel("mod_ruc", "mod_empresa", "mod_tipoComp", "lblModRuc");
+                }, 60);
+              } else if (!rucInicial && !empInicial && (est.rucSugerido || est.empresaSugerida)) {
+                lblModRuc.className = "text-[9.5px] font-bold text-slate-500 mt-0.5";
+                lblModRuc.textContent = "💡 Historial anterior: " + (est.empresaSugerida || "") + (est.rucSugerido ? " (" + est.rucSugerido + ")" : "");
               } else {
                 lblModRuc.textContent = "";
               }
@@ -3695,14 +3702,19 @@
               <input type="hidden" id="modalFact_tipo" value="${esFact ? 'Factura' : 'Boleta'}" />
             </div>
 
-            <!-- Datos exclusivos de FACTURA: RUC + Razón Social (se autocompleta desde SUNAT) -->
+            <!-- Datos exclusivos de FACTURA: RUC + Razón Social (se autocompleta desde SUNAT o con la lupa 🔍) -->
             <div id="bloqueDatosFactura" class="${esFact ? '' : 'hidden'} grid grid-cols-12 gap-1.5 bg-orange-100/60 border border-orange-300 rounded-lg p-2 text-[11px]">
               <div class="col-span-5">
                 <label class="block text-[9.5px] font-black text-orange-950 mb-0.5">RUC (11 dígitos) *</label>
-                <input type="text" id="modalFact_ruc" maxlength="11" inputmode="numeric"
-                       value="${f.ruc || ''}" placeholder="20601234567"
-                       oninput="onInputRucModal(this)"
-                       class="w-full border border-orange-300 rounded-md px-2 py-1 bg-white font-mono font-black text-slate-900 text-[11px]" />
+                <div class="flex items-stretch gap-1">
+                  <input type="text" id="modalFact_ruc" maxlength="11" inputmode="numeric"
+                         value="${f.ruc || ''}" data-last-ruc="${f.ruc || ''}" placeholder="20601234567"
+                         oninput="onInputRucModal(this)"
+                         onkeydown="if(event.key==='Enter'){event.preventDefault();buscarRucModalFact(true);}"
+                         class="w-full min-w-0 flex-1 border border-orange-300 rounded-md px-2 py-1 bg-white font-mono font-black text-slate-900 text-[11px]" />
+                  <button type="button" onclick="buscarRucModalFact(true)" title="Buscar RUC en SUNAT"
+                          class="shrink-0 px-2 py-1 rounded-md bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold cursor-pointer">🔍</button>
+                </div>
               </div>
               <div class="col-span-7">
                 <label class="block text-[9.5px] font-black text-orange-950 mb-0.5 flex justify-between">
@@ -3710,7 +3722,7 @@
                   <span id="lblRucStatus" class="text-[9px] font-bold text-orange-700"></span>
                 </label>
                 <input type="text" id="modalFact_empresa"
-                       value="${f.empresa || ''}" placeholder="Se completa al escribir el RUC"
+                       value="${f.empresa || ''}" placeholder="Se completa al escribir o buscar con 🔍"
                        class="w-full border border-orange-300 rounded-md px-2 py-1 bg-white font-bold text-slate-900 text-[11px] uppercase" />
               </div>
             </div>
@@ -3911,6 +3923,9 @@
       if (typeof inicializarItemsFacturacionModal === "function") {
         inicializarItemsFacturacionModal(h, montoSolicitado, subtotalAloj, tarifaNoche);
       }
+      if (f.ruc && String(f.ruc).replace(/\D/g, "").length === 11 && !String(f.empresa || "").trim()) {
+        setTimeout(function() { buscarRucModalFact(false); }, 60);
+      }
     }
 
     // Toggle Boleta / Factura dentro del modal de facturación (RUC y Razón Social se conservan en pantalla si se cambia por error)
@@ -4001,6 +4016,10 @@
       inpEmp.readOnly = false;
       const ruc = String(inpRuc.value || "").replace(/\D/g, "").slice(0, 11);
       if (inpRuc.value !== ruc) inpRuc.value = ruc;
+      if (inpRuc.dataset.lastRuc && inpRuc.dataset.lastRuc !== ruc) {
+        inpEmp.value = "";
+      }
+      inpRuc.dataset.lastRuc = ruc;
       if (ruc.length > 0 && selTipo && selTipo.value !== "Factura") {
         selTipo.value = "Factura";
       }
@@ -4011,10 +4030,6 @@
         }
         return;
       }
-      const previo = (habitacionesData || []).map(x => x.facturacion).find(fx => fx && fx.ruc === ruc && fx.empresa);
-      if (previo && previo.empresa && !inpEmp.value.trim()) {
-        inpEmp.value = previo.empresa;
-      }
       if (lbl) {
         lbl.className = "text-[9.5px] font-bold text-amber-700 mt-0.5";
         lbl.textContent = "\u23F3 Consultando SUNAT...";
@@ -4022,6 +4037,7 @@
       if (typeof google !== "undefined" && google.script && google.script.run) {
         google.script.run
           .withSuccessHandler(function(res) {
+            if (String(inpRuc.value || "").replace(/\D/g, "").slice(0, 11) !== ruc) return;
             const razon = res && (res.razonSocial || res.empresa || res.nombre);
             if (res && res.ok && razon) {
               inpEmp.value = razon;
@@ -4031,9 +4047,12 @@
                 lbl.className = "text-[9.5px] font-bold text-emerald-700 mt-0.5";
                 lbl.textContent = "✅ " + (res.fuente === "PADRON_LOCAL" ? "Padrón: " : "SUNAT: ") + razon + " (editable)";
               }
-            } else if (lbl) {
-              lbl.className = "text-[9.5px] font-bold text-rose-700 mt-0.5";
-              lbl.textContent = "⚠️ " + ((res && res.error) ? res.error : "RUC no encontrado en SUNAT (puedes escribir la empresa)");
+            } else {
+              inpEmp.value = "";
+              if (lbl) {
+                lbl.className = "text-[9.5px] font-bold text-rose-700 mt-0.5";
+                lbl.textContent = "⚠️ " + ((res && res.error) ? res.error : "RUC no encontrado en SUNAT (puedes escribir la empresa)");
+              }
             }
           })
           .withFailureHandler(function() {
@@ -4048,11 +4067,16 @@
 
     function autoBuscarRucEnPanel(idRuc, idEmpresa, idTipoComp, idLbl) {
       const inpRuc = document.getElementById(idRuc);
+      const inpEmp = idEmpresa ? document.getElementById(idEmpresa) : null;
       const selTipo = idTipoComp ? document.getElementById(idTipoComp) : null;
       const lbl = idLbl ? document.getElementById(idLbl) : null;
       if (!inpRuc) return;
       const ruc = String(inpRuc.value || "").replace(/\D/g, "").slice(0, 11);
       if (inpRuc.value !== ruc) inpRuc.value = ruc;
+      if (inpRuc.dataset.lastRuc !== ruc) {
+        if (inpEmp) inpEmp.value = "";
+        inpRuc.dataset.lastRuc = ruc;
+      }
       if (ruc.length > 0 && selTipo && selTipo.value !== "Factura") {
         selTipo.value = "Factura";
       }
@@ -4060,45 +4084,53 @@
       if (ruc.length === 11) {
         _timersPanelLookup[idRuc] = setTimeout(function() {
           buscarRucEnPanel(idRuc, idEmpresa, idTipoComp, idLbl);
-        }, 300);
+        }, 250);
       } else if (lbl) {
         lbl.textContent = "";
       }
     }
 
-    function onInputRucModal(inp) {
-      inp.value = inp.value.replace(/\D/g, "").slice(0, 11);
+    function buscarRucModalFact(forzar) {
+      const inp = document.getElementById("modalFact_ruc");
       const lbl = document.getElementById("lblRucStatus");
       const inpEmp = document.getElementById("modalFact_empresa");
-      const ruc = inp.value;
-      if (lbl) lbl.textContent = "";
-      if (ruc.length < 11) return;
+      if (!inp) return;
+      const ruc = String(inp.value || "").replace(/\D/g, "").slice(0, 11);
+      if (inp.value !== ruc) inp.value = ruc;
+      if (inp.dataset.lastRuc && inp.dataset.lastRuc !== ruc && inpEmp) {
+        inpEmp.value = "";
+      }
+      inp.dataset.lastRuc = ruc;
+      if (ruc.length < 11) {
+        if (forzar && lbl) {
+          lbl.textContent = "⚠️ Ingresa 11 dígitos";
+          lbl.className = "text-[9px] font-bold text-red-600";
+        }
+        return;
+      }
       if (!/^(10|15|17|20)/.test(ruc)) {
         if (lbl) { lbl.textContent = "⚠️ Debe empezar con 10 o 20"; lbl.className = "text-[9px] font-bold text-red-600"; }
         return;
       }
-      // 1) Historial local: si ya facturamos a ese RUC antes, usamos la misma empresa
-      const previo = (habitacionesData || []).map(x => x.facturacion).find(fx => fx && fx.ruc === ruc && fx.empresa);
-      if (previo && inpEmp && !inpEmp.value.trim()) {
-        inpEmp.value = previo.empresa;
-        if (lbl) { lbl.textContent = "✅ Historial"; lbl.className = "text-[9px] font-bold text-emerald-700"; }
-        return;
-      }
-      // 2) Consulta SUNAT (APIsPERU)
       if (typeof google !== "undefined" && google.script && google.script.run) {
         if (lbl) { lbl.textContent = "⏳ Buscando en SUNAT..."; lbl.className = "text-[9px] font-bold text-orange-700"; }
         google.script.run
           .withSuccessHandler(function(res) {
-            if (res && res.ok) {
-              if (inpEmp) inpEmp.value = res.razonSocial;
+            if (String(inp.value || "").replace(/\D/g, "").slice(0, 11) !== ruc) return;
+            const razon = res && (res.razonSocial || res.empresa || res.nombre);
+            if (res && res.ok && razon) {
+              if (inpEmp) inpEmp.value = razon;
               if (lbl) {
                 const avisoEstado = res.estado && res.estado.toUpperCase() !== "ACTIVO" ? ` (${res.estado})` : "";
-                lbl.textContent = "✅ SUNAT" + avisoEstado;
+                lbl.textContent = "✅ " + (res.fuente === "PADRON_LOCAL" ? "Padrón" : "SUNAT") + avisoEstado;
                 lbl.className = "text-[9px] font-bold " + (avisoEstado ? "text-red-600" : "text-emerald-700");
               }
-            } else if (lbl) {
-              lbl.textContent = "✍️ Escríbela a mano";
-              lbl.className = "text-[9px] font-bold text-slate-500";
+            } else {
+              if (inpEmp && forzar) inpEmp.value = "";
+              if (lbl) {
+                lbl.textContent = "⚠️ No hallado (escríbela a mano)";
+                lbl.className = "text-[9px] font-bold text-rose-700";
+              }
             }
           })
           .withFailureHandler(function() {
@@ -4106,6 +4138,27 @@
           })
           .consultarRucSunat(ruc);
       }
+    }
+
+    function onInputRucModal(inp) {
+      const ruc = String(inp.value || "").replace(/\D/g, "").slice(0, 11);
+      if (inp.value !== ruc) inp.value = ruc;
+      const lbl = document.getElementById("lblRucStatus");
+      const inpEmp = document.getElementById("modalFact_empresa");
+      if (inp.dataset.lastRuc !== ruc) {
+        if (inpEmp) inpEmp.value = "";
+        inp.dataset.lastRuc = ruc;
+      }
+      if (lbl) lbl.textContent = "";
+      clearTimeout(_timersPanelLookup["modalFact_ruc"]);
+      if (ruc.length < 11) return;
+      if (!/^(10|15|17|20)/.test(ruc)) {
+        if (lbl) { lbl.textContent = "⚠️ Debe empezar con 10 o 20"; lbl.className = "text-[9px] font-bold text-red-600"; }
+        return;
+      }
+      _timersPanelLookup["modalFact_ruc"] = setTimeout(function() {
+        buscarRucModalFact(false);
+      }, 200);
     }
 
     // Guarda el cambio de Pendiente -> Emitido (y monto factura / adic comprobante / celular) desde el modal
