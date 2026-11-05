@@ -373,6 +373,21 @@ def vista_tablet_kiosco(request: Request):
     )
 
 
+@app.get("/api/cuentas/pdf")
+def api_descargar_pdf_cuenta_hab(hab: str = "", modo: str = "ingreso"):
+    import pases_logic as pl
+    try:
+        pdf_path = pl.generar_pdf_cuenta_hab_local({"hab": hab, "modo": modo})
+        return FileResponse(
+            str(pdf_path),
+            media_type="application/pdf",
+            filename=pdf_path.name,
+            headers={"Cache-Control": "no-store"},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/api/tablet/estado")
 def api_tablet_estado(request: Request, from_tablet: int = 0):
     client_ip = (request.client.host if request.client else "") or ""
@@ -656,6 +671,9 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
         elif method_name == "obtenerCuentaDetalladaHab":
             import pases_logic as pl
             res = pl.obtener_cuenta_detallada_hab_local(args[0] if args else {})
+        elif method_name == "enviarCuentaHabWsp":
+            import pases_logic as pl
+            res = pl.enviar_wsp_cuenta_hab_local(args[0] if args else {})
         else:
             raise HTTPException(status_code=404, detail=f"Método RPC no soportado: {method_name}")
 

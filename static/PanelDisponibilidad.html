@@ -1134,34 +1134,66 @@
 
   <!-- DIÁLOGO MODAL: ESTADO DE CUENTA DETALLADO POR HABITACIÓN (HUÉSPEDES QUE VAN VARIOS DÍAS) -->
   <dialog id="dialogCuentasHab" closedby="any" aria-labelledby="tituloDialogCuentasHab"
-          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[940px] max-w-[97vw] bg-[#FAF6F3] text-slate-800 m-auto">
+          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[1040px] max-w-[98vw] bg-[#FAF6F3] text-slate-800 m-auto">
     <div class="bg-[#2D2623] text-white px-4 py-2.5 flex items-center justify-between gap-2 rounded-t-xl">
       <div class="flex items-center gap-2 flex-wrap">
-        <span id="tituloDialogCuentasHab" class="font-black text-sm text-amber-300">📋 Estado de Cuenta Detallado por Habitación (Varios Días)</span>
-        <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-white/10 text-amber-200 border border-white/15">Desglose diario de Hospedaje + Adicionales + Pagos y Medio de Pago</span>
+        <span id="tituloDialogCuentasHab" class="font-black text-sm text-amber-300">📋 Cuenta Detallada por Habitación — Historial de Noches Jaladas</span>
+        <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-white/10 text-amber-200 border border-white/15">Día de ingreso · Noches jaladas · Pagos diarios · Deudas diarias</span>
       </div>
       <button type="button" onclick="cerrarModalCuentasHab()" class="text-slate-300 hover:text-white font-black text-sm w-6 h-6 rounded hover:bg-red-600 cursor-pointer">✕</button>
     </div>
 
-    <div class="p-3.5 space-y-3 max-h-[86vh] overflow-y-auto text-xs">
-      <!-- Buscador rápido por número de habitación (ej. 206) + Chips de habitaciones ocupadas -->
+    <div class="p-3.5 space-y-3 max-h-[87vh] overflow-y-auto text-xs">
+      <!-- Barra superior: Habitación + Alcance + Descargar PDF + Enviar al WhatsApp con número -->
       <div class="bg-white rounded-lg border border-[#D8C7B8] p-2.5 shadow-2xs space-y-2">
         <div class="flex flex-wrap items-center gap-2">
-          <label for="chHabInput" class="font-black text-[11px] text-slate-800 uppercase">🔍 Habitación (escribe ej. 206):</label>
-          <input type="text" id="chHabInput" list="chHabDatalist" inputmode="numeric" maxlength="6" autocomplete="off"
+          <label for="chHabInput" class="font-black text-[11px] text-slate-800 uppercase">🛏️ Hab.:</label>
+          <input type="text" id="chHabInput" inputmode="numeric" maxlength="6" autocomplete="off"
                  oninput="chAlEscribirHab(this.value)"
                  onkeydown="if(event.key==='Enter'){event.preventDefault();chCargar(this.value);}"
-                 placeholder="Ej. 206..."
-                 class="w-28 px-2.5 py-1 rounded-lg border border-amber-400 bg-amber-50/50 focus:bg-white font-black text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-600">
-          <datalist id="chHabDatalist"></datalist>
+                 placeholder="Ej. 206"
+                 class="w-20 px-2.5 py-1 rounded-lg border border-amber-400 bg-amber-50/50 focus:bg-white font-black text-sm text-center text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-600">
           <button type="button" onclick="chCargar(document.getElementById('chHabInput').value)"
-                  class="px-3 py-1 rounded-lg bg-amber-800 hover:bg-amber-900 text-white font-black text-xs cursor-pointer">
-            Ver Cuenta
+                  class="px-3 py-1.5 rounded-lg bg-amber-800 hover:bg-amber-900 text-white font-black text-xs cursor-pointer">
+            🔍 Ver Cuenta
           </button>
-          <div id="chHeaderHuesped" class="ml-auto font-black text-xs text-slate-900 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 hidden"></div>
+
+          <select id="chModoVista" onchange="chCargar(document.getElementById('chHabInput').value)"
+                  class="px-2 py-1.5 rounded-lg border border-slate-300 bg-slate-50 font-black text-[11px] text-slate-800 cursor-pointer"
+                  title="Ver todas las noches jaladas desde el Día de Ingreso o solo desde el último corte en S/ 0.00">
+            <option value="ingreso" selected>📅 Desde Día de Ingreso (Todas las noches jaladas)</option>
+            <option value="ciclo">⚖️ Solo desde último saldo en S/ 0.00</option>
+          </select>
+
+          <button type="button" id="btnChOrden" onclick="chToggleOrden()"
+                  class="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 font-black text-[11px] text-slate-700 cursor-pointer"
+                  title="Cambiar orden de las noches (Desde Día de Ingreso hacia Hoy o desde Hoy hacia atrás)">
+            ⬇️ Orden: Ingreso → Hoy
+          </button>
+
+          <!-- Botón Descargar PDF + Enviar a WhatsApp con número -->
+          <div class="ml-auto flex flex-wrap items-center gap-1.5">
+            <button type="button" id="btnChPdf" onclick="chDescargarPdf()"
+                    class="px-3 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-800 text-white font-black text-xs shadow-2xs cursor-pointer inline-flex items-center gap-1">
+              <span>📄 Descargar PDF</span>
+            </button>
+            <div class="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-300 rounded-lg px-2 py-0.5">
+              <span class="text-[10.5px] font-black text-emerald-900">📱 WSP:</span>
+              <input type="tel" id="chWspInput" inputmode="numeric" maxlength="12" autocomplete="off"
+                     onkeydown="if(event.key==='Enter'){event.preventDefault();chEnviarWsp();}"
+                     placeholder="N° Celular (9 dígitos)"
+                     class="w-32 px-2 py-1 rounded border border-emerald-300 bg-white font-black text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-emerald-600">
+              <button type="button" id="btnChWsp" onclick="chEnviarWsp()"
+                      class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] cursor-pointer whitespace-nowrap">
+                📲 Enviar PDF a WSP
+              </button>
+            </div>
+          </div>
         </div>
-        <div class="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-100">
-          <span class="text-[10px] font-extrabold text-slate-500 uppercase">Habitaciones ocupadas:</span>
+
+        <!-- Solo habitaciones que llevan varias noches jaladas (sin mostrar todas las ocupadas de 1 día) -->
+        <div id="chFilaHabsMultiDia" class="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-100">
+          <span class="text-[10px] font-extrabold text-slate-500 uppercase">🌙 Habs. con noches jaladas:</span>
           <div id="chChipsHabs" class="flex items-center gap-1.5 flex-wrap"></div>
         </div>
       </div>
@@ -1170,48 +1202,53 @@
 
       <!-- Contenedor principal de la cuenta detallada -->
       <div id="chContenidoCuenta" class="space-y-3 hidden">
-        <!-- 1. Tarjetas de Resumen General Acumulado -->
+        <!-- 1. Banner destacado del DÍA DE INGRESO + Recorrido de Noches Jaladas -->
+        <div id="chBannerIngreso" class="bg-amber-50/90 border-2 border-amber-300 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2"></div>
+
+        <!-- 2. Tarjetas de Resumen General Acumulado -->
         <div id="chCardsResumen" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
 
-        <!-- 2. Dos columnas: Lista de Pagos Hechos (con Tipo de Pago) + Lista de Adicionales Detallados -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-          <div class="bg-white rounded-lg border border-emerald-300 overflow-hidden shadow-2xs">
-            <div class="bg-emerald-900 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between">
-              <span>💳 Pagos Realizados por Día y Tipo de Pago</span>
-              <span id="chBadgeTotPagos" class="px-1.5 py-0.5 rounded bg-white/15 text-emerald-100 text-[10px]">S/ 0.00</span>
-            </div>
-            <div id="chListaPagos" class="p-2 max-h-52 overflow-y-auto divide-y divide-slate-100 text-[11px]"></div>
-          </div>
-
-          <div class="bg-white rounded-lg border border-amber-300 overflow-hidden shadow-2xs">
-            <div class="bg-amber-900 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between">
-              <span>➕ Adicionales Registrados (Tienda / Visitas / Otros)</span>
-              <span id="chBadgeTotAdic" class="px-1.5 py-0.5 rounded bg-white/15 text-amber-100 text-[10px]">S/ 0.00</span>
-            </div>
-            <div id="chListaAdicionales" class="p-2 max-h-52 overflow-y-auto divide-y divide-slate-100 text-[11px]"></div>
-          </div>
-        </div>
-
-        <!-- 3. Desglose Día por Día (de Día 1 hasta Hoy) -->
+        <!-- 3. TABLA PRINCIPAL: Desglose Día por Día (Noches Jaladas, Deudas Diarias, Adicionales y Pagos Diarios) -->
         <div class="bg-white rounded-lg border border-[#D8C7B8] overflow-hidden shadow-2xs">
-          <div class="bg-slate-800 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between">
-            <span>📅 Desglose Día por Día (Estancia Continua)</span>
+          <div class="bg-slate-800 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between flex-wrap gap-2">
+            <span>📅 Desglose Día por Día — Todas las Noches Jaladas, Pagos Diarios y Deudas Diarias</span>
             <span id="chSubtituloDias" class="text-[10px] font-bold text-amber-200"></span>
           </div>
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto max-h-[370px] overflow-y-auto">
             <table class="w-full text-left text-[11px] border-collapse">
-              <thead>
-                <tr class="bg-slate-100 text-slate-700 font-black border-b border-slate-200 text-[10.5px]">
-                  <th class="px-2.5 py-1.5 w-28">Día / Fecha</th>
-                  <th class="px-2 py-1.5 w-16 text-center">Hab.</th>
-                  <th class="px-2 py-1.5 w-24 text-right">Hospedaje</th>
+              <thead class="sticky top-0 z-10">
+                <tr class="bg-slate-100 text-slate-800 font-black border-b border-slate-300 text-[10.5px]">
+                  <th class="px-2.5 py-1.5 w-32">Noche / Fecha</th>
+                  <th class="px-2 py-1.5 w-14 text-center">Hab.</th>
+                  <th class="px-2 py-1.5 w-24 text-right bg-amber-50/80" title="Deuda arrastrada de la noche anterior">Deuda Jalada Ant.</th>
+                  <th class="px-2 py-1.5 w-22 text-right">Tarifa Noche</th>
                   <th class="px-2.5 py-1.5">Adicionales del Día (Detalle)</th>
-                  <th class="px-2.5 py-1.5">Pagos del Día (Medio de Pago)</th>
-                  <th class="px-2.5 py-1.5 w-28 text-right">Saldo del Día</th>
+                  <th class="px-2 py-1.5 w-24 text-right bg-slate-200/70" title="Deuda Ant. + Tarifa + Adicionales del Día">Total del Día</th>
+                  <th class="px-2.5 py-1.5">Pagos Diarios (Medio de Pago)</th>
+                  <th class="px-2.5 py-1.5 w-28 text-right">Deuda Cierre Día</th>
                 </tr>
               </thead>
               <tbody id="chTablaDiasBody" class="divide-y divide-slate-200"></tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- 4. Dos columnas: Lista de Pagos Hechos (con Tipo de Pago) + Lista de Adicionales Detallados -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+          <div class="bg-white rounded-lg border border-emerald-300 overflow-hidden shadow-2xs">
+            <div class="bg-emerald-900 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between">
+              <span>💳 Lista de Pagos Realizados (por Fecha y Tipo de Pago)</span>
+              <span id="chBadgeTotPagos" class="px-1.5 py-0.5 rounded bg-white/15 text-emerald-100 text-[10px]">S/ 0.00</span>
+            </div>
+            <div id="chListaPagos" class="p-2 max-h-48 overflow-y-auto divide-y divide-slate-100 text-[11px]"></div>
+          </div>
+
+          <div class="bg-white rounded-lg border border-amber-300 overflow-hidden shadow-2xs">
+            <div class="bg-amber-900 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between">
+              <span>➕ Lista de Adicionales (Tienda / Visitas / Otros)</span>
+              <span id="chBadgeTotAdic" class="px-1.5 py-0.5 rounded bg-white/15 text-amber-100 text-[10px]">S/ 0.00</span>
+            </div>
+            <div id="chListaAdicionales" class="p-2 max-h-48 overflow-y-auto divide-y divide-slate-100 text-[11px]"></div>
           </div>
         </div>
       </div>
@@ -8667,10 +8704,25 @@
   };
 
   // ============================================================================
-  // CUENTAS DETALLADAS POR HABITACIÓN (HUÉSPEDES QUE VAN VARIOS DÍAS)
+  // CUENTAS DETALLADAS POR HABITACIÓN (DESDE DÍA DE INGRESO + PDF + WHATSAPP)
   // ============================================================================
+  CH.ordenDesc = false; // false = Desde Día de Ingreso -> Hoy; true = Hoy -> Día de Ingreso
+  CH.ultimosDatos = null;
+
   function chSoles(n) {
     return 'S/ ' + Number(n || 0).toFixed(2);
+  }
+
+  function chMsg(tipo, texto) {
+    var box = document.getElementById('chStatusMsg');
+    if (!box) return;
+    if (!texto) { box.classList.add('hidden'); box.textContent = ''; return; }
+    var cls = tipo === 'ok'
+      ? 'bg-emerald-50 text-emerald-950 border-emerald-300'
+      : (tipo === 'info' ? 'bg-amber-50 text-amber-950 border-amber-300' : 'bg-rose-50 text-rose-950 border-rose-300');
+    box.className = 'px-3 py-2 rounded-lg text-xs font-extrabold border ' + cls;
+    box.textContent = texto;
+    box.classList.remove('hidden');
   }
 
   function chBadgeMedioPago(medio) {
@@ -8688,6 +8740,7 @@
     if (ev && ev.stopPropagation) ev.stopPropagation();
     var dlg = document.getElementById('dialogCuentasHab');
     if (!dlg) return;
+    chMsg('', '');
     if (typeof dlg.showModal === 'function' && !dlg.open) dlg.showModal();
     var inp = document.getElementById('chHabInput');
     var h = habPre ? String(habPre) : (inp && inp.value ? inp.value : '');
@@ -8699,102 +8752,242 @@
     if (dlg && dlg.open) dlg.close();
   };
 
-  window.chAlEscribirHab = function (val) {
-    if (CH.timer) clearTimeout(CH.timer);
-    var limpio = String(val || '').replace(/[^0-9A-Za-z]/g, '').trim();
-    if (!limpio) return;
-    var existe = (CH.habsOcupadas || []).some(function (x) { return String(x.hab) === limpio; });
-    if (existe || limpio.length >= 3) {
-      CH.timer = setTimeout(function () { chCargar(limpio); }, 140);
+  window.chToggleOrden = function () {
+    CH.ordenDesc = !CH.ordenDesc;
+    var btn = document.getElementById('btnChOrden');
+    if (btn) {
+      btn.textContent = CH.ordenDesc ? '⬆️ Orden: Hoy → Día de Ingreso' : '⬇️ Orden: Ingreso → Hoy';
+    }
+    if (CH.ultimosDatos) {
+      chRenderTablaDias(CH.ultimosDatos);
     }
   };
 
-  window.chCargar = function (hab) {
-    var limpio = String(hab || '').replace(/[^0-9A-Za-z]/g, '').trim();
+  window.chAlEscribirHab = function (val) {
+    if (CH.timer) clearTimeout(CH.timer);
+    var limpio = String(val || '').replace(/[^0-9A-Za-z]/g, '').trim();
+    if (limpio.length >= 3) {
+      CH.timer = setTimeout(function () { chCargar(limpio); }, 160);
+    }
+  };
+
+  window.chDescargarPdf = function () {
     var inp = document.getElementById('chHabInput');
-    if (inp && limpio) inp.value = limpio;
+    var selM = document.getElementById('chModoVista');
+    var hab = inp ? String(inp.value || '').replace(/[^0-9A-Za-z]/g, '').trim() : '';
+    var modo = selM ? selM.value : 'ingreso';
+    if (!hab) {
+      chMsg('error', '⚠️ Escribe primero el número de la habitación (ej. 206).');
+      return;
+    }
+    var url = '/api/cuentas/pdf?hab=' + encodeURIComponent(hab) + '&modo=' + encodeURIComponent(modo) + '&t=' + Date.now();
+    window.open(url, '_blank');
+  };
 
-    var msgBox = document.getElementById('chStatusMsg');
-    var cont = document.getElementById('chContenidoCuenta');
-    var hdrHuesped = document.getElementById('chHeaderHuesped');
+  window.chEnviarWsp = function () {
+    var inpHab = document.getElementById('chHabInput');
+    var inpTel = document.getElementById('chWspInput');
+    var selM = document.getElementById('chModoVista');
+    var btnW = document.getElementById('btnChWsp');
 
-    vpRpc('obtenerCuentaDetalladaHab', [{ hab: limpio }], function (res) {
-      if (!res) return;
-      CH.habsOcupadas = res.habitacionesOcupadas || [];
+    var hab = inpHab ? String(inpHab.value || '').replace(/[^0-9A-Za-z]/g, '').trim() : '';
+    var tel = inpTel ? String(inpTel.value || '').replace(/[^0-9]/g, '').trim() : '';
+    var modo = selM ? selM.value : 'ingreso';
 
-      var dl = document.getElementById('chHabDatalist');
-      if (dl) {
-        dl.innerHTML = CH.habsOcupadas.map(function (h) {
-          return '<option value="' + vpEsc(h.hab) + '">Hab. ' + vpEsc(h.hab) + ' — ' + vpEsc(h.huesped) + ' (Saldo: ' + chSoles(h.saldo) + ')</option>';
+    if (!hab) {
+      chMsg('error', '⚠️ Escribe primero la habitación (ej. 206).');
+      if (inpHab) inpHab.focus();
+      return;
+    }
+    if (tel.length < 9) {
+      chMsg('error', '⚠️ Escribe el número de WhatsApp de 9 dígitos al que deseas enviar el PDF.');
+      if (inpTel) inpTel.focus();
+      return;
+    }
+
+    if (btnW) { btnW.disabled = true; btnW.textContent = '⏳ Enviando PDF...'; }
+    chMsg('info', '⏳ Generando PDF del estado de cuenta de Hab. ' + hab + ' y enviándolo por WhatsApp al ' + tel + '...');
+
+    vpRpc('enviarCuentaHabWsp', [{ hab: hab, telefono: tel, modo: modo }], function (res) {
+      if (btnW) { btnW.disabled = false; btnW.textContent = '📲 Enviar PDF a WSP'; }
+      chMsg('ok', (res && res.mensaje) || ('✅ PDF enviado por WhatsApp al ' + tel));
+    }, function (e) {
+      if (btnW) { btnW.disabled = false; btnW.textContent = '📲 Enviar PDF a WSP'; }
+      chMsg('error', '❌ ' + (e.message || String(e)));
+    });
+  };
+
+  function chRenderTablaDias(res) {
+    var R = res.resumen || {};
+    var subD = document.getElementById('chSubtituloDias');
+    if (subD) {
+      subD.textContent = (R.diasCount || 1) + ' noche(s) jaladas · Día de Ingreso: ' + (res.fechaIngresoInicial || R.fechaInicio || '') + ' → Hoy: ' + (R.fechaUltima || '');
+    }
+    var tbodyD = document.getElementById('chTablaDiasBody');
+    if (!tbodyD) return;
+    var lista = (res.dias || []).slice();
+    if (CH.ordenDesc) lista.reverse();
+
+    tbodyD.innerHTML = lista.map(function (d) {
+      var adicHtml = '';
+      if (d.adicionalesDetalle && d.adicionalesDetalle.length) {
+        adicHtml = d.adicionalesDetalle.map(function (ad) {
+          var ico = ad.categoria === 'Tienda' ? '🛒' : '🚶';
+          return '<div class="flex items-center justify-between gap-2 py-0.5">' +
+            '<span>' + ico + ' <b>' + vpEsc(ad.descripcion) + '</b>' + (ad.hora ? (' <span class="text-slate-400 text-[10px]">(' + vpEsc(ad.hora) + ')</span>') : '') + '</span>' +
+            '<span class="font-black text-amber-900 whitespace-nowrap">' + chSoles(ad.monto) + '</span>' +
+          '</div>';
         }).join('');
+      } else {
+        adicHtml = '<span class="text-slate-400">—</span>';
       }
 
-      var chips = document.getElementById('chChipsHabs');
-      var habSel = String(res.hab || limpio || '');
-      if (inp && habSel && !inp.value) inp.value = habSel;
-
-      if (chips) {
-        chips.innerHTML = CH.habsOcupadas.map(function (h) {
-          var act = String(h.hab) === habSel;
-          var nomCorto = String(h.huesped || '').split(' ').slice(0, 2).join(' ');
-          var saldoNum = Number(h.saldo || 0);
-          var badgeSaldo = saldoNum > 0.009
-            ? (' · <span class="' + (act ? 'text-amber-200' : 'text-rose-700') + ' font-black">Debe ' + chSoles(saldoNum) + '</span>')
-            : (' · <span class="' + (act ? 'text-emerald-200' : 'text-emerald-700') + ' font-black">Al día</span>');
-          var cls = act
-            ? 'px-2.5 py-1 rounded-lg bg-amber-900 text-white border border-amber-950 font-black text-[10.5px] cursor-pointer shadow-2xs'
-            : 'px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-amber-50 text-slate-800 border border-slate-300 font-bold text-[10.5px] cursor-pointer';
-          return '<button type="button" data-hab="' + vpEsc(h.hab) + '" onclick="chCargar(this.getAttribute(&quot;data-hab&quot;))" class="' + cls + '">' +
-            '<span>Hab. <b>' + vpEsc(h.hab) + '</b> · ' + vpEsc(nomCorto) + '</span>' + badgeSaldo +
-          '</button>';
+      var pagosHtml = '';
+      if (d.pagosDetalle && d.pagosDetalle.length) {
+        pagosHtml = d.pagosDetalle.map(function (pg) {
+          var op = pg.nroOperacion ? (' <span class="font-mono text-[9.5px] text-slate-500">[' + vpEsc(pg.nroOperacion) + ']</span>') : '';
+          return '<div class="flex items-center justify-between gap-2 py-0.5">' +
+            '<span>' + chBadgeMedioPago(pg.medioPago) + ' <span class="text-slate-700 font-semibold">' + vpEsc(pg.concepto || pg.tipoPago) + '</span>' + (pg.hora ? (' <span class="text-slate-400 text-[10px]">(' + vpEsc(pg.hora) + ')</span>') : '') + op + '</span>' +
+            '<span class="font-black text-emerald-900 whitespace-nowrap">' + chSoles(pg.monto) + '</span>' +
+          '</div>';
         }).join('');
+      } else {
+        pagosHtml = '<span class="text-slate-400">— Sin pago —</span>';
+      }
+
+      var sDia = Number(d.saldoFinDia || 0);
+      var badgeSaldoDia = sDia > 0.009
+        ? '<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300 font-black">Debe ' + chSoles(sDia) + '</span>'
+        : (sDia < -0.009
+          ? '<span class="px-2 py-0.5 rounded bg-sky-100 text-sky-900 border border-sky-300 font-black">A favor ' + chSoles(Math.abs(sDia)) + '</span>'
+          : '<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black">Al día S/ 0.00</span>');
+
+      var dAnt = Number(d.deudaAnterior || 0);
+      var deudaAntHtml = dAnt > 0.009
+        ? '<span class="font-black text-rose-800">' + chSoles(dAnt) + '</span>'
+        : (dAnt < -0.009 ? '<span class="font-black text-sky-800">' + chSoles(dAnt) + '</span>' : '<span class="text-slate-400">S/ 0.00</span>');
+
+      var esIngreso = d.diaNum === 1;
+      var tagIng = esIngreso ? '<span class="ml-1 px-1.5 py-0.2 rounded bg-amber-200 text-amber-950 font-black text-[9px]">INGRESO</span>' : '';
+
+      return '<tr class="hover:bg-amber-50/40 align-top ' + (esIngreso ? 'bg-amber-50/30' : '') + '">' +
+        '<td class="px-2.5 py-2 whitespace-nowrap">' +
+          '<div class="font-black text-slate-900">Noche ' + d.diaNum + ' · ' + vpEsc(d.dow) + ' ' + vpEsc(d.fechaIn) + tagIng + '</div>' +
+          '<div class="text-[10px] text-slate-500">Salida: ' + vpEsc(d.fechaOut || '-') + (d.horaIn ? (' · ' + vpEsc(d.horaIn)) : '') + '</div>' +
+        '</td>' +
+        '<td class="px-2 py-2 text-center font-black text-slate-900">' + vpEsc(d.hab) + '</td>' +
+        '<td class="px-2 py-2 text-right whitespace-nowrap bg-amber-50/40">' + deudaAntHtml + '</td>' +
+        '<td class="px-2 py-2 text-right whitespace-nowrap">' +
+          '<div class="font-black text-slate-900">' + chSoles(d.alojamiento) + '</div>' +
+          (d.noches > 1 ? ('<div class="text-[9.5px] text-slate-500">' + d.noches + 'n × ' + chSoles(d.tarifa) + '</div>') : '') +
+        '</td>' +
+        '<td class="px-2.5 py-2">' + adicHtml + '</td>' +
+        '<td class="px-2 py-2 text-right font-black text-slate-900 whitespace-nowrap bg-slate-50">' + chSoles(d.cargoTotalDia) + '</td>' +
+        '<td class="px-2.5 py-2">' + pagosHtml + '</td>' +
+        '<td class="px-2.5 py-2 text-right whitespace-nowrap">' + badgeSaldoDia + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  window.chCargar = function (hab) {
+    var inp = document.getElementById('chHabInput');
+    var selM = document.getElementById('chModoVista');
+    var limpio = String(hab != null ? hab : (inp ? inp.value : '')).replace(/[^0-9A-Za-z]/g, '').trim();
+    if (inp && limpio) inp.value = limpio;
+    var modo = selM ? selM.value : 'ingreso';
+
+    var cont = document.getElementById('chContenidoCuenta');
+
+    vpRpc('obtenerCuentaDetalladaHab', [{ hab: limpio, modo: modo }], function (res) {
+      if (!res) return;
+      CH.ultimosDatos = res;
+      CH.habsMultiDia = res.habitacionesMultiDia || [];
+
+      var habSel = String(res.hab || limpio || '');
+      if (inp && habSel) inp.value = habSel;
+
+      // Solo mostrar botones rápidos de las habitaciones que tienen varias noches jaladas (> 1 noche)
+      var filaMulti = document.getElementById('chFilaHabsMultiDia');
+      var chips = document.getElementById('chChipsHabs');
+      if (chips && filaMulti) {
+        if (!CH.habsMultiDia.length) {
+          filaMulti.classList.add('hidden');
+        } else {
+          filaMulti.classList.remove('hidden');
+          chips.innerHTML = CH.habsMultiDia.map(function (h) {
+            var act = String(h.hab) === habSel;
+            var nomCorto = String(h.huesped || '').split(' ').slice(0, 2).join(' ');
+            var cls = act
+              ? 'px-2.5 py-0.5 rounded-md bg-amber-900 text-white border border-amber-950 font-black text-[10.5px] cursor-pointer shadow-2xs'
+              : 'px-2.5 py-0.5 rounded-md bg-slate-100 hover:bg-amber-50 text-slate-800 border border-slate-300 font-bold text-[10.5px] cursor-pointer';
+            return '<button type="button" data-hab="' + vpEsc(h.hab) + '" onclick="chCargar(this.getAttribute(&quot;data-hab&quot;))" class="' + cls + '" title="Ingreso: ' + vpEsc(h.desdeDmy) + ' (' + h.dias + ' noches)">' +
+              '<span>Hab. <b>' + vpEsc(h.hab) + '</b> · ' + vpEsc(nomCorto) + ' (' + h.dias + 'n)</span>' +
+            '</button>';
+          }).join('');
+        }
       }
 
       if (!res.encontrado) {
         if (cont) cont.classList.add('hidden');
-        if (hdrHuesped) hdrHuesped.classList.add('hidden');
-        if (msgBox) {
-          msgBox.className = 'px-3 py-2 rounded-lg text-xs font-extrabold border bg-amber-50 text-amber-950 border-amber-300';
-          msgBox.textContent = res.mensaje || 'Selecciona o escribe una habitación ocupada (ej. 206).';
-          msgBox.classList.remove('hidden');
-        }
+        chMsg('info', res.mensaje || 'Escribe el número de una habitación (ej. 206).');
         return;
       }
 
-      if (msgBox) msgBox.classList.add('hidden');
+      chMsg('', '');
       if (cont) cont.classList.remove('hidden');
+
+      var inpWsp = document.getElementById('chWspInput');
+      if (inpWsp && res.celular && !inpWsp.value) {
+        inpWsp.value = res.celular;
+      }
 
       var R = res.resumen || {};
       var habsTxt = (R.habsRecorridas && R.habsRecorridas.length > 1)
-        ? ('Habs: ' + R.habsRecorridas.join(' → '))
+        ? R.habsRecorridas.join(' → ')
         : ('Hab. ' + res.hab);
 
-      if (hdrHuesped) {
-        hdrHuesped.innerHTML = '🛏️ <b>' + vpEsc(habsTxt) + '</b> · 👤 ' + vpEsc(res.huesped) +
-          (res.dni ? (' <span class="text-slate-500 font-mono">(' + vpEsc(res.dni) + ')</span>') : '') +
-          ' · <span class="text-amber-900">' + (R.diasCount || 1) + (R.diasCount === 1 ? ' día' : ' días') + ' (' + vpEsc(R.fechaInicio || '') + ' → ' + vpEsc(R.fechaUltima || '') + ')</span>';
-        hdrHuesped.classList.remove('hidden');
+      // 1. Banner del Día de Ingreso y Noches Jaladas
+      var banner = document.getElementById('chBannerIngreso');
+      if (banner) {
+        var fIng = res.fechaIngresoInicial || R.fechaInicio || '-';
+        var hIng = res.horaIngresoInicial || R.horaInicio || '';
+        banner.innerHTML =
+          '<div class="flex flex-wrap items-center gap-3">' +
+            '<div class="bg-amber-900 text-white px-3 py-1.5 rounded-lg">' +
+              '<div class="text-[9.5px] font-bold uppercase text-amber-200">📅 Día de Ingreso Inicial</div>' +
+              '<div class="text-sm font-black">' + vpEsc(fIng) + (hIng ? (' · ' + vpEsc(hIng)) : '') + '</div>' +
+            '</div>' +
+            '<div>' +
+              '<div class="text-sm font-black text-slate-900">👤 ' + vpEsc(res.huesped) + (res.dni ? (' <span class="text-xs font-mono text-slate-600">(DNI: ' + vpEsc(res.dni) + ')</span>') : '') + '</div>' +
+              '<div class="text-[11px] font-bold text-amber-950 mt-0.5">' +
+                '🌙 <b>' + (R.diasCount || 1) + ' noches jaladas</b> (' + vpEsc(R.fechaInicio || '') + ' → ' + vpEsc(R.fechaUltima || '') + ') · 🛏️ Recorrido: <b>' + vpEsc(habsTxt) + '</b>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="text-right">' +
+            '<div class="text-[10px] font-black uppercase text-slate-500">Deuda / Saldo al Día de Hoy</div>' +
+            '<div class="text-base font-black ' + (Number(R.saldoActual || 0) > 0.009 ? 'text-rose-800' : 'text-emerald-800') + '">' + chSoles(R.saldoActual) + '</div>' +
+          '</div>';
       }
 
+      // 2. Tarjetas de Resumen
       var cards = document.getElementById('chCardsResumen');
       if (cards) {
         var saldoAct = Number(R.saldoActual || 0);
         var clsSaldo = saldoAct > 0.009
           ? 'bg-rose-50 border-rose-300 text-rose-950'
           : (saldoAct < -0.009 ? 'bg-sky-50 border-sky-300 text-sky-950' : 'bg-emerald-50 border-emerald-300 text-emerald-950');
-        var txtSaldoLbl = saldoAct > 0.009 ? '⚖️ SALDO PENDIENTE' : (saldoAct < -0.009 ? '⚖️ SALDO A FAVOR' : '✅ CUENTA AL DÍA');
+        var txtSaldoLbl = saldoAct > 0.009 ? '⚖️ DEUDA PENDIENTE HOY' : (saldoAct < -0.009 ? '⚖️ SALDO A FAVOR' : '✅ CUENTA AL DÍA');
         cards.innerHTML =
           '<div class="bg-white rounded-lg border border-slate-200 p-2.5">' +
-            '<div class="text-[10px] font-black uppercase text-slate-500">📅 Días / Noches</div>' +
-            '<div class="text-base font-black text-slate-900 mt-0.5">' + (R.diasCount || 1) + ' día(s) · ' + (R.totalNoches || 1) + ' noche(s)</div>' +
-            '<div class="text-[10px] font-bold text-slate-600 mt-0.5">' + vpEsc(habsTxt) + '</div>' +
+            '<div class="text-[10px] font-black uppercase text-slate-500">🌙 Noches Jaladas</div>' +
+            '<div class="text-base font-black text-slate-900 mt-0.5">' + (R.diasCount || 1) + ' noche(s)</div>' +
+            '<div class="text-[10px] font-bold text-slate-600 mt-0.5">Ingreso: ' + vpEsc(R.fechaInicio || '') + '</div>' +
           '</div>' +
           '<div class="bg-white rounded-lg border border-slate-200 p-2.5">' +
             '<div class="text-[10px] font-black uppercase text-slate-500">🛏️ Total Hospedaje</div>' +
             '<div class="text-base font-black text-slate-900 mt-0.5">' + chSoles(R.totalAlojamiento) + '</div>' +
-            (Number(R.deudaInicialArrastrada || 0) > 0
-              ? '<div class="text-[10px] font-bold text-amber-800 mt-0.5">+ Deuda ant. inicial: ' + chSoles(R.deudaInicialArrastrada) + '</div>'
-              : '<div class="text-[10px] font-bold text-slate-500 mt-0.5">Desde ' + vpEsc(R.fechaInicio || '') + '</div>') +
+            '<div class="text-[10px] font-bold text-slate-500 mt-0.5">Habs: ' + vpEsc(habsTxt) + '</div>' +
           '</div>' +
           '<div class="bg-amber-50/60 rounded-lg border border-amber-200 p-2.5">' +
             '<div class="text-[10px] font-black uppercase text-amber-900">➕ Total Adicionales</div>' +
@@ -8809,11 +9002,14 @@
           '<div class="rounded-lg border p-2.5 ' + clsSaldo + '">' +
             '<div class="text-[10px] font-black uppercase">' + txtSaldoLbl + '</div>' +
             '<div class="text-lg font-black mt-0.5">' + chSoles(Math.abs(saldoAct)) + '</div>' +
-            '<div class="text-[10px] font-bold mt-0.5">Cargos: ' + chSoles(R.granTotalCargos) + ' − Pagos: ' + chSoles(R.totalPagado) + '</div>' +
+            '<div class="text-[10px] font-bold mt-0.5">Al cierre del ' + vpEsc(R.fechaUltima || '') + '</div>' +
           '</div>';
       }
 
-      // Lista de Pagos realizados
+      // 3. Tabla de Desglose Día por Día
+      chRenderTablaDias(res);
+
+      // 4. Lista de Pagos realizados
       var bPagos = document.getElementById('chBadgeTotPagos');
       if (bPagos) bPagos.textContent = (res.todosLosPagos || []).length + ' pago(s) · ' + chSoles(R.totalPagado);
       var lPagos = document.getElementById('chListaPagos');
@@ -8840,7 +9036,7 @@
         }
       }
 
-      // Lista de Adicionales registrados
+      // 5. Lista de Adicionales registrados
       var bAdic = document.getElementById('chBadgeTotAdic');
       if (bAdic) bAdic.textContent = (res.todosLosAdicionales || []).length + ' ítem(s) · ' + chSoles(R.totalAdicionales);
       var lAdic = document.getElementById('chListaAdicionales');
@@ -8867,73 +9063,8 @@
           }).join('');
         }
       }
-
-      // Tabla de Desglose Día por Día
-      var subD = document.getElementById('chSubtituloDias');
-      if (subD) subD.textContent = (R.diasCount || 1) + ' registro(s) encadenados · ' + (R.fechaInicio || '') + ' al ' + (R.fechaUltima || '');
-      var tbodyD = document.getElementById('chTablaDiasBody');
-      if (tbodyD) {
-        tbodyD.innerHTML = (res.dias || []).map(function (d) {
-          var adicHtml = '';
-          if (d.adicionalesDetalle && d.adicionalesDetalle.length) {
-            adicHtml = d.adicionalesDetalle.map(function (ad) {
-              var ico = ad.categoria === 'Tienda' ? '🛒' : '🚶';
-              return '<div class="flex items-center justify-between gap-2 py-0.5">' +
-                '<span>' + ico + ' <b>' + vpEsc(ad.descripcion) + '</b>' + (ad.hora ? (' <span class="text-slate-400 text-[10px]">(' + vpEsc(ad.hora) + ')</span>') : '') + '</span>' +
-                '<span class="font-black text-amber-900 whitespace-nowrap">' + chSoles(ad.monto) + '</span>' +
-              '</div>';
-            }).join('');
-          } else {
-            adicHtml = '<span class="text-slate-400">— Sin adicionales —</span>';
-          }
-
-          var pagosHtml = '';
-          if (d.pagosDetalle && d.pagosDetalle.length) {
-            pagosHtml = d.pagosDetalle.map(function (pg) {
-              var op = pg.nroOperacion ? (' <span class="font-mono text-[9.5px] text-slate-500">[' + vpEsc(pg.nroOperacion) + ']</span>') : '';
-              return '<div class="flex items-center justify-between gap-2 py-0.5">' +
-                '<span>' + chBadgeMedioPago(pg.medioPago) + ' <span class="text-slate-700 font-semibold">' + vpEsc(pg.concepto || pg.tipoPago) + '</span>' + (pg.hora ? (' <span class="text-slate-400 text-[10px]">(' + vpEsc(pg.hora) + ')</span>') : '') + op + '</span>' +
-                '<span class="font-black text-emerald-900 whitespace-nowrap">' + chSoles(pg.monto) + '</span>' +
-              '</div>';
-            }).join('');
-          } else {
-            pagosHtml = '<span class="text-slate-400">— Sin pagos ese día —</span>';
-          }
-
-          var sDia = Number(d.saldoFinDia || 0);
-          var badgeSaldoDia = sDia > 0.009
-            ? '<span class="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300 font-black">Debe ' + chSoles(sDia) + '</span>'
-            : (sDia < -0.009
-              ? '<span class="px-2 py-0.5 rounded bg-sky-100 text-sky-900 border border-sky-300 font-black">A favor ' + chSoles(Math.abs(sDia)) + '</span>'
-              : '<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-black">S/ 0.00</span>');
-
-          var arrastreTxt = Number(d.deudaAnterior || 0) !== 0
-            ? ('<div class="text-[10px] font-bold text-amber-800 mt-0.5">Arrastra ant.: ' + chSoles(d.deudaAnterior) + '</div>')
-            : '';
-
-          return '<tr class="hover:bg-amber-50/40 align-top">' +
-            '<td class="px-2.5 py-2 whitespace-nowrap">' +
-              '<div class="font-black text-slate-900">Día ' + d.diaNum + ' · ' + vpEsc(d.dow) + ' ' + vpEsc(d.fechaIn) + '</div>' +
-              '<div class="text-[10px] text-slate-500">Salida: ' + vpEsc(d.fechaOut || '-') + (d.horaIn ? (' · ' + vpEsc(d.horaIn)) : '') + '</div>' +
-            '</td>' +
-            '<td class="px-2 py-2 text-center font-black text-slate-900">' + vpEsc(d.hab) + '</td>' +
-            '<td class="px-2 py-2 text-right whitespace-nowrap">' +
-              '<div class="font-black text-slate-900">' + chSoles(d.alojamiento) + '</div>' +
-              '<div class="text-[9.5px] text-slate-500">' + d.noches + 'n × ' + chSoles(d.tarifa) + '</div>' +
-              arrastreTxt +
-            '</td>' +
-            '<td class="px-2.5 py-2">' + adicHtml + '</td>' +
-            '<td class="px-2.5 py-2">' + pagosHtml + '</td>' +
-            '<td class="px-2.5 py-2 text-right whitespace-nowrap">' + badgeSaldoDia + '</td>' +
-          '</tr>';
-        }).join('');
-      }
     }, function (e) {
-      if (msgBox) {
-        msgBox.className = 'px-3 py-2 rounded-lg text-xs font-extrabold border bg-rose-50 text-rose-900 border-rose-300';
-        msgBox.textContent = '❌ ' + (e.message || String(e));
-        msgBox.classList.remove('hidden');
-      }
+      chMsg('error', '❌ ' + (e.message || String(e)));
     });
   };
 

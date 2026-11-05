@@ -489,7 +489,7 @@ def eliminar_visita_pase_local(datos: Optional[Dict[str, Any]] = None) -> Dict[s
 
 
 # ==============================================================================
-# CUENTAS DETALLADAS MULTI-DÍA POR HABITACIÓN (HUÉSPEDES QUE VAN VARIOS DÍAS)
+# CUENTAS DETALLADAS MULTI-DÍA POR HABITACIÓN (DESDE DÍA DE INGRESO + PDF + WSP)
 # ==============================================================================
 
 def _saldo_fin_estancia(r: Dict[str, Any]) -> float:
@@ -515,13 +515,13 @@ def _saldo_fin_estancia(r: Dict[str, Any]) -> float:
 def _reconstruir_cadena_estancia(
     conn,
     st_actual: Dict[str, Any],
-    solo_ciclo_actual: bool = True,
+    solo_ciclo_actual: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Sigue hacia atrás los días consecutivos de esa estancia.
-    - Si `solo_ciclo_actual=True` (por defecto), se detiene en el Día 1 de la cuenta abierta actual
-      (cuando `deuda_anterior == 0` y el día previo cerró con `saldo == 0`), de modo que los totales
-      de Hospedaje + Adicionales − Pagos cuadren exactamente con el Saldo Pendiente Actual.
-    - Si `solo_ciclo_actual=False`, reconstruye todos los días continuos incluidos ciclos ya saldados.
+    """Retrocede todas las noches jaladas continuas desde la estancia actual hasta el Día de Ingreso.
+    - Desempata con precisión cuando un mismo titular ocupa 2 habitaciones simultáneas (priorizando
+      misma habitación + misma tarifa + saldo arrastrado exacto).
+    - Si `solo_ciclo_actual=False` (por defecto), retrocede TODAS las noches jaladas desde el Día de Ingreso.
+    - Si `solo_ciclo_actual=True`, se detiene en el último corte donde `deuda_anterior == 0`.
     """
     dni = str(st_actual.get("dni") or "").strip()
     huesped = str(st_actual.get("huesped") or "").strip()
@@ -547,21 +547,17 @@ def _reconstruir_cadena_estancia(
             (huesped,),
         ).fetchall()
 
-    por_uuid = {str(r["estancia_uuid"]): dict(r) for r in cand_rows}
     todos = [dict(r) for r in cand_rows]
-
     cadena = [dict(st_actual)]
     usados: Set[str] = {str(st_actual["estancia_uuid"])}
     cur = dict(st_actual)
 
-    for paso in range(60):
+    for paso in range(90):
         cur_in_d = _dmy_a_date(cur["fecha_in_dmy"])
         deuda_arr = round(float(cur.get("deuda_anterior") or 0.0), 2)
         cur_hab = str(cur.get("hab") or "").strip()
         cur_tar = round(float(cur.get("tarifa") or 0.0), 2)
 
-        # Si estamos en modo "cuenta actual" y este día ya empezó con deuda_anterior == 0:
-        # - Si ya retrocedimos al menos 1 día con deuda arrastrada (paso >= 1), este día es el Día 1 del ciclo actual -> detener aquí.
         if solo_ciclo_actual and paso >= 1 and abs(deuda_arr) <= 0.01:
             break
 
@@ -581,22 +577,19 @@ def _reconstruir_cadena_estancia(
             est_c = str(cand.get("estado_estancia") or "").lower()
 
             score = 0
-            if abs(s_fin - deuda_arr) <= 0.1:
-                score += 120
             if hab_c == cur_hab:
-                score += 50
+                score += 140
             if abs(tar_c - cur_tar) <= 0.1:
-                score += 35
-            if p_uuid := str(cur.get("parent_uuid") or "").strip():
-                if cu == p_uuid:
-                    score += 25
+                score += 90
+            if abs(s_fin - deuda_arr) <= 0.1 and abs(deuda_arr) > 0.1:
+                score += 110
+            elif abs(s_fin - deuda_arr) <= 0.1:
+                score += 30
             if "contin" in est_c:
-                score += 15
+                score += 20
 
-            if score < 55:
+            if score < 35:
                 continue
-            # Si estamos en el día actual con deuda_anterior == 0 (ej. pagó ayer y hoy aún debe),
-            # en modo cuenta actual solo incluir el día de ayer si fue en la misma habitación.
             if solo_ciclo_actual and paso == 0 and abs(deuda_arr) <= 0.01 and hab_c != cur_hab:
                 continue
 
@@ -611,57 +604,63 @@ def _reconstruir_cadena_estancia(
         cadena.append(elegido)
         cur = elegido
 
-    cadena.reverse()  # Orden cronológico: Día 1 -> Hoy
+    cadena.reverse()  # Orden cronológico: Noche 1 (Día de Ingreso) -> Hoy
     return cadena
 
 
 def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Devuelve la lista de habitaciones ocupadas y el estado de cuenta detallado día por día
-    de la habitación seleccionada (hospedaje, adicionales y pagos con tipo de pago)."""
+    """Reconstruye desde el Día de Ingreso todas las noches jaladas de la habitación indicada,
+    con sus deudas diarias arrastradas, adicionales del día, pagos diarios (con medio de pago)
+    y deuda al cierre de cada día."""
     datos = datos or {}
     hab_req = str(datos.get("hab") or "").strip()
-    todo_historial = bool(datos.get("todoHistorial"))
+    modo = str(datos.get("modo") or "ingreso").strip().lower()
+    # Por defecto (modo='ingreso') muestra TODAS las noches jaladas desde el Día de Ingreso
+    solo_ciclo = (modo == "ciclo") if "modo" in datos else (not bool(datos.get("todoHistorial", True)))
 
     conn = get_connection()
     try:
         habs_activas = _habitaciones_ocupadas_activas(None)
-        resumen_habs = []
-        cadenas_por_hab: Dict[str, List[Dict[str, Any]]] = {}
+        habs_multidia = []
         cadenas_full_por_hab: Dict[str, List[Dict[str, Any]]] = {}
+        cadenas_ciclo_por_hab: Dict[str, List[Dict[str, Any]]] = {}
 
         for h in habs_activas:
             try:
                 st_h = dl._buscar_estancia_local(conn, estancia_uuid=h["estanciaUuid"], id_busq=h["idEstancia"], hab=h["hab"])
-                cad_ciclo = _reconstruir_cadena_estancia(conn, dict(st_h), solo_ciclo_actual=True)
                 cad_full = _reconstruir_cadena_estancia(conn, dict(st_h), solo_ciclo_actual=False)
+                cad_ciclo = _reconstruir_cadena_estancia(conn, dict(st_h), solo_ciclo_actual=True)
             except Exception:
-                cad_ciclo = []
                 cad_full = []
-            cadenas_por_hab[h["hab"]] = cad_full if todo_historial else cad_ciclo
+                cad_ciclo = []
             cadenas_full_por_hab[h["hab"]] = cad_full
-            cad_ref = cadenas_por_hab[h["hab"]]
-            dias_cnt = sum(max(1, int(x.get("noches") or 1)) for x in cad_ref) if cad_ref else 1
-            resumen_habs.append({
-                "hab": h["hab"],
-                "huesped": h["huesped"],
-                "dias": dias_cnt,
-                "diasTotales": sum(max(1, int(x.get("noches") or 1)) for x in cad_full) if cad_full else dias_cnt,
-                "registrosCadena": len(cad_ref),
-                "desdeDmy": cad_ref[0]["fecha_in_dmy"] if cad_ref else "",
-                "saldo": h["saldo"],
-            })
+            cadenas_ciclo_por_hab[h["hab"]] = cad_ciclo
+            noches_full = sum(max(1, int(x.get("noches") or 1)) for x in cad_full) if cad_full else 1
+            # Solo listar en accesos rápidos las habitaciones que tienen noches jaladas (> 1 noche)
+            if len(cad_full) > 1 or noches_full > 1:
+                habs_multidia.append({
+                    "hab": h["hab"],
+                    "huesped": h["huesped"],
+                    "dias": len(cad_full),
+                    "noches": noches_full,
+                    "desdeDmy": cad_full[0]["fecha_in_dmy"] if cad_full else "",
+                    "saldo": h["saldo"],
+                })
 
-        if not hab_req and resumen_habs:
-            ordenadas = sorted(
-                resumen_habs,
-                key=lambda x: (1 if x["dias"] > 1 else 0, 1 if x["saldo"] > 0 else 0, x["dias"]),
-                reverse=True,
-            )
-            hab_req = ordenadas[0]["hab"]
+        if not hab_req:
+            if habs_multidia:
+                ordenadas = sorted(
+                    habs_multidia,
+                    key=lambda x: (1 if x["saldo"] > 0 else 0, x["dias"]),
+                    reverse=True,
+                )
+                hab_req = ordenadas[0]["hab"]
+            elif habs_activas:
+                hab_req = habs_activas[0]["hab"]
 
-        cadena = cadenas_por_hab.get(hab_req) or []
         cadena_full = cadenas_full_por_hab.get(hab_req) or []
-        if not cadena and hab_req:
+        cadena_ciclo = cadenas_ciclo_por_hab.get(hab_req) or []
+        if not cadena_full and hab_req:
             row_fb = conn.execute(
                 """
                 SELECT * FROM estancias
@@ -671,14 +670,16 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
                 (hab_req,),
             ).fetchone()
             if row_fb:
-                cadena = _reconstruir_cadena_estancia(conn, dict(row_fb), solo_ciclo_actual=not todo_historial)
                 cadena_full = _reconstruir_cadena_estancia(conn, dict(row_fb), solo_ciclo_actual=False)
+                cadena_ciclo = _reconstruir_cadena_estancia(conn, dict(row_fb), solo_ciclo_actual=True)
+
+        cadena = cadena_ciclo if solo_ciclo else cadena_full
 
         if not cadena:
             return {
                 "encontrado": False,
-                "mensaje": f"No se encontró una estancia activa en la Hab. {hab_req}. Elige una habitación ocupada.",
-                "habitacionesOcupadas": resumen_habs,
+                "mensaje": f"No se encontró estancia para la Hab. {hab_req}. Escribe el número de habitación (ej. 206).",
+                "habitacionesMultiDia": habs_multidia,
                 "hab": hab_req,
             }
 
@@ -696,6 +697,7 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
         tot_pagado_yape = 0.0
         tot_pagado_visa = 0.0
         habs_recorridas: List[str] = []
+        celular_huesped = ""
 
         for idx_d, st in enumerate(cadena, start=1):
             est_uuid = str(st.get("estancia_uuid") or "")
@@ -703,6 +705,9 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
             hab_d = str(st.get("hab") or "")
             if hab_d and hab_d not in habs_recorridas:
                 habs_recorridas.append(hab_d)
+            cel_st = "".join(ch for ch in str(st.get("celular") or "") if ch.isdigit())
+            if len(cel_st) >= 9:
+                celular_huesped = cel_st[-9:]
 
             f_in = str(st.get("fecha_in_dmy") or "")
             f_out = str(st.get("fecha_out_dmy") or "")
@@ -745,10 +750,8 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
             ).fetchall()
 
             pagos_dia_lista = []
-            suma_rows_p = 0.0
             for rp in rows_p:
                 m_val = round(float(rp["monto"] or 0.0), 2)
-                suma_rows_p = round(suma_rows_p + m_val, 2)
                 fh = str(rp["fecha_iso"] or "")
                 hora_p = fh.split(" ")[1][:5] if " " in fh else ""
                 fecha_p_raw = fh.split(" ")[0] if " " in fh else f_in
@@ -861,6 +864,8 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
                 adicionales_dia_lista.append(item_cp)
                 todos_adicionales.append(item_cp)
 
+            adic_total_dia = round(snacks_d + serv_d + comp_d, 2)
+            cargo_total_dia = round(deuda_ant_d + aloj_d + adic_total_dia, 2)
             saldo_cierre_dia = _saldo_fin_estancia(st)
             dt_in = _dmy_a_date(f_in)
 
@@ -877,9 +882,14 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
                 "adicSnacks": snacks_d,
                 "adicServicios": serv_d,
                 "adicComp": comp_d,
+                "adicTotalDia": adic_total_dia,
                 "tipoAdicional": tipo_adic_d,
                 "deudaAnterior": deuda_ant_d,
+                "cargoTotalDia": cargo_total_dia,
                 "pagadoDia": pagado_dia_est,
+                "pagadoEfecDia": round(ini_e + post_e, 2),
+                "pagadoYapeDia": round(ini_y + post_y, 2),
+                "pagadoVisaDia": visa_d,
                 "saldoFinDia": saldo_cierre_dia,
                 "adicionalesDetalle": adicionales_dia_lista,
                 "pagosDetalle": pagos_dia_lista,
@@ -887,6 +897,7 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
 
         ult = cadena[-1]
         prim = cadena[0]
+        prim_ingreso_real = cadena_full[0] if cadena_full else prim
         deuda_inicial_cadena = round(float(prim.get("deuda_anterior") or 0.0), 2)
         tot_adicionales_cuenta = round(tot_tienda_cargada + tot_serv + tot_comp, 2)
         tot_cargos_cadena = round(deuda_inicial_cadena + tot_aloj + tot_adicionales_cuenta, 2)
@@ -898,16 +909,21 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
             "hab": str(ult.get("hab") or hab_req),
             "huesped": str(ult.get("huesped") or ""),
             "dni": str(ult.get("dni") or ""),
+            "celular": celular_huesped,
             "empresa": str(ult.get("empresa") or ""),
-            "todoHistorial": todo_historial,
-            "tieneCiclosAnteriores": len(cadena_full) > len(cadena),
-            "diasHistorialCompleto": len(cadena_full),
-            "habitacionesOcupadas": resumen_habs,
+            "modo": "ciclo" if solo_ciclo else "ingreso",
+            "fechaIngresoInicial": str(prim_ingreso_real.get("fecha_in_dmy") or ""),
+            "horaIngresoInicial": str(prim_ingreso_real.get("hora_registro") or "")[:5],
+            "totalNochesDesdeIngreso": len(cadena_full),
+            "tieneCicloMasCorto": len(cadena_full) > len(cadena_ciclo),
+            "nochesCicloActual": len(cadena_ciclo),
+            "habitacionesMultiDia": habs_multidia,
             "resumen": {
                 "diasCount": len(dias_detalle),
                 "totalNoches": tot_noches,
                 "habsRecorridas": habs_recorridas,
                 "fechaInicio": str(prim.get("fecha_in_dmy") or ""),
+                "horaInicio": str(prim.get("hora_registro") or "")[:5],
                 "fechaUltima": str(ult.get("fecha_in_dmy") or ""),
                 "fechaSalidaUltima": str(ult.get("fecha_out_dmy") or ""),
                 "deudaInicialArrastrada": deuda_inicial_cadena,
@@ -930,3 +946,328 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
         }
     finally:
         conn.close()
+
+
+def generar_pdf_cuenta_hab_local(datos: Optional[Dict[str, Any]] = None) -> Path:
+    """Genera un archivo PDF formal A4 con el Estado de Cuenta Detallado por Habitación
+    (Día de Ingreso, todas las noches jaladas, deudas diarias, adicionales y pagos diarios)."""
+    from pathlib import Path as _Path
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from config import DESCARGAS_RECEPCION_DIR, NOMBRE_HOTEL, PERFIL_HOTEL
+
+    info = obtener_cuenta_detallada_hab_local(datos or {})
+    if not info.get("encontrado"):
+        raise ValueError(info.get("mensaje") or "No se encontró cuenta para la habitación indicada.")
+
+    hab = str(info.get("hab") or "")
+    huesped = str(info.get("huesped") or "HUÉSPED")
+    dni = str(info.get("dni") or "-")
+    R = info.get("resumen") or {}
+    dias = info.get("dias") or []
+    pagos_tot = info.get("todosLosPagos") or []
+    adic_tot = info.get("todosLosAdicionales") or []
+
+    out_dir = DESCARGAS_RECEPCION_DIR
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        out_dir = _Path(__file__).resolve().parent / "data" / "pdfs"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    fecha_tag = datetime.now().strftime("%Y%m%d_%H%M")
+    pdf_path = out_dir / f"Estado_Cuenta_Hab_{hab}_{fecha_tag}.pdf"
+
+    doc = SimpleDocTemplate(
+        str(pdf_path),
+        pagesize=A4,
+        leftMargin=10 * mm,
+        rightMargin=10 * mm,
+        topMargin=10 * mm,
+        bottomMargin=10 * mm,
+        title=f"Estado de Cuenta Hab. {hab} - {huesped}",
+    )
+
+    styles = getSampleStyleSheet()
+    st_title = ParagraphStyle(
+        "TitleCuenta",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=13,
+        leading=15,
+        textColor=colors.HexColor("#1E293B"),
+        spaceAfter=2,
+    )
+    st_sub = ParagraphStyle(
+        "SubCuenta",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8.5,
+        leading=11,
+        textColor=colors.HexColor("#475569"),
+    )
+    st_sec = ParagraphStyle(
+        "SecCuenta",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=9.5,
+        leading=12,
+        textColor=colors.HexColor("#1E293B"),
+        spaceBefore=6,
+        spaceAfter=3,
+    )
+    st_cell = ParagraphStyle(
+        "CellCuenta",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=7.3,
+        leading=9.2,
+        textColor=colors.HexColor("#0F172A"),
+    )
+    st_cell_b = ParagraphStyle(
+        "CellBoldCuenta",
+        parent=st_cell,
+        fontName="Helvetica-Bold",
+    )
+
+    story = []
+    ahora_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ruc_hotel = str(PERFIL_HOTEL.get("ruc_empresa") or "")
+    story.append(Paragraph(f"{NOMBRE_HOTEL.upper()} {'(RUC: ' + ruc_hotel + ')' if ruc_hotel else ''}", st_sub))
+    story.append(Paragraph(f"ESTADO DE CUENTA DETALLADO — HABITACIÓN {hab}", st_title))
+    story.append(Paragraph(f"Emitido el: {ahora_str} · Desglose de noches jaladas, pagos diarios y deudas diarias", st_sub))
+    story.append(Spacer(1, 3 * mm))
+
+    habs_rec = " -> ".join(R.get("habsRecorridas") or [hab])
+    f_ing = info.get("fechaIngresoInicial") or R.get("fechaInicio") or "-"
+    h_ing = info.get("horaIngresoInicial") or R.get("horaInicio") or ""
+    f_ult = R.get("fechaUltima") or "-"
+    f_sal = R.get("fechaSalidaUltima") or "-"
+
+    datos_ficha = [
+        [
+            Paragraph(f"<b>HUÉSPED TITULAR:</b> {huesped}", st_cell),
+            Paragraph(f"<b>DNI / DOC:</b> {dni}", st_cell),
+            Paragraph(f"<b>HABITACIÓN ACTUAL:</b> Hab. {hab} ({habs_rec})", st_cell),
+        ],
+        [
+            Paragraph(f"<b>DÍA DE INGRESO:</b> {f_ing} {('(' + h_ing + ')') if h_ing else ''}", st_cell),
+            Paragraph(f"<b>ÚLTIMA NOCHE / SALIDA:</b> {f_ult} -> {f_sal}", st_cell),
+            Paragraph(f"<b>TOTAL NOCHES JALADAS:</b> {R.get('diasCount', 1)} noche(s) en este reporte", st_cell),
+        ],
+    ]
+    t_ficha = Table(datos_ficha, colWidths=[72 * mm, 56 * mm, 62 * mm])
+    t_ficha.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
+        ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#CBD5E1")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#E2E8F0")),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(t_ficha)
+    story.append(Spacer(1, 3 * mm))
+
+    saldo_act = float(R.get("saldoActual") or 0.0)
+    etiqueta_saldo = "DEUDA PENDIENTE ACTUAL" if saldo_act > 0.009 else ("SALDO A FAVOR" if saldo_act < -0.009 else "CUENTA AL DÍA")
+
+    datos_resumen = [
+        [
+            Paragraph("<b>HOSPEDAJE ACUMULADO</b>", st_cell_b),
+            Paragraph("<b>ADICIONALES (TIENDA / VISITAS)</b>", st_cell_b),
+            Paragraph("<b>TOTAL PAGADO (EFEC / YAPE)</b>", st_cell_b),
+            Paragraph(f"<b>{etiqueta_saldo}</b>", st_cell_b),
+        ],
+        [
+            Paragraph(f"<b>S/ {float(R.get('totalAlojamiento') or 0.0):.2f}</b><br/>({R.get('totalNoches', 1)} noches)", st_cell),
+            Paragraph(
+                f"<b>S/ {float(R.get('totalAdicionales') or 0.0):.2f}</b><br/>"
+                f"Tienda: S/ {float(R.get('totalTienda') or 0.0):.2f} | Visitas/Serv: S/ {float(R.get('totalServicios') or 0.0):.2f}",
+                st_cell,
+            ),
+            Paragraph(
+                f"<b>S/ {float(R.get('totalPagado') or 0.0):.2f}</b><br/>"
+                f"Efec: S/ {float(R.get('pagadoEfectivo') or 0.0):.2f} | Yape: S/ {float(R.get('pagadoYape') or 0.0):.2f}",
+                st_cell,
+            ),
+            Paragraph(f"<b>S/ {abs(saldo_act):.2f}</b><br/>Al cierre del {f_ult}", st_cell_b),
+        ],
+    ]
+    t_res = Table(datos_resumen, colWidths=[45 * mm, 52 * mm, 52 * mm, 41 * mm])
+    t_res.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (2, 0), colors.HexColor("#1E293B")),
+        ("BACKGROUND", (3, 0), (3, 0), colors.HexColor("#991B1B") if saldo_act > 0.009 else colors.HexColor("#065F46")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, 1), (2, 1), colors.HexColor("#FFFFFF")),
+        ("BACKGROUND", (3, 1), (3, 1), colors.HexColor("#FEF2F2") if saldo_act > 0.009 else colors.HexColor("#ECFDF5")),
+        ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#94A3B8")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    for idx_col in range(4):
+        datos_resumen[0][idx_col].style = ParagraphStyle(f"Hdr{idx_col}", parent=st_cell_b, textColor=colors.white)
+    story.append(t_res)
+
+    story.append(Paragraph("1. DESGLOSE DÍA POR DÍA (NOCHES JALADAS, PAGOS DIARIOS Y DEUDAS DIARIAS)", st_sec))
+
+    filas_dias = [[
+        Paragraph("<b>Noche / Fecha</b>", ParagraphStyle("th1", parent=st_cell_b, textColor=colors.white)),
+        Paragraph("<b>Hab.</b>", ParagraphStyle("th2", parent=st_cell_b, textColor=colors.white)),
+        Paragraph("<b>Deuda Ant.</b>", ParagraphStyle("th3", parent=st_cell_b, textColor=colors.white)),
+        Paragraph("<b>Tarifa</b>", ParagraphStyle("th4", parent=st_cell_b, textColor=colors.white)),
+        Paragraph("<b>Adicionales del Día</b>", ParagraphStyle("th5", parent=st_cell_b, textColor=colors.white)),
+        Paragraph("<b>Total Día</b>", ParagraphStyle("th6", parent=st_cell_b, textColor=colors.white)),
+        Paragraph("<b>Pagos del Día (Medio)</b>", ParagraphStyle("th7", parent=st_cell_b, textColor=colors.white)),
+        Paragraph("<b>Deuda Día</b>", ParagraphStyle("th8", parent=st_cell_b, textColor=colors.white)),
+    ]]
+
+    for d in dias:
+        adic_txts = []
+        for a in d.get("adicionalesDetalle") or []:
+            adic_txts.append(f"• {a['descripcion']}: S/ {float(a['monto']):.2f}")
+        adic_str = "<br/>".join(adic_txts) if adic_txts else "—"
+
+        pag_txts = []
+        for p in d.get("pagosDetalle") or []:
+            op_s = f" [Op:{p['nroOperacion']}]" if p.get("nroOperacion") else ""
+            h_s = f" ({p['hora']})" if p.get("hora") else ""
+            pag_txts.append(f"• {p['medioPago']}: S/ {float(p['monto']):.2f}{h_s}{op_s}")
+        pag_str = "<br/>".join(pag_txts) if pag_txts else "—"
+
+        s_fin = float(d.get("saldoFinDia") or 0.0)
+        s_txt = f"Debe S/ {s_fin:.2f}" if s_fin > 0.009 else (f"A favor S/ {abs(s_fin):.2f}" if s_fin < -0.009 else "S/ 0.00")
+
+        filas_dias.append([
+            Paragraph(f"<b>#{d['diaNum']}</b> {d['dow']} {d['fechaIn']}", st_cell),
+            Paragraph(f"<b>{d['hab']}</b>", st_cell),
+            Paragraph(f"S/ {float(d.get('deudaAnterior') or 0.0):.2f}", st_cell),
+            Paragraph(f"S/ {float(d.get('alojamiento') or 0.0):.2f}", st_cell),
+            Paragraph(adic_str, st_cell),
+            Paragraph(f"<b>S/ {float(d.get('cargoTotalDia') or 0.0):.2f}</b>", st_cell),
+            Paragraph(pag_str, st_cell),
+            Paragraph(f"<b>{s_txt}</b>", st_cell_b),
+        ])
+
+    t_dias = Table(
+        filas_dias,
+        colWidths=[25 * mm, 11 * mm, 18 * mm, 16 * mm, 44 * mm, 18 * mm, 36 * mm, 22 * mm],
+        repeatRows=1,
+    )
+    estilo_dias = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E293B")),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#94A3B8")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#CBD5E1")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+    ]
+    for idx_r in range(1, len(filas_dias)):
+        if idx_r % 2 == 0:
+            estilo_dias.append(("BACKGROUND", (0, idx_r), (-1, idx_r), colors.HexColor("#F8FAFC")))
+    t_dias.setStyle(TableStyle(estilo_dias))
+    story.append(t_dias)
+
+    if pagos_tot:
+        story.append(Paragraph(f"2. LISTA DETALLADA DE PAGOS REALIZADOS ({len(pagos_tot)} pagos)", st_sec))
+        filas_p = [[
+            Paragraph("<b>Fecha y Hora</b>", ParagraphStyle("tp1", parent=st_cell_b, textColor=colors.white)),
+            Paragraph("<b>Hab.</b>", ParagraphStyle("tp2", parent=st_cell_b, textColor=colors.white)),
+            Paragraph("<b>Medio de Pago</b>", ParagraphStyle("tp3", parent=st_cell_b, textColor=colors.white)),
+            Paragraph("<b>Concepto / Tipo</b>", ParagraphStyle("tp4", parent=st_cell_b, textColor=colors.white)),
+            Paragraph("<b>N° Operación</b>", ParagraphStyle("tp5", parent=st_cell_b, textColor=colors.white)),
+            Paragraph("<b>Monto S/</b>", ParagraphStyle("tp6", parent=st_cell_b, textColor=colors.white)),
+        ]]
+        for p in pagos_tot:
+            filas_p.append([
+                Paragraph(f"{p['fecha']} {p.get('hora') or ''}", st_cell),
+                Paragraph(str(p.get("hab") or ""), st_cell),
+                Paragraph(f"<b>{p.get('medioPago') or ''}</b>", st_cell),
+                Paragraph(str(p.get("concepto") or p.get("tipoPago") or ""), st_cell),
+                Paragraph(str(p.get("nroOperacion") or "—"), st_cell),
+                Paragraph(f"<b>S/ {float(p.get('monto') or 0.0):.2f}</b>", st_cell),
+            ])
+        t_pag = Table(filas_p, colWidths=[30 * mm, 14 * mm, 28 * mm, 58 * mm, 35 * mm, 25 * mm], repeatRows=1)
+        t_pag.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#065F46")),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#94A3B8")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#CBD5E1")),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ]))
+        story.append(t_pag)
+
+    doc.build(story)
+    return pdf_path
+
+
+def enviar_wsp_cuenta_hab_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Genera el PDF del Estado de Cuenta de la habitación y lo envía por WhatsApp al número indicado."""
+    from sunat_wsp_service import _despachar_wsp_pdf
+    from config import NOMBRE_HOTEL
+
+    datos = datos or {}
+    hab = str(datos.get("hab") or "").strip()
+    tel_raw = str(datos.get("telefono") or "").strip()
+    solo_dig = "".join(ch for ch in tel_raw if ch.isdigit())
+    if len(solo_dig) == 11 and solo_dig.startswith("51"):
+        solo_dig = solo_dig[2:]
+    if len(solo_dig) < 9:
+        raise ValueError("Ingresa un número de WhatsApp válido de 9 dígitos (ej. 987654321).")
+
+    info = obtener_cuenta_detallada_hab_local(datos)
+    if not info.get("encontrado"):
+        raise ValueError(info.get("mensaje") or f"No se encontró cuenta para la Hab. {hab}.")
+
+    pdf_path = generar_pdf_cuenta_hab_local(datos)
+    R = info.get("resumen") or {}
+    saldo_act = float(R.get("saldoActual") or 0.0)
+    estado_saldo = (
+        f"SALDO PENDIENTE: S/ {saldo_act:.2f}"
+        if saldo_act > 0.009
+        else (f"SALDO A FAVOR: S/ {abs(saldo_act):.2f}" if saldo_act < -0.009 else "CUENTA AL DÍA (S/ 0.00)")
+    )
+
+    mensaje = (
+        f"📋 *{NOMBRE_HOTEL} — ESTADO DE CUENTA HAB. {info['hab']}*
+"
+        f"👤 *Huésped:* {info['huesped']}
+"
+        f"📅 *Día de Ingreso:* {info.get('fechaIngresoInicial') or R.get('fechaInicio')} "
+        f"({R.get('diasCount', 1)} noches jaladas hasta {R.get('fechaUltima')})
+"
+        f"🛏️ *Hospedaje:* S/ {float(R.get('totalAlojamiento') or 0.0):.2f}
+"
+        f"➕ *Adicionales:* S/ {float(R.get('totalAdicionales') or 0.0):.2f} "
+        f"(Tienda: S/ {float(R.get('totalTienda') or 0.0):.2f} | Visitas/Serv: S/ {float(R.get('totalServicios') or 0.0):.2f})
+"
+        f"💰 *Total Pagado:* S/ {float(R.get('totalPagado') or 0.0):.2f} "
+        f"(Efec: S/ {float(R.get('pagadoEfectivo') or 0.0):.2f} | Yape: S/ {float(R.get('pagadoYape') or 0.0):.2f})
+"
+        f"⚖️ *{estado_saldo}*
+
+"
+        f"Se adjunta el PDF con el desglose detallado día por día."
+    )
+
+    ok, out_txt, err_txt = _despachar_wsp_pdf(
+        telefono=solo_dig,
+        pdf_path=str(pdf_path),
+        mensaje=mensaje,
+        nro_cp=pdf_path.name,
+    )
+    if not ok:
+        raise ValueError(f"PDF generado ({pdf_path.name}), pero WhatsApp reportó: {err_txt or out_txt}")
+
+    return {
+        "exito": True,
+        "archivoPdf": pdf_path.name,
+        "telefono": solo_dig,
+        "mensaje": f"✅ Estado de cuenta en PDF enviado por WhatsApp al {solo_dig} ({pdf_path.name}).",
+    }
