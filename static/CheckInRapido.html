@@ -1773,6 +1773,26 @@
     }
 
     // Autocompletar campos cuando se encuentra cliente por DNI o por Nombre (sin contaminar empresa/RUC ocultos)
+    function seleccionarRegionRecurrente(regGuardada) {
+      if (!regSelect) return;
+      const val = String(regGuardada || '').trim();
+      if (!val) {
+        regSelect.value = '';
+        return;
+      }
+      const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+      const target = norm(val);
+      for (let i = 0; i < regSelect.options.length; i++) {
+        const opt = regSelect.options[i];
+        if (opt.value && (opt.value === val || norm(opt.value) === target || norm(opt.textContent) === target)) {
+          regSelect.value = opt.value;
+          regSelect.classList.remove('campo-invalido');
+          return;
+        }
+      }
+    }
+
+    // Autocompletar campos cuando se encuentra cliente recurrente por DNI o por Nombre (incluyendo Procedencia, RUC y Empresa editables por defecto)
     function rellenarDatosCliente(dniVal, h) {
       if (!h) return;
       limpiarCamposAutocompletadosCliente();
@@ -1791,7 +1811,7 @@
         document.getElementById('sexoM').checked = true;
       }
       if (h.nac) nacSelect.value = h.nac;
-      regSelect.value = '';
+      seleccionarRegionRecurrente(h.reg);
       if (h.mot) motSelect.value = h.mot;
       celularInput.value = h.celular || '';
       if (h.tarifa && !tarifaInput.value) {
@@ -1799,32 +1819,65 @@
         tarifaInput.classList.remove('campo-invalido');
         calcularTotalesCheckIn();
       }
-      // Mostrar referencia discreta de tarifa/habitaci?n anterior + bot?n expl?cito si tuvo empresa antes
+
+      // Resolver RUC y Empresa recurrentes (cruzando con EMPRESAS_CAT si hiciera falta)
+      let rucRec = String(h.ruc || '').replace(/\D/g, '').trim();
+      let empRec = String(h.empresa || '').trim();
+      if (empRec && !rucRec && EMPRESAS_CAT && EMPRESAS_CAT[empRec.toUpperCase()]) {
+        rucRec = String(EMPRESAS_CAT[empRec.toUpperCase()].ruc || '').trim();
+      } else if (rucRec && !empRec && EMPRESAS_CAT) {
+        for (const nomK of Object.keys(EMPRESAS_CAT)) {
+          if (EMPRESAS_CAT[nomK] && String(EMPRESAS_CAT[nomK].ruc || '').trim() === rucRec) {
+            empRec = nomK;
+            break;
+          }
+        }
+      }
+
+      // Cargar RUC y Empresa directamente en los inputs editables para que se guarden por defecto
+      if (rucRec || empRec) {
+        rucInput.value = rucRec;
+        empresaInput.value = empRec;
+        const empDet = document.getElementById('empresaDetails');
+        if (empDet) empDet.open = true;
+        if (hintRucCheckIn) {
+          hintRucCheckIn.textContent = '✓ RUC y Empresa de cliente frecuente cargados (puedes modificarlos aquí).';
+          hintRucCheckIn.classList.add('visible');
+        }
+      }
+
       const partesInfo = [];
-      if (h.hab) partesInfo.push(`?ltima Hab: ${h.hab}`);
-      if (h.tarifa) partesInfo.push(`Tarifa anterior: S/ ${h.tarifa}`);
+      if (h.hab) partesInfo.push(`Última Hab: ${h.hab}`);
+      if (h.tarifa) partesInfo.push(`Tarifa ant.: S/ ${h.tarifa}`);
+      if (h.reg) partesInfo.push(`Procedencia: ${h.reg}`);
       prevStayHint.innerHTML = '';
-      if (partesInfo.length > 0 || h.empresa || h.ruc) {
+      if (partesInfo.length > 0 || empRec || rucRec) {
         const spanTxt = document.createElement('span');
         spanTxt.textContent = partesInfo.length > 0 ? ('📋 ' + partesInfo.join(' • ')) : '📋 Cliente frecuente';
         prevStayHint.appendChild(spanTxt);
-        if (h.empresa || h.ruc) {
-          const btnEmp = document.createElement('button');
-          btnEmp.type = 'button';
-          btnEmp.style.cssText = 'margin-left:8px;padding:2px 7px;border-radius:5px;border:1px solid #0284c7;background:#e0f2fe;color:#0369a1;font-weight:700;font-size:11px;cursor:pointer;';
-          const empLabel = h.empresa ? h.empresa : `RUC ${h.ruc}`;
-          btnEmp.textContent = `🏢 Usar empresa: ${empLabel}`;
-          btnEmp.addEventListener('click', () => {
-            rucInput.value = h.ruc || '';
-            empresaInput.value = h.empresa || '';
-            const empDet = document.getElementById('empresaDetails');
-            if (empDet) empDet.open = true;
-            btnEmp.textContent = `✓ Empresa aplicada (${empLabel})`;
-            btnEmp.style.background = '#dcfce7';
-            btnEmp.style.borderColor = '#16a34a';
-            btnEmp.style.color = '#15803d';
+        if (empRec || rucRec) {
+          const empLabel = (empRec && rucRec) ? `${empRec} (RUC ${rucRec})` : (empRec || `RUC ${rucRec}`);
+          const badgeEmp = document.createElement('span');
+          badgeEmp.style.cssText = 'display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#dcfce7;border:1px solid #16a34a;color:#15803d;font-weight:700;font-size:10.5px;';
+          badgeEmp.textContent = `🏢 ${empLabel}`;
+          prevStayHint.appendChild(badgeEmp);
+
+          const btnQuitarEmp = document.createElement('button');
+          btnQuitarEmp.type = 'button';
+          btnQuitarEmp.style.cssText = 'margin-left:5px;padding:1px 6px;border-radius:4px;border:1px solid #cbd5e1;background:#fff;color:#475569;font-weight:700;font-size:10px;cursor:pointer;';
+          btnQuitarEmp.textContent = '✕ Sin empresa hoy';
+          btnQuitarEmp.title = 'Limpiar RUC y Empresa para esta estancia';
+          btnQuitarEmp.addEventListener('click', () => {
+            rucInput.value = '';
+            empresaInput.value = '';
+            if (hintRucCheckIn) hintRucCheckIn.classList.remove('visible');
+            badgeEmp.style.background = '#f1f5f9';
+            badgeEmp.style.borderColor = '#94a3b8';
+            badgeEmp.style.color = '#64748b';
+            badgeEmp.textContent = '🏢 Sin empresa en esta estancia';
+            btnQuitarEmp.remove();
           });
-          prevStayHint.appendChild(btnEmp);
+          prevStayHint.appendChild(btnQuitarEmp);
         }
         prevStayHint.classList.add('visible');
       } else {
@@ -1848,13 +1901,18 @@
             if (btnBuscarDni) btnBuscarDni.disabled = false;
             if (dniInput.value.trim() !== val) return;
             if (res && res.ok && res.nombre) {
-              limpiarCamposAutocompletadosCliente();
-              ultimoDniAutocompletado = val;
-              nombreInput.value = res.nombre;
-              if (nacSelect) nacSelect.value = 'Perú';
-              nombreInput.classList.remove('campo-invalido');
-              prevStayHint.textContent = `✓ RENIEC: ${res.nombre}`;
-              prevStayHint.classList.add('visible');
+              if (res.fuente === 'PADRON_LOCAL' || res.ruc || res.empresa || res.reg) {
+                DB_HUESPEDES[val] = res;
+                rellenarDatosCliente(val, res);
+              } else {
+                limpiarCamposAutocompletadosCliente();
+                ultimoDniAutocompletado = val;
+                nombreInput.value = res.nombre;
+                if (nacSelect) nacSelect.value = 'Perú';
+                nombreInput.classList.remove('campo-invalido');
+                prevStayHint.textContent = `✓ RENIEC: ${res.nombre}`;
+                prevStayHint.classList.add('visible');
+              }
               habSelect.focus();
             } else {
               prevStayHint.textContent = res && res.error ? `⚠️ ${res.error}` : '⚠️ DNI no encontrado en RENIEC.';
@@ -2101,18 +2159,19 @@
         hotelTercerizado: hotelSelect.value
       };
 
-      // Actualizar caché en RAM
+      // Actualizar caché en RAM conservando historial recurrente si un campo opcional quedó vacío
+      const prevH = DB_HUESPEDES[payload.dni] || {};
       DB_HUESPEDES[payload.dni] = {
         nombre: payload.nombre,
         sexo: payload.sexo,
         nac: payload.nac,
-        reg: payload.reg,
+        reg: payload.reg || prevH.reg || '',
         mot: payload.mot,
-        tarifa: payload.tarifa,
-        hab: payload.hab,
-        celular: payload.celular,
-        ruc: payload.ruc,
-        empresa: payload.empresa,
+        tarifa: payload.tarifa || prevH.tarifa || '',
+        hab: payload.hab || prevH.hab || '',
+        celular: payload.celular || prevH.celular || '',
+        ruc: payload.ruc || prevH.ruc || '',
+        empresa: payload.empresa || prevH.empresa || '',
         visitas: prevVisitas + 1
       };
       MAPA_NOMBRES[payload.nombre.toUpperCase()] = payload.dni;

@@ -1989,6 +1989,48 @@ def obtener_estancia_para_modificar_local(hab_buscada: str, fila_o_id: Any = Non
             else:
                 id_str = s_val
         r = _buscar_estancia_local(conn, fila=fila_num, id_busq=id_str, estancia_uuid=id_str, hab=hab_buscada)
+        ruc_val = str(r["ruc"] or "").strip()
+        emp_val = str(r["empresa"] or "").strip()
+        reg_val = str(r["reg"] or "").strip()
+        cel_val = str(r["celular"] or "").strip()
+        dni_val = str(r["dni"] or "").strip()
+        ruc_sugerido = ""
+        emp_sugerida = ""
+        if dni_val:
+            hp = conn.execute("SELECT reg, ruc, empresa, celular FROM huespedes_padron WHERE dni = ?", (dni_val,)).fetchone()
+            if hp:
+                if not reg_val and (hp["reg"] or "").strip():
+                    reg_val = str(hp["reg"]).strip()
+                if not cel_val and (hp["celular"] or "").strip():
+                    cel_val = str(hp["celular"]).strip()
+                if (hp["ruc"] or "").strip():
+                    ruc_sugerido = str(hp["ruc"]).strip()
+                if (hp["empresa"] or "").strip():
+                    emp_sugerida = str(hp["empresa"]).strip()
+            if not ruc_sugerido or not emp_sugerida:
+                est_prev = conn.execute(
+                    "SELECT ruc, empresa, reg, celular FROM estancias WHERE dni = ? AND (trim(ruc) != '' OR trim(empresa) != '') ORDER BY ymd_in DESC, sheet_row DESC, rowid DESC LIMIT 1",
+                    (dni_val,),
+                ).fetchone()
+                if est_prev:
+                    if not ruc_sugerido and (est_prev["ruc"] or "").strip():
+                        ruc_sugerido = str(est_prev["ruc"]).strip()
+                    if not emp_sugerida and (est_prev["empresa"] or "").strip():
+                        emp_sugerida = str(est_prev["empresa"]).strip()
+                    if not reg_val and (est_prev["reg"] or "").strip():
+                        reg_val = str(est_prev["reg"]).strip()
+        if ruc_val and not emp_val:
+            ep = conn.execute("SELECT razon_social FROM empresas_padron WHERE ruc = ?", (ruc_val,)).fetchone()
+            if ep and (ep["razon_social"] or "").strip():
+                emp_val = str(ep["razon_social"]).strip()
+        elif emp_val and not ruc_val:
+            ep = conn.execute("SELECT ruc FROM empresas_padron WHERE UPPER(TRIM(razon_social)) = ? LIMIT 1", (emp_val.upper(),)).fetchone()
+            if ep and (ep["ruc"] or "").strip():
+                ruc_val = str(ep["ruc"]).strip()
+        if ruc_sugerido and not emp_sugerida:
+            ep = conn.execute("SELECT razon_social FROM empresas_padron WHERE ruc = ?", (ruc_sugerido,)).fetchone()
+            if ep and (ep["razon_social"] or "").strip():
+                emp_sugerida = str(ep["razon_social"]).strip()
         return {
             "ok": True,
             "estanciaUuid": r["estancia_uuid"],
@@ -2002,7 +2044,7 @@ def obtener_estancia_para_modificar_local(hab_buscada: str, fila_o_id: Any = Non
             "nAcomp": r["n_acomp"],
             "dniAcomp": r["dni_acomp"],
             "nac": r["nac"] or "Perú",
-            "reg": r["reg"] or "Lima",
+            "reg": reg_val or "Lima",
             "mot": r["mot"],
             "hab": r["hab"],
             "tipoHab": r["tipo_hab"],
@@ -2021,15 +2063,17 @@ def obtener_estancia_para_modificar_local(hab_buscada: str, fila_o_id: Any = Non
             "estadoComp": r["estado_comp"],
             "nroComp": r["nro_comp"],
             "montoFact": float(r["monto_factura"]) if float(r["monto_factura"] or 0) > 0 else "",
-            "empresa": r["empresa"],
+            "empresa": emp_val,
             "proyecto": r["proyecto"],
             "triple1": r["triple1"],
             "triple2": r["triple2"],
             "hotelApoyo": r["hotel_apoyo"],
             "observaciones": r["observaciones"],
             "nroOpYape": r["nro_op_yape"],
-            "celular": r["celular"],
-            "ruc": r["ruc"],
+            "celular": cel_val,
+            "ruc": ruc_val,
+            "rucSugerido": ruc_sugerido,
+            "empresaSugerida": emp_sugerida,
         }
     finally:
         conn.close()
@@ -2195,6 +2239,36 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 datetime.now().isoformat(), actual["estancia_uuid"],
             ),
         )
+
+        if dni:
+            conn.execute(
+                """
+                INSERT INTO huespedes_padron (dni, nombre, sexo, nac, reg, mot, hab_frec, tarifa_frec, empresa, celular, ruc, visitas, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                ON CONFLICT(dni) DO UPDATE SET
+                    nombre = CASE WHEN excluded.nombre != '' THEN excluded.nombre ELSE huespedes_padron.nombre END,
+                    sexo = CASE WHEN excluded.sexo != '' THEN excluded.sexo ELSE huespedes_padron.sexo END,
+                    nac = CASE WHEN excluded.nac != '' THEN excluded.nac ELSE huespedes_padron.nac END,
+                    reg = CASE WHEN excluded.reg != '' THEN excluded.reg ELSE huespedes_padron.reg END,
+                    mot = CASE WHEN excluded.mot != '' THEN excluded.mot ELSE huespedes_padron.mot END,
+                    hab_frec = CASE WHEN excluded.hab_frec != '' THEN excluded.hab_frec ELSE huespedes_padron.hab_frec END,
+                    tarifa_frec = CASE WHEN excluded.tarifa_frec > 0 THEN excluded.tarifa_frec ELSE huespedes_padron.tarifa_frec END,
+                    empresa = CASE WHEN excluded.empresa != '' THEN excluded.empresa ELSE huespedes_padron.empresa END,
+                    celular = CASE WHEN excluded.celular != '' THEN excluded.celular ELSE huespedes_padron.celular END,
+                    ruc = CASE WHEN excluded.ruc != '' THEN excluded.ruc ELSE huespedes_padron.ruc END,
+                    updated_at = excluded.updated_at
+                """,
+                (dni, nombre, sexo, nac, reg, mot, hab_nueva, tarifa, empresa, celular, ruc, datetime.now().isoformat()),
+            )
+        if ruc and empresa:
+            conn.execute(
+                """
+                INSERT INTO empresas_padron (ruc, razon_social, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(ruc) DO UPDATE SET razon_social = excluded.razon_social, updated_at = excluded.updated_at
+                """,
+                (ruc, empresa, datetime.now().isoformat()),
+            )
 
         _cambios_mod = _diff_campos([
             ("Huésped", actual["huesped"], nombre), ("DNI", actual["dni"], dni),
@@ -2684,21 +2758,96 @@ def obtener_datos_iniciales_checkin_local() -> Dict[str, Any]:
                 "checkInISO": dmy_a_iso(h["checkIn"]) if h["checkIn"] != "-" else "",
             })
 
+        emp_por_ruc = {}
+        ruc_por_emp = {}
+        for ep in conn.execute("SELECT ruc, razon_social FROM empresas_padron").fetchall():
+            r_c = re.sub(r"\D", "", str(ep["ruc"] or "").strip())
+            e_c = str(ep["razon_social"] or "").strip().upper()
+            if r_c and e_c:
+                emp_por_ruc[r_c] = e_c
+                ruc_por_emp[e_c] = r_c
+
         huespedes_dict = {}
-        for p in conn.execute("SELECT * FROM huespedes_padron").fetchall():
-            huespedes_dict[p["dni"]] = {
-                "nombre": p["nombre"],
-                "sexo": p["sexo"],
-                "nac": p["nac"],
-                "reg": p["reg"],
-                "mot": p["mot"],
-                "hab": p["hab_frec"],
-                "tarifa": p["tarifa_frec"],
-                "empresa": p["empresa"],
-                "celular": p["celular"],
-                "ruc": p["ruc"],
-                "visitas": int(p["visitas"] or 1),
+        for h in conn.execute("SELECT * FROM huespedes_padron").fetchall():
+            d_key = str(h["dni"] or "").strip()
+            if not d_key:
+                continue
+            r_val = re.sub(r"\D", "", str(h["ruc"] or "").strip())
+            e_val = str(h["empresa"] or "").strip().upper()
+            if r_val and not e_val and r_val in emp_por_ruc:
+                e_val = emp_por_ruc[r_val]
+            elif e_val and not r_val and e_val in ruc_por_emp:
+                r_val = ruc_por_emp[e_val]
+            huespedes_dict[d_key] = {
+                "nombre": h["nombre"],
+                "sexo": h["sexo"] or "M",
+                "nac": h["nac"] or "Perú",
+                "reg": h["reg"] or "",
+                "mot": h["mot"] or "Vacaciones, recreo u ocio",
+                "tarifa": h["tarifa_frec"] or "",
+                "hab": h["hab_frec"] or "",
+                "celular": h["celular"] or "",
+                "ruc": r_val,
+                "empresa": e_val,
+                "visitas": int(h["visitas"] or 1),
             }
+
+        # Enriquecer con historial de estancias para garantizar que ningún cliente recurrente pierda su RUC, Empresa o Procedencia
+        for er in conn.execute(
+            """
+            SELECT dni, huesped, sexo, nac, reg, mot, hab, tarifa, celular, ruc, empresa
+            FROM estancias
+            WHERE trim(dni) != ''
+            ORDER BY ymd_in ASC, sheet_row ASC, rowid ASC
+            """
+        ).fetchall():
+            d_key = str(er["dni"] or "").strip()
+            if not d_key:
+                continue
+            r_est = re.sub(r"\D", "", str(er["ruc"] or "").strip())
+            e_est = str(er["empresa"] or "").strip().upper()
+            if r_est and e_est:
+                emp_por_ruc[r_est] = e_est
+                ruc_por_emp[e_est] = r_est
+            if r_est and not e_est and r_est in emp_por_ruc:
+                e_est = emp_por_ruc[r_est]
+            elif e_est and not r_est and e_est in ruc_por_emp:
+                r_est = ruc_por_emp[e_est]
+
+            item = huespedes_dict.get(d_key)
+            if not item:
+                huespedes_dict[d_key] = {
+                    "nombre": str(er["huesped"] or "").strip().upper(),
+                    "sexo": str(er["sexo"] or "M").strip() or "M",
+                    "nac": str(er["nac"] or "Perú").strip() or "Perú",
+                    "reg": str(er["reg"] or "").strip(),
+                    "mot": str(er["mot"] or "Vacaciones, recreo u ocio").strip() or "Vacaciones, recreo u ocio",
+                    "tarifa": float(er["tarifa"] or 0) if float(er["tarifa"] or 0) > 0 else "",
+                    "hab": str(er["hab"] or "").strip(),
+                    "celular": str(er["celular"] or "").strip(),
+                    "ruc": r_est,
+                    "empresa": e_est,
+                    "visitas": 1,
+                }
+            else:
+                if (er["huesped"] or "").strip():
+                    item["nombre"] = str(er["huesped"]).strip().upper()
+                if (er["reg"] or "").strip():
+                    item["reg"] = str(er["reg"]).strip()
+                if (er["celular"] or "").strip():
+                    item["celular"] = str(er["celular"]).strip()
+                if (er["hab"] or "").strip():
+                    item["hab"] = str(er["hab"]).strip()
+                if float(er["tarifa"] or 0) > 0:
+                    item["tarifa"] = float(er["tarifa"])
+                if r_est:
+                    item["ruc"] = r_est
+                if e_est:
+                    item["empresa"] = e_est
+                if item.get("ruc") and not item.get("empresa") and item["ruc"] in emp_por_ruc:
+                    item["empresa"] = emp_por_ruc[item["ruc"]]
+                elif item.get("empresa") and not item.get("ruc") and item["empresa"] in ruc_por_emp:
+                    item["ruc"] = ruc_por_emp[item["empresa"]]
 
         # Blindaje estricto Continuar Estancia:
         # 1) Solo evaluar la estancia MÁS RECIENTE de cada habitación (si ya fue Finalizada o Continuada, NO retroceder a filas viejas).

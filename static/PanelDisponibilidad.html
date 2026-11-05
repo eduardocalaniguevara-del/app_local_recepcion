@@ -2768,8 +2768,32 @@
             document.getElementById("mod_estadoComp").value = est.estadoComp || "";
             document.getElementById("mod_nroComp").value = est.nroComp || "";
             document.getElementById("mod_montoFact").value = est.montoFact !== undefined && est.montoFact !== "" ? est.montoFact : "";
-            document.getElementById("mod_ruc").value = est.ruc || "";
-            document.getElementById("mod_empresa").value = est.empresa || "";
+            const rucInicial = est.ruc || est.rucSugerido || "";
+            const empInicial = est.empresa || est.empresaSugerida || "";
+            const inpModRuc = document.getElementById("mod_ruc");
+            const inpModEmp = document.getElementById("mod_empresa");
+            const lblModRuc = document.getElementById("lblModRuc");
+            if (inpModRuc) {
+              inpModRuc.value = rucInicial;
+              inpModRuc.readOnly = false;
+              inpModRuc.disabled = false;
+            }
+            if (inpModEmp) {
+              inpModEmp.value = empInicial;
+              inpModEmp.readOnly = false;
+              inpModEmp.disabled = false;
+            }
+            if (lblModRuc) {
+              if (!est.ruc && !est.empresa && (est.rucSugerido || est.empresaSugerida)) {
+                lblModRuc.className = "text-[9.5px] font-bold text-sky-700 mt-0.5";
+                lblModRuc.textContent = "💡 RUC/Empresa recuperados del historial del huésped (puedes editarlos)";
+              } else if (rucInicial || empInicial) {
+                lblModRuc.className = "text-[9.5px] font-bold text-emerald-700 mt-0.5";
+                lblModRuc.textContent = "✅ RUC y Empresa listos para editar";
+              } else {
+                lblModRuc.textContent = "";
+              }
+            }
             document.getElementById("mod_proyecto").value = est.proyecto || "";
             document.getElementById("mod_celular").value = est.celular || "";
             document.getElementById("mod_hotelApoyo").value = est.hotelApoyo || "";
@@ -3973,35 +3997,50 @@
       const selTipo = idTipoComp ? document.getElementById(idTipoComp) : null;
       const lbl = idLbl ? document.getElementById(idLbl) : null;
       if (!inpRuc || !inpEmp) return;
+      inpRuc.readOnly = false;
+      inpEmp.readOnly = false;
       const ruc = String(inpRuc.value || "").replace(/\D/g, "").slice(0, 11);
       if (inpRuc.value !== ruc) inpRuc.value = ruc;
       if (ruc.length > 0 && selTipo && selTipo.value !== "Factura") {
         selTipo.value = "Factura";
       }
       if (ruc.length !== 11 || !/^(10|15|17|20)\d{9}$/.test(ruc)) {
-        if (lbl) lbl.textContent = "⚠️ RUC de 11 dígitos (10 o 20)";
+        if (lbl) {
+          lbl.className = "text-[9.5px] font-bold text-amber-700 mt-0.5";
+          lbl.textContent = "⚠️ RUC de 11 dígitos (10 o 20)";
+        }
         return;
       }
       const previo = (habitacionesData || []).map(x => x.facturacion).find(fx => fx && fx.ruc === ruc && fx.empresa);
-      if (previo && previo.empresa) {
+      if (previo && previo.empresa && !inpEmp.value.trim()) {
         inpEmp.value = previo.empresa;
-        if (lbl) lbl.textContent = "✅ Padrón: " + previo.empresa;
-        return;
       }
-      if (lbl) lbl.textContent = "\u23F3 Consultando SUNAT...";
+      if (lbl) {
+        lbl.className = "text-[9.5px] font-bold text-amber-700 mt-0.5";
+        lbl.textContent = "\u23F3 Consultando SUNAT...";
+      }
       if (typeof google !== "undefined" && google.script && google.script.run) {
         google.script.run
           .withSuccessHandler(function(res) {
             const razon = res && (res.razonSocial || res.empresa || res.nombre);
             if (res && res.ok && razon) {
               inpEmp.value = razon;
-              if (lbl) lbl.textContent = "✅ SUNAT: " + razon;
+              inpEmp.readOnly = false;
+              inpEmp.disabled = false;
+              if (lbl) {
+                lbl.className = "text-[9.5px] font-bold text-emerald-700 mt-0.5";
+                lbl.textContent = "✅ " + (res.fuente === "PADRON_LOCAL" ? "Padrón: " : "SUNAT: ") + razon + " (editable)";
+              }
             } else if (lbl) {
-              lbl.textContent = "⚠️ RUC no encontrado en SUNAT";
+              lbl.className = "text-[9.5px] font-bold text-rose-700 mt-0.5";
+              lbl.textContent = "⚠️ " + ((res && res.error) ? res.error : "RUC no encontrado en SUNAT (puedes escribir la empresa)");
             }
           })
           .withFailureHandler(function() {
-            if (lbl) lbl.textContent = "⚠️ Error al consultar SUNAT";
+            if (lbl) {
+              lbl.className = "text-[9.5px] font-bold text-rose-700 mt-0.5";
+              lbl.textContent = "⚠️ Error al consultar SUNAT (puedes escribir la empresa manualmente)";
+            }
           })
           .consultarRucSunat(ruc);
       }
