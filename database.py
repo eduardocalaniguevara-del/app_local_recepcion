@@ -430,6 +430,21 @@ def init_db() -> None:
                 );
                 CREATE INDEX IF NOT EXISTS idx_pases_ymd ON control_pases(ymd);
                 CREATE INDEX IF NOT EXISTS idx_pases_dni ON control_pases(dni_visita);
+
+                -- 12. Desglose individual de Servicios Adicionales por estancia (Garaje, Lavandería, Ducha, Visita, etc.)
+                CREATE TABLE IF NOT EXISTS servicios_detalle (
+                    serv_uuid     TEXT PRIMARY KEY,
+                    estancia_uuid TEXT NOT NULL DEFAULT '',
+                    id_estancia   TEXT NOT NULL DEFAULT '',
+                    fecha_dmy     TEXT NOT NULL DEFAULT '',
+                    hora          TEXT NOT NULL DEFAULT '',
+                    hab           TEXT NOT NULL DEFAULT '',
+                    tipo_servicio TEXT NOT NULL DEFAULT '',
+                    metodo_pago   TEXT NOT NULL DEFAULT 'Cargar a la Cuenta',
+                    monto         REAL NOT NULL DEFAULT 0.0,
+                    created_at    TEXT NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_serv_det_est ON servicios_detalle(estancia_uuid);
                 """
             )
             # Migración única: el panel de colores queda desvinculado de Sheets; se parte limpio.

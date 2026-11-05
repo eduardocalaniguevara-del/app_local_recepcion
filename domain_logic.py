@@ -1367,6 +1367,14 @@ def guardar_checkin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 "INSERT INTO pagos (pago_id, estancia_uuid, id_estancia, fecha_iso, hab, huesped, monto, medio_pago, tipo_pago, concepto, nro_operacion, synced) VALUES (?,?,?,?,?,?,?,?,?,?,?,0)",
                 (pid, estancia_uuid, id_ts_str, id_ts_str, hab, nombre, p_visa_base, "VISA", "Inicial", "Pago Inicial Estancia (VISA)", ""),
             )
+        if serv_monto > 0:
+            try:
+                conn.execute(
+                    "INSERT INTO servicios_detalle (serv_uuid, estancia_uuid, id_estancia, fecha_dmy, hora, hab, tipo_servicio, metodo_pago, monto, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), estancia_uuid, id_ts_str, f_in_dmy, hora_reg[:5], hab, "Servicio en Check-In", serv_metodo, serv_monto, ahora.isoformat()),
+                )
+            except Exception:
+                pass
         if serv_monto > 0 and serv_metodo != "Cargar a Habitación":
             pid = f"{base_ms + 3}-4"
             op_s = nro_op_yape if serv_metodo == "Yape" else ""
@@ -1492,6 +1500,24 @@ def guardar_pago_posterior_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                             if _t.lower() not in [x.lower() for x in _tags]:
                                 _tags.append(_t)
                         tipo_adic_actual = ", ".join(_tags)
+                    try:
+                        conn.execute(
+                            "INSERT INTO servicios_detalle (serv_uuid, estancia_uuid, id_estancia, fecha_dmy, hora, hab, tipo_servicio, metodo_pago, monto, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            (
+                                str(uuid.uuid4()),
+                                est_uuid,
+                                st["id_timestamp_str"],
+                                st["fecha_in_dmy"],
+                                datetime.now().strftime("%H:%M"),
+                                hab,
+                                (tipo_adic_nuevo or "Servicio").strip(),
+                                met,
+                                round(float(monto), 2),
+                                datetime.now().isoformat(),
+                            ),
+                        )
+                    except Exception:
+                        pass
                 elif "Servicio por Comprob" in conc:
                     adic_comp = round(adic_comp + monto, 2)
                 elif conc == "Carga Deuda Anterior":
