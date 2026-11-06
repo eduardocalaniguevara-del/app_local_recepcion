@@ -517,11 +517,10 @@ def _reconstruir_cadena_estancia(
     st_actual: Dict[str, Any],
     solo_ciclo_actual: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Retrocede todas las noches jaladas continuas desde la estancia actual hasta el Día de Ingreso.
-    - Desempata con precisión cuando un mismo titular ocupa 2 habitaciones simultáneas (priorizando
-      misma habitación + misma tarifa + saldo arrastrado exacto).
-    - Si `solo_ciclo_actual=False` (por defecto), retrocede TODAS las noches jaladas desde el Día de Ingreso.
-    - Si `solo_ciclo_actual=True`, se detiene en el último corte donde `deuda_anterior == 0`.
+    """Reconstruye toda la cadena de noches jaladas de la estancia seleccionada:
+    1) Retrocede desde `st_actual` hasta el Día de Ingreso Inicial del huésped.
+    2) Si `st_actual` es de una fecha pasada (ej. 04/11/2026) y tiene 'Continúa', también avanza
+       hacia adelante para incluir las noches continuadas posteriores de ese mismo huésped.
     """
     dni = str(st_actual.get("dni") or "").strip()
     huesped = str(st_actual.get("huesped") or "").strip()
@@ -548,10 +547,11 @@ def _reconstruir_cadena_estancia(
         ).fetchall()
 
     todos = [dict(r) for r in cand_rows]
-    cadena = [dict(st_actual)]
+    cadena_atras = [dict(st_actual)]
     usados: Set[str] = {str(st_actual["estancia_uuid"])}
     cur = dict(st_actual)
 
+    # A. Caminar hacia atrás hasta el Día de Ingreso Inicial
     for paso in range(90):
         cur_in_d = _dmy_a_date(cur["fecha_in_dmy"])
         deuda_arr = round(float(cur.get("deuda_anterior") or 0.0), 2)
@@ -568,7 +568,8 @@ def _reconstruir_cadena_estancia(
                 continue
             c_in = _dmy_a_date(cand["fecha_in_dmy"])
             c_out = _dmy_a_date(cand["fecha_out_dmy"]) if cand.get("fecha_out_dmy") else (c_in + timedelta(days=1))
-            if c_out != cur_in_d and (cur_in_d - c_in).days != 1:
+            mismo_dia_cont = (cur_in_d == c_in and "contin" in str(cand.get("estado_estancia") or "").lower())
+            if c_out != cur_in_d and (cur_in_d - c_in).days != 1 and not mismo_dia_cont:
                 continue
 
             s_fin = _saldo_fin_estancia(cand)
@@ -601,11 +602,61 @@ def _reconstruir_cadena_estancia(
         elegido = posibles[0][2]
 
         usados.add(str(elegido["estancia_uuid"]))
-        cadena.append(elegido)
+        cadena_atras.append(elegido)
         cur = elegido
 
-    cadena.reverse()  # Orden cronológico: Noche 1 (Día de Ingreso) -> Hoy
-    return cadena
+    cadena_atras.reverse()  # Orden cronológico: Día de Ingreso -> st_actual
+
+    # B. Si st_actual tuvo continuación ("Continúa"), caminar también hacia adelante
+    cadena_adelante = []
+    cur_f = dict(st_actual)
+    for _paso_f in range(90):
+        est_f = str(cur_f.get("estado_estancia") or "").lower()
+        if "contin" not in est_f:
+            break
+        cur_in_f = _dmy_a_date(cur_f["fecha_in_dmy"])
+        cur_out_f = _dmy_a_date(cur_f["fecha_out_dmy"]) if cur_f.get("fecha_out_dmy") else (cur_in_f + timedelta(days=1))
+        s_fin_f = _saldo_fin_estancia(cur_f)
+        cur_hab_f = str(cur_f.get("hab") or "").strip()
+        cur_tar_f = round(float(cur_f.get("tarifa") or 0.0), 2)
+
+        posibles_f = []
+        for cand in todos:
+            cu = str(cand["estancia_uuid"])
+            if cu in usados:
+                continue
+            c_in = _dmy_a_date(cand["fecha_in_dmy"])
+            if c_in != cur_out_f and (c_in - cur_in_f).days not in (0, 1):
+                continue
+            deuda_c = round(float(cand.get("deuda_anterior") or 0.0), 2)
+            hab_c = str(cand.get("hab") or "").strip()
+            tar_c = round(float(cand.get("tarifa") or 0.0), 2)
+
+            score_f = 0
+            if hab_c == cur_hab_f:
+                score_f += 140
+            if abs(tar_c - cur_tar_f) <= 0.1:
+                score_f += 80
+            if abs(deuda_c - s_fin_f) <= 0.1 and abs(s_fin_f) > 0.1:
+                score_f += 120
+            elif abs(deuda_c - s_fin_f) <= 0.1:
+                score_f += 40
+            if c_in == cur_out_f:
+                score_f += 25
+
+            if score_f < 35:
+                continue
+            posibles_f.append((score_f, -int(cand.get("sheet_row") or 0), cand))
+
+        if not posibles_f:
+            break
+        posibles_f.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        elegido_f = posibles_f[0][2]
+        usados.add(str(elegido_f["estancia_uuid"]))
+        cadena_adelante.append(elegido_f)
+        cur_f = elegido_f
+
+    return cadena_atras + cadena_adelante
 
 
 def _icono_y_nombre_servicio(tipo_raw: str) -> tuple[str, str]:
@@ -666,6 +717,8 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
     datos = datos or {}
     hab_req = str(datos.get("hab") or "").strip()
     modo = str(datos.get("modo") or "ingreso").strip().lower()
+    fecha_req_raw = str(datos.get("fecha") or "").strip()
+    est_uuid_req = str(datos.get("estanciaUuid") or "").strip()
     solo_ciclo = (modo == "ciclo") if "modo" in datos else (not bool(datos.get("todoHistorial", True)))
 
     conn = get_connection()
@@ -723,28 +776,115 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
             elif habs_activas:
                 hab_req = habs_activas[0]["hab"]
 
-        cadena_full = cadenas_full_por_hab.get(hab_req) or []
-        cadena_ciclo = cadenas_ciclo_por_hab.get(hab_req) or []
-        if not cadena_full and hab_req:
-            row_fb = conn.execute(
+        # Historial reciente de estancias de esta habitación (para selector de fechas/huéspedes en la barra)
+        estancias_hab_lista = []
+        if hab_req:
+            rows_hist_hab = conn.execute(
                 """
-                SELECT * FROM estancias
+                SELECT estancia_uuid, fecha_in_dmy, fecha_out_dmy, ymd_in, hab, huesped, dni, tarifa, estado_estancia
+                FROM estancias
                 WHERE hab = ? AND lower(coalesce(estado_estancia, '')) NOT LIKE '%cancel%'
-                ORDER BY ymd_in DESC, sheet_row DESC LIMIT 1
+                ORDER BY ymd_in DESC, sheet_row DESC
+                LIMIT 20
                 """,
                 (hab_req,),
+            ).fetchall()
+            for rh in rows_hist_hab:
+                f_dmy_h = str(rh["fecha_in_dmy"] or "")
+                try:
+                    f_iso_h = _dmy_a_iso(f_dmy_h) if f_dmy_h else ""
+                except Exception:
+                    f_iso_h = ""
+                estancias_hab_lista.append({
+                    "estanciaUuid": str(rh["estancia_uuid"] or ""),
+                    "fechaInDmy": f_dmy_h,
+                    "fechaOutDmy": str(rh["fecha_out_dmy"] or ""),
+                    "fechaInIso": f_iso_h,
+                    "hab": str(rh["hab"] or hab_req),
+                    "huesped": str(rh["huesped"] or ""),
+                    "dni": str(rh["dni"] or ""),
+                    "tarifa": round(float(rh["tarifa"] or 0.0), 2),
+                    "estadoEstancia": str(rh["estado_estancia"] or ""),
+                })
+
+        # Resolver la estancia base según estanciaUuid, fecha indicada o estancia activa actual
+        row_objetivo = None
+        fecha_dmy_busq = ""
+        if est_uuid_req:
+            row_objetivo = conn.execute(
+                "SELECT * FROM estancias WHERE estancia_uuid = ? LIMIT 1",
+                (est_uuid_req,),
             ).fetchone()
-            if row_fb:
-                cadena_full = _reconstruir_cadena_estancia(conn, dict(row_fb), solo_ciclo_actual=False)
-                cadena_ciclo = _reconstruir_cadena_estancia(conn, dict(row_fb), solo_ciclo_actual=True)
+            if row_objetivo and not hab_req:
+                hab_req = str(row_objetivo["hab"] or "")
+        elif fecha_req_raw and hab_req:
+            try:
+                fecha_dmy_busq = _fecha_a_dmy(fecha_req_raw)
+                ymd_busq = dl.fecha_dmy_a_ymd(fecha_dmy_busq)
+            except Exception:
+                fecha_dmy_busq = ""
+                ymd_busq = 0
+            if fecha_dmy_busq:
+                # 1) Coincidencia exacta con fecha_in_dmy en esa habitación
+                row_objetivo = conn.execute(
+                    """
+                    SELECT * FROM estancias
+                    WHERE hab = ? AND fecha_in_dmy = ?
+                      AND lower(coalesce(estado_estancia, '')) NOT LIKE '%cancel%'
+                    ORDER BY sheet_row DESC, rowid DESC LIMIT 1
+                    """,
+                    (hab_req, fecha_dmy_busq),
+                ).fetchone()
+                # 2) Si no ingresó ese día exacto, estancia vigente durante esa fecha en esa habitación
+                if not row_objetivo and ymd_busq > 0:
+                    row_objetivo = conn.execute(
+                        """
+                        SELECT * FROM estancias
+                        WHERE hab = ? AND ymd_in <= ? AND ymd_out > ?
+                          AND lower(coalesce(estado_estancia, '')) NOT LIKE '%cancel%'
+                        ORDER BY ymd_in DESC, sheet_row DESC LIMIT 1
+                        """,
+                        (hab_req, ymd_busq, ymd_busq),
+                    ).fetchone()
+                # 3) Si tampoco hubo ese día, buscar si un huésped que ingresó ese día estuvo en otra hab y pasó por hab_req
+                if not row_objetivo and ymd_busq > 0:
+                    row_objetivo = conn.execute(
+                        """
+                        SELECT * FROM estancias
+                        WHERE hab = ? AND ymd_in <= ?
+                          AND lower(coalesce(estado_estancia, '')) NOT LIKE '%cancel%'
+                        ORDER BY ymd_in DESC, sheet_row DESC LIMIT 1
+                        """,
+                        (hab_req, ymd_busq),
+                    ).fetchone()
+
+        if row_objetivo is not None:
+            cadena_full = _reconstruir_cadena_estancia(conn, dict(row_objetivo), solo_ciclo_actual=False)
+            cadena_ciclo = _reconstruir_cadena_estancia(conn, dict(row_objetivo), solo_ciclo_actual=True)
+        else:
+            cadena_full = cadenas_full_por_hab.get(hab_req) or []
+            cadena_ciclo = cadenas_ciclo_por_hab.get(hab_req) or []
+            if not cadena_full and hab_req:
+                row_fb = conn.execute(
+                    """
+                    SELECT * FROM estancias
+                    WHERE hab = ? AND lower(coalesce(estado_estancia, '')) NOT LIKE '%cancel%'
+                    ORDER BY ymd_in DESC, sheet_row DESC LIMIT 1
+                    """,
+                    (hab_req,),
+                ).fetchone()
+                if row_fb:
+                    cadena_full = _reconstruir_cadena_estancia(conn, dict(row_fb), solo_ciclo_actual=False)
+                    cadena_ciclo = _reconstruir_cadena_estancia(conn, dict(row_fb), solo_ciclo_actual=True)
 
         cadena = cadena_ciclo if solo_ciclo else cadena_full
 
         if not cadena:
             return {
                 "encontrado": False,
-                "mensaje": f"No se encontró estancia para la Hab. {hab_req}. Escribe el número de habitación (ej. 206).",
+                "mensaje": f"No se encontró estancia para la Hab. {hab_req}" + (f" en la fecha {fecha_dmy_busq}." if fecha_dmy_busq else ". Escribe el número de habitación (ej. 206)."),
                 "habitacionesMultiDia": habs_multidia,
+                "estanciasDeLaHab": estancias_hab_lista,
                 "hab": hab_req,
             }
 
@@ -1083,9 +1223,21 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
         tot_pagado_cadena = round(tot_pagado_efec + tot_pagado_yape + tot_pagado_visa, 2)
         saldo_final_actual = _saldo_fin_estancia(ult)
 
+        est_base_uuid = str(row_objetivo["estancia_uuid"]) if row_objetivo is not None else str(ult.get("estancia_uuid") or "")
+        fecha_base_dmy = str(row_objetivo["fecha_in_dmy"]) if row_objetivo is not None else str(ult.get("fecha_in_dmy") or "")
+        try:
+            fecha_base_iso = _dmy_a_iso(fecha_base_dmy) if fecha_base_dmy else ""
+        except Exception:
+            fecha_base_iso = ""
+
         return {
             "encontrado": True,
-            "hab": str(ult.get("hab") or hab_req),
+            "hab": str(hab_req or ult.get("hab") or ""),
+            "habActualHuesped": str(ult.get("hab") or hab_req),
+            "estanciaUuidSeleccionada": est_base_uuid,
+            "fechaSeleccionadaDmy": fecha_base_dmy,
+            "fechaSeleccionadaIso": fecha_base_iso,
+            "estanciasDeLaHab": estancias_hab_lista,
             "huesped": str(ult.get("huesped") or ""),
             "dni": str(ult.get("dni") or ""),
             "celular": celular_huesped,

@@ -1151,10 +1151,24 @@
           <input type="text" id="chHabInput" inputmode="numeric" maxlength="6" autocomplete="off"
                  oninput="chAlEscribirHab(this.value)"
                  onkeydown="if(event.key==='Enter'){event.preventDefault();chCargar(this.value);}"
-                 placeholder="Ej. 206"
-                 class="w-20 px-2.5 py-1 rounded-lg border border-amber-400 bg-amber-50/50 focus:bg-white font-black text-sm text-center text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-600">
+                 placeholder="Ej. 306"
+                 class="w-18 px-2 py-1 rounded-lg border border-amber-400 bg-amber-50/50 focus:bg-white font-black text-sm text-center text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-amber-600">
+
+          <div class="inline-flex items-center gap-1 bg-amber-50/70 border border-amber-300 rounded-lg px-2 py-0.5">
+            <label for="chFechaInput" class="font-black text-[10.5px] text-amber-950 whitespace-nowrap">📅 Fecha:</label>
+            <input type="date" id="chFechaInput"
+                   onchange="chAlCambiarFecha(this.value)"
+                   class="px-1.5 py-0.5 rounded border border-amber-300 bg-white font-black text-[11px] text-slate-900 cursor-pointer"
+                   title="Elige la fecha (ej. 04/11/2026) para sacar la cuenta de la habitación en ese día">
+            <button type="button" onclick="chLimpiarFecha()"
+                    title="Volver a la estancia actual / más reciente"
+                    class="px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-[10px] cursor-pointer">
+              Actual
+            </button>
+          </div>
+
           <button type="button" onclick="chCargar(document.getElementById('chHabInput').value)"
-                  class="px-3 py-1.5 rounded-lg bg-amber-800 hover:bg-amber-900 text-white font-black text-xs cursor-pointer">
+                  class="px-2.5 py-1.5 rounded-lg bg-amber-800 hover:bg-amber-900 text-white font-black text-xs cursor-pointer">
             🔍 Ver Cuenta
           </button>
 
@@ -1189,6 +1203,14 @@
               </button>
             </div>
           </div>
+        </div>
+
+        <!-- Selector rápido de estancias por fecha de la habitación consultada (ej. Hab. 306 del 04/11, 03/11, 02/11...) -->
+        <div id="chFilaEstanciasHab" class="hidden flex items-center gap-2 flex-wrap pt-2 mt-2 border-t border-slate-100">
+          <span class="text-[10.5px] font-black text-slate-600 uppercase whitespace-nowrap">📆 Elegir fecha / huésped de esta Hab.:</span>
+          <select id="chSelectEstanciaHab" onchange="chSeleccionarEstanciaHab(this.value)"
+                  class="px-2.5 py-1 rounded-lg border border-amber-400 bg-amber-50/60 font-black text-[11px] text-slate-900 cursor-pointer flex-1 min-w-[260px] max-w-xl">
+          </select>
         </div>
       </div>
 
@@ -8850,37 +8872,83 @@
 
   window.chAlEscribirHab = function (val) {
     if (CH.timer) clearTimeout(CH.timer);
+    CH.estanciaUuid = '';
     var limpio = String(val || '').replace(/[^0-9A-Za-z]/g, '').trim();
     if (limpio.length >= 3) {
       CH.timer = setTimeout(function () { chCargar(limpio); }, 160);
     }
   };
 
+  window.chAlCambiarFecha = function (fechaIso) {
+    CH.estanciaUuid = '';
+    var inp = document.getElementById('chHabInput');
+    var hab = inp ? inp.value : '';
+    chCargar(hab, { fecha: fechaIso || '', estanciaUuid: '' });
+  };
+
+  window.chLimpiarFecha = function () {
+    CH.estanciaUuid = '';
+    var inpF = document.getElementById('chFechaInput');
+    if (inpF) {
+      inpF.value = '';
+      inpF.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      var inp = document.getElementById('chHabInput');
+      chCargar(inp ? inp.value : '', { fecha: '', estanciaUuid: '' });
+    }
+  };
+
+  window.chSeleccionarEstanciaHab = function (estUuid) {
+    CH.estanciaUuid = estUuid || '';
+    var selE = document.getElementById('chSelectEstanciaHab');
+    var inpF = document.getElementById('chFechaInput');
+    if (selE && inpF && selE.selectedIndex >= 0) {
+      var opt = selE.options[selE.selectedIndex];
+      var fIso = opt ? (opt.getAttribute('data-fecha-iso') || '') : '';
+      if (fIso) {
+        inpF.value = fIso;
+        try { inpF.dispatchEvent(new Event('input', { bubbles: true })); } catch (_e) {}
+      }
+    }
+    var inp = document.getElementById('chHabInput');
+    chCargar(inp ? inp.value : '', { estanciaUuid: CH.estanciaUuid });
+  };
+
   window.chDescargarPdf = function () {
     var inp = document.getElementById('chHabInput');
+    var inpF = document.getElementById('chFechaInput');
     var selM = document.getElementById('chModoVista');
     var hab = inp ? String(inp.value || '').replace(/[^0-9A-Za-z]/g, '').trim() : '';
+    var fecha = inpF ? String(inpF.value || '').trim() : '';
+    var estUuid = CH.estanciaUuid || '';
     var modo = selM ? selM.value : 'ingreso';
     if (!hab) {
-      chMsg('error', '⚠️ Escribe primero el número de la habitación (ej. 206).');
+      chMsg('error', '⚠️ Escribe primero el número de la habitación (ej. 306).');
       return;
     }
-    var url = '/api/cuentas/pdf?hab=' + encodeURIComponent(hab) + '&modo=' + encodeURIComponent(modo) + '&t=' + Date.now();
+    var url = '/api/cuentas/pdf?hab=' + encodeURIComponent(hab) +
+      '&modo=' + encodeURIComponent(modo) +
+      '&fecha=' + encodeURIComponent(fecha) +
+      '&estanciaUuid=' + encodeURIComponent(estUuid) +
+      '&t=' + Date.now();
     window.open(url, '_blank');
   };
 
   window.chEnviarWsp = function () {
     var inpHab = document.getElementById('chHabInput');
+    var inpF = document.getElementById('chFechaInput');
     var inpTel = document.getElementById('chWspInput');
     var selM = document.getElementById('chModoVista');
     var btnW = document.getElementById('btnChWsp');
 
     var hab = inpHab ? String(inpHab.value || '').replace(/[^0-9A-Za-z]/g, '').trim() : '';
+    var fecha = inpF ? String(inpF.value || '').trim() : '';
+    var estUuid = CH.estanciaUuid || '';
     var tel = inpTel ? String(inpTel.value || '').replace(/[^0-9]/g, '').trim() : '';
     var modo = selM ? selM.value : 'ingreso';
 
     if (!hab) {
-      chMsg('error', '⚠️ Escribe primero la habitación (ej. 206).');
+      chMsg('error', '⚠️ Escribe primero la habitación (ej. 306).');
       if (inpHab) inpHab.focus();
       return;
     }
@@ -8893,7 +8961,7 @@
     if (btnW) { btnW.disabled = true; btnW.textContent = '⏳ Enviando PDF...'; }
     chMsg('info', '⏳ Generando PDF del estado de cuenta de Hab. ' + hab + ' y enviándolo por WhatsApp al ' + tel + '...');
 
-    vpRpc('enviarCuentaHabWsp', [{ hab: hab, telefono: tel, modo: modo }], function (res) {
+    vpRpc('enviarCuentaHabWsp', [{ hab: hab, telefono: tel, modo: modo, fecha: fecha, estanciaUuid: estUuid }], function (res) {
       if (btnW) { btnW.disabled = false; btnW.textContent = '📲 Enviar PDF a WSP'; }
       chMsg('ok', (res && res.mensaje) || ('✅ PDF enviado por WhatsApp al ' + tel));
     }, function (e) {
@@ -9000,16 +9068,20 @@
     }).join('');
   }
 
-  window.chCargar = function (hab) {
+  window.chCargar = function (hab, opts) {
+    opts = opts || {};
     var inp = document.getElementById('chHabInput');
+    var inpF = document.getElementById('chFechaInput');
     var selM = document.getElementById('chModoVista');
     var limpio = String(hab != null ? hab : (inp ? inp.value : '')).replace(/[^0-9A-Za-z]/g, '').trim();
     if (inp && limpio) inp.value = limpio;
     var modo = selM ? selM.value : 'ingreso';
+    var fechaVal = opts.fecha !== undefined ? opts.fecha : (inpF ? String(inpF.value || '').trim() : '');
+    var estUuidVal = opts.estanciaUuid !== undefined ? opts.estanciaUuid : (CH.estanciaUuid || '');
 
     var cont = document.getElementById('chContenidoCuenta');
 
-    vpRpc('obtenerCuentaDetalladaHab', [{ hab: limpio, modo: modo }], function (res) {
+    vpRpc('obtenerCuentaDetalladaHab', [{ hab: limpio, modo: modo, fecha: fechaVal, estanciaUuid: estUuidVal }], function (res) {
       if (!res) return;
       CH.ultimosDatos = res;
       CH.habsMultiDia = res.habitacionesMultiDia || [];
@@ -9017,9 +9089,29 @@
       var habSel = String(res.hab || limpio || '');
       if (inp && habSel) inp.value = habSel;
 
+      // Poblar el selector de fechas/estancias de esta habitación (ej. Hab. 306 del 04/11/2026, 05/11/2026, etc.)
+      var filaEst = document.getElementById('chFilaEstanciasHab');
+      var selEst = document.getElementById('chSelectEstanciaHab');
+      var listaEstHab = res.estanciasDeLaHab || [];
+      if (filaEst && selEst) {
+        if (!listaEstHab.length) {
+          filaEst.classList.add('hidden');
+        } else {
+          filaEst.classList.remove('hidden');
+          var uuidAct = String(res.estanciaUuidSeleccionada || estUuidVal || '');
+          selEst.innerHTML = listaEstHab.map(function (eh) {
+            var selAttr = (uuidAct && String(eh.estanciaUuid) === uuidAct) ? ' selected' : '';
+            var estTag = eh.estadoEstancia ? (' [' + eh.estadoEstancia + ']') : '';
+            return '<option value="' + vpEsc(eh.estanciaUuid) + '" data-fecha-iso="' + vpEsc(eh.fechaInIso || '') + '"' + selAttr + '>' +
+              '📅 ' + vpEsc(eh.fechaInDmy) + ' — ' + vpEsc(eh.huesped) + ' (S/ ' + Number(eh.tarifa || 0).toFixed(0) + ')' + vpEsc(estTag) +
+            '</option>';
+          }).join('');
+        }
+      }
+
       if (!res.encontrado) {
         if (cont) cont.classList.add('hidden');
-        chMsg('info', res.mensaje || 'Escribe el número de una habitación (ej. 206).');
+        chMsg('info', res.mensaje || 'Escribe el número de una habitación (ej. 306).');
         return;
       }
 

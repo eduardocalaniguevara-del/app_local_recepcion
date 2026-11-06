@@ -374,10 +374,10 @@ def vista_tablet_kiosco(request: Request):
 
 
 @app.get("/api/cuentas/pdf")
-def api_descargar_pdf_cuenta_hab(hab: str = "", modo: str = "ingreso"):
+def api_descargar_pdf_cuenta_hab(hab: str = "", modo: str = "ingreso", fecha: str = "", estanciaUuid: str = ""):
     import pases_logic as pl
     try:
-        pdf_path = pl.generar_pdf_cuenta_hab_local({"hab": hab, "modo": modo})
+        pdf_path = pl.generar_pdf_cuenta_hab_local({"hab": hab, "modo": modo, "fecha": fecha, "estanciaUuid": estanciaUuid})
         return FileResponse(
             str(pdf_path),
             media_type="application/pdf",
