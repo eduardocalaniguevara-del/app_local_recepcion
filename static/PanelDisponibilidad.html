@@ -1134,7 +1134,7 @@
 
   <!-- DIÁLOGO MODAL: ESTADO DE CUENTA DETALLADO POR HABITACIÓN (HUÉSPEDES QUE VAN VARIOS DÍAS) -->
   <dialog id="dialogCuentasHab" closedby="any" aria-labelledby="tituloDialogCuentasHab"
-          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[1080px] max-w-[98vw] bg-[#FAF6F3] text-slate-800 m-auto">
+          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[1180px] max-w-[99vw] bg-[#FAF6F3] text-slate-800 m-auto">
     <div class="bg-[#2D2623] text-white px-4 py-2.5 flex items-center justify-between gap-2 rounded-t-xl">
       <div class="flex items-center gap-2 flex-wrap">
         <span id="tituloDialogCuentasHab" class="font-black text-sm text-amber-300">📋 Cuenta Detallada por Habitación</span>
@@ -1231,14 +1231,14 @@
             <table class="w-full text-left text-[11px] border-collapse">
               <thead class="sticky top-0 z-10">
                 <tr class="bg-slate-100 text-slate-800 font-black border-b border-slate-300 text-[10.5px]">
-                  <th class="px-2.5 py-1.5 w-32">Noche / Fecha</th>
-                  <th class="px-2 py-1.5 w-12 text-center">Hab.</th>
-                  <th class="px-2 py-1.5 w-22 text-right bg-amber-50/80" title="Deuda arrastrada del día anterior">Deuda Ant.</th>
-                  <th class="px-2 py-1.5 w-20 text-right">Tarifa</th>
-                  <th class="px-2.5 py-1.5 bg-teal-50/60 text-teal-950" title="Visitas, Garaje, Lavandería, Ducha, Comprobante, etc.">🛎️ Adic. Servicio</th>
-                  <th class="px-2.5 py-1.5 bg-pink-50/50 text-pink-950" title="Productos de Tienda consumidos ese día">🛒 Tienda</th>
-                  <th class="px-2 py-1.5 w-22 text-right bg-slate-200/70" title="Deuda Ant. + Tarifa + Adicionales del Día">Total Día</th>
-                  <th class="px-2.5 py-1.5">Pagos Diarios (Medio)</th>
+                  <th class="px-2 py-1.5 w-28">Noche / Fecha</th>
+                  <th class="px-1.5 py-1.5 w-11 text-center">Hab.</th>
+                  <th class="px-2 py-1.5 w-20 text-right bg-amber-50/80" title="Deuda arrastrada del día anterior">Deuda Ant.</th>
+                  <th class="px-2 py-1.5 w-18 text-right">Tarifa</th>
+                  <th class="px-2 py-1.5 w-36 bg-teal-50/60 text-teal-950" title="Visitas, Garaje, Lavandería, Ducha, Comprobante, etc.">🛎️ Adic. Servicio</th>
+                  <th class="px-2 py-1.5 w-36 bg-pink-50/50 text-pink-950" title="Productos de Tienda consumidos ese día">🛒 Tienda</th>
+                  <th class="px-2 py-1.5 w-21 text-right bg-slate-200/70" title="Deuda Ant. + Tarifa + Adicionales del Día">Total Día</th>
+                  <th class="px-2.5 py-1.5 min-w-[230px] bg-emerald-50/90 text-emerald-950 border-x border-emerald-200" title="Monto total abonado ese día y desglose por medio de pago">💰 Pagos Diarios (Monto Abonado)</th>
                   <th class="px-2.5 py-1.5 w-26 text-right">Deuda Cierre</th>
                 </tr>
               </thead>
@@ -9020,17 +9020,31 @@
         tiendaHtml = '<span class="text-slate-300">—</span>';
       }
 
+      var pagadoDiaNum = Number(d.pagadoDia || 0);
+      var pagosArr = d.pagosDetalle || [];
+      var sumaDetallePagos = pagosArr.reduce(function (acc, x) { return acc + Number(x.monto || 0); }, 0);
+      var totalAbonadoDia = pagadoDiaNum > 0.009 ? pagadoDiaNum : sumaDetallePagos;
       var pagosHtml = '';
-      if (d.pagosDetalle && d.pagosDetalle.length) {
-        pagosHtml = d.pagosDetalle.map(function (pg) {
-          var op = pg.nroOperacion ? (' <span class="font-mono text-[9.5px] text-slate-500">[' + vpEsc(pg.nroOperacion) + ']</span>') : '';
-          return '<div class="flex items-center justify-between gap-2 py-0.5">' +
-            '<span>' + chBadgeMedioPago(pg.medioPago) + ' <span class="text-slate-700 font-semibold">' + vpEsc(pg.concepto || pg.tipoPago) + '</span>' + (pg.hora ? (' <span class="text-slate-400 text-[10px]">(' + vpEsc(pg.hora) + ')</span>') : '') + op + '</span>' +
-            '<span class="font-black text-emerald-900 whitespace-nowrap">' + chSoles(pg.monto) + '</span>' +
+      if (totalAbonadoDia > 0.009 || pagosArr.length) {
+        var headerAbono = '<div class="flex items-center justify-between gap-2 px-2 py-0.5 mb-1 rounded bg-emerald-100/90 border border-emerald-300">' +
+          '<span class="font-extrabold text-[10px] text-emerald-950 uppercase">💰 Abonó en el día:</span>' +
+          '<span class="font-black text-xs text-emerald-900 whitespace-nowrap">' + chSoles(totalAbonadoDia) + '</span>' +
+        '</div>';
+        var itemsAbono = pagosArr.map(function (pg) {
+          var etq = pg.etiquetaCorta || (String(pg.tipoPago || '').toLowerCase().indexOf('ini') >= 0 ? 'Inicial' : 'Abono');
+          var op = pg.nroOperacion ? (' <span class="font-mono text-[9.5px] text-slate-500">[Op:' + vpEsc(pg.nroOperacion) + ']</span>') : '';
+          var horaP = pg.hora ? (' <span class="text-slate-400 font-mono text-[9.5px]">(' + vpEsc(pg.hora) + ')</span>') : '';
+          return '<div class="flex items-center justify-between gap-1.5 px-1.5 py-0.5 my-0.5 rounded bg-white border border-emerald-200/80">' +
+            '<span class="inline-flex items-center gap-1 flex-wrap text-[10px]">' + chBadgeMedioPago(pg.medioPago) + ' <span class="text-slate-600 font-bold">' + vpEsc(etq) + '</span>' + horaP + op + '</span>' +
+            '<span class="font-black text-emerald-900 text-[11px] whitespace-nowrap">' + chSoles(pg.monto) + '</span>' +
           '</div>';
         }).join('');
+        pagosHtml = headerAbono + itemsAbono;
       } else {
-        pagosHtml = '<span class="text-slate-400">— Sin pago —</span>';
+        pagosHtml = '<div class="flex items-center justify-between gap-2 px-2 py-1 rounded bg-slate-100 border border-slate-200/80 text-slate-500">' +
+          '<span class="text-[10px] font-bold">Sin abono</span>' +
+          '<span class="font-black text-[10.5px] text-slate-600 whitespace-nowrap">S/ 0.00</span>' +
+        '</div>';
       }
 
       var sDia = Number(d.saldoFinDia || 0);
@@ -9062,7 +9076,7 @@
         '<td class="px-2 py-1.5 bg-teal-50/20">' + servHtml + '</td>' +
         '<td class="px-2 py-1.5 bg-pink-50/15">' + tiendaHtml + '</td>' +
         '<td class="px-2 py-2 text-right font-black text-slate-900 whitespace-nowrap bg-slate-50">' + chSoles(d.cargoTotalDia) + '</td>' +
-        '<td class="px-2.5 py-2">' + pagosHtml + '</td>' +
+        '<td class="px-2.5 py-1.5 min-w-[230px] bg-emerald-50/25 border-x border-emerald-100">' + pagosHtml + '</td>' +
         '<td class="px-2.5 py-2 text-right whitespace-nowrap">' + badgeSaldoDia + '</td>' +
       '</tr>';
     }).join('');

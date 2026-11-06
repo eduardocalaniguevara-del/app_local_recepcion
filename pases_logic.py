@@ -944,47 +944,79 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
             tot_pagado_yape = round(tot_pagado_yape + ini_y + post_y, 2)
             tot_pagado_visa = round(tot_pagado_visa + visa_d, 2)
 
-            # 1. Pagos de ese día en Registro_Pagos
+            # 1. Pagos de ese día en Registro_Pagos (excluyendo filas marcadas como DUPLICADO/ANULADO)
             rows_p = conn.execute(
                 """
                 SELECT fecha_iso, hab, monto, medio_pago, tipo_pago, concepto, nro_operacion
                 FROM pagos
-                WHERE (id_estancia = ? AND trim(id_estancia) != '')
-                   OR (estancia_uuid = ? AND trim(estancia_uuid) != '')
+                WHERE ((id_estancia = ? AND trim(id_estancia) != '')
+                   OR (estancia_uuid = ? AND trim(estancia_uuid) != ''))
+                  AND upper(coalesce(concepto, '')) NOT LIKE '%DUPLICADO%'
+                  AND upper(coalesce(concepto, '')) NOT LIKE '%ANULAD%'
                 ORDER BY sheet_row ASC, fecha_iso ASC
                 """,
                 (id_ts, est_uuid),
             ).fetchall()
 
+            def _etiqueta_corta_pago(tipo_raw: str, concepto_raw: str) -> str:
+                t_low = (tipo_raw or "").lower()
+                c_low = (concepto_raw or "").lower()
+                if "inicial" in t_low or "inicial" in c_low:
+                    return "Inicial"
+                if "adicional" in t_low or "servicio" in c_low or "visita" in c_low:
+                    return "Adic."
+                if "tienda" in t_low or "snack" in c_low:
+                    return "Tienda"
+                if "posterior" in t_low or "saldo" in c_low or "posterior" in c_low:
+                    return "Abono"
+                return "Abono"
+
             pagos_dia_lista = []
+            suma_efec_rows = 0.0
+            suma_yape_rows = 0.0
+            suma_visa_rows = 0.0
             for rp in rows_p:
                 m_val = round(float(rp["monto"] or 0.0), 2)
+                if m_val == 0:
+                    continue
                 fh = str(rp["fecha_iso"] or "")
                 hora_p = fh.split(" ")[1][:5] if " " in fh else ""
                 fecha_p_raw = fh.split(" ")[0] if " " in fh else f_in
                 fecha_p = _fecha_a_dmy(fecha_p_raw) if fecha_p_raw else f_in
+                med_p = str(rp["medio_pago"] or "Efectivo")
+                tip_p = str(rp["tipo_pago"] or "")
+                con_p = str(rp["concepto"] or "Pago de estancia")
+                med_low = med_p.lower()
+                if "yape" in med_low or "plin" in med_low:
+                    suma_yape_rows = round(suma_yape_rows + m_val, 2)
+                elif "visa" in med_low or "banco" in med_low or "tarj" in med_low or "transf" in med_low:
+                    suma_visa_rows = round(suma_visa_rows + m_val, 2)
+                else:
+                    suma_efec_rows = round(suma_efec_rows + m_val, 2)
                 item_p = {
                     "fecha": fecha_p,
                     "hora": hora_p,
                     "hab": str(rp["hab"] or hab_d),
                     "monto": m_val,
-                    "medioPago": str(rp["medio_pago"] or "Efectivo"),
-                    "tipoPago": str(rp["tipo_pago"] or ""),
-                    "concepto": str(rp["concepto"] or "Pago de estancia"),
+                    "medioPago": med_p,
+                    "tipoPago": tip_p,
+                    "etiquetaCorta": _etiqueta_corta_pago(tip_p, con_p),
+                    "concepto": con_p,
                     "nroOperacion": str(rp["nro_operacion"] or ""),
                 }
                 pagos_dia_lista.append(item_p)
                 todos_pagos.append(item_p)
 
+            # Si en la hoja Estancias hay montos abonados (Efectivo/Yape/Visa) que no tenían fila en Registro_Pagos, completarlos
+            op_yape = str(st.get("nro_op_yape") or "")
+            hora_reg = str(st.get("hora_registro") or "")[:5]
             if not pagos_dia_lista and pagado_dia_est != 0:
-                op_yape = str(st.get("nro_op_yape") or "")
-                hora_reg = str(st.get("hora_registro") or "")[:5]
-                for monto_col, med_col, tip_col in [
-                    (ini_e, "Efectivo", "Inicial"),
-                    (ini_y, "Yape", "Inicial"),
-                    (post_e, "Efectivo", "Posterior"),
-                    (post_y, "Yape", "Posterior"),
-                    (visa_d, "VISA / Banco", "Posterior"),
+                for monto_col, med_col, tip_col, etq_col in [
+                    (ini_e, "Efectivo", "Inicial", "Inicial"),
+                    (ini_y, "Yape", "Inicial", "Inicial"),
+                    (post_e, "Efectivo", "Posterior", "Abono"),
+                    (post_y, "Yape", "Posterior", "Abono"),
+                    (visa_d, "VISA / Banco", "Posterior", "Abono"),
                 ]:
                     if monto_col != 0:
                         item_s = {
@@ -994,11 +1026,31 @@ def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -
                             "monto": monto_col,
                             "medioPago": med_col,
                             "tipoPago": tip_col,
+                            "etiquetaCorta": etq_col,
                             "concepto": f"Pago {tip_col} ({med_col})",
                             "nroOperacion": op_yape if med_col == "Yape" else "",
                         }
                         pagos_dia_lista.append(item_s)
                         todos_pagos.append(item_s)
+            elif pagos_dia_lista and pagado_dia_est > round(suma_efec_rows + suma_yape_rows + suma_visa_rows + 0.01, 2):
+                falt_e = round((ini_e + post_e) - suma_efec_rows, 2)
+                falt_y = round((ini_y + post_y) - suma_yape_rows, 2)
+                falt_v = round(visa_d - suma_visa_rows, 2)
+                for m_f, med_f in [(falt_e, "Efectivo"), (falt_y, "Yape"), (falt_v, "VISA / Banco")]:
+                    if m_f > 0.01:
+                        item_f = {
+                            "fecha": f_in,
+                            "hora": hora_reg,
+                            "hab": hab_d,
+                            "monto": m_f,
+                            "medioPago": med_f,
+                            "tipoPago": "Estancia",
+                            "etiquetaCorta": "Abono",
+                            "concepto": f"Abono en estancia ({med_f})",
+                            "nroOperacion": op_yape if med_f == "Yape" else "",
+                        }
+                        pagos_dia_lista.append(item_f)
+                        todos_pagos.append(item_f)
 
             # 2A. Consumo de Tienda de ese día
             rows_t = conn.execute(
@@ -1439,12 +1491,15 @@ def generar_pdf_cuenta_hab_local(datos: Optional[Dict[str, Any]] = None) -> Path
             tnd_txts.append(f"• {tn['etiqueta']}: S/ {float(tn['monto']):.2f}")
         tnd_str = "<br/>".join(tnd_txts) if tnd_txts else "—"
 
+        pag_dia_monto = float(d.get("pagadoDia") or 0.0)
         pag_txts = []
+        if pag_dia_monto > 0.009:
+            pag_txts.append(f"<b>Abonó día: S/ {pag_dia_monto:.2f}</b>")
         for p in d.get("pagosDetalle") or []:
             op_s = f" [Op:{p['nroOperacion']}]" if p.get("nroOperacion") else ""
             h_s = f" ({p['hora']})" if p.get("hora") else ""
-            pag_txts.append(f"• {p['medioPago']}: S/ {float(p['monto']):.2f}{h_s}{op_s}")
-        pag_str = "<br/>".join(pag_txts) if pag_txts else "—"
+            pag_txts.append(f"• {p['medioPago']}: <b>S/ {float(p['monto']):.2f}</b>{h_s}{op_s}")
+        pag_str = "<br/>".join(pag_txts) if pag_txts else "S/ 0.00 (Sin abono)"
 
         s_fin = float(d.get("saldoFinDia") or 0.0)
         s_txt = f"Debe S/ {s_fin:.2f}" if s_fin > 0.009 else (f"A favor S/ {abs(s_fin):.2f}" if s_fin < -0.009 else "S/ 0.00")
