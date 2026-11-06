@@ -632,6 +632,30 @@ def _icono_y_nombre_servicio(tipo_raw: str) -> tuple[str, str]:
     return ("🛎️", t)
 
 
+def _icono_y_nombre_servicio(tipo_raw: str) -> tuple[str, str]:
+    t = str(tipo_raw or "").strip()
+    tl = t.lower()
+    if not t or tl == "servicio adicional":
+        return ("🛎️", "Servicio")
+    if "visita" in tl or "pase" in tl:
+        return ("🚶", "Visita")
+    if "garaje" in tl or "cochera" in tl:
+        return ("🚗", "Garaje")
+    if "lavand" in tl:
+        return ("🧺", "Lavandería")
+    if "ducha" in tl:
+        return ("🚿", "Ducha")
+    if "equipaje" in tl or "maleta" in tl:
+        return ("🧳", "Guardar equipaje")
+    if "baño" in tl or "bano" in tl:
+        return ("🚻", "Uso de baño")
+    if "impres" in tl:
+        return ("🖨️", "Impresiones")
+    if "comprob" in tl or "factura" in tl or "boleta" in tl:
+        return ("🧾", t)
+    return ("🛎️", t)
+
+
 def obtener_cuenta_detallada_hab_local(datos: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Reconstruye desde el Día de Ingreso todas las noches jaladas de la habitación indicada,
     separando con claridad:

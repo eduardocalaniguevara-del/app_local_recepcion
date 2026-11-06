@@ -1134,18 +1134,18 @@
 
   <!-- DIÁLOGO MODAL: ESTADO DE CUENTA DETALLADO POR HABITACIÓN (HUÉSPEDES QUE VAN VARIOS DÍAS) -->
   <dialog id="dialogCuentasHab" closedby="any" aria-labelledby="tituloDialogCuentasHab"
-          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[1040px] max-w-[98vw] bg-[#FAF6F3] text-slate-800 m-auto">
+          class="rounded-xl shadow-2xl border border-[#C7B29F] p-0 w-[1080px] max-w-[98vw] bg-[#FAF6F3] text-slate-800 m-auto">
     <div class="bg-[#2D2623] text-white px-4 py-2.5 flex items-center justify-between gap-2 rounded-t-xl">
       <div class="flex items-center gap-2 flex-wrap">
-        <span id="tituloDialogCuentasHab" class="font-black text-sm text-amber-300">📋 Cuenta Detallada por Habitación — Historial de Noches Jaladas</span>
-        <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-white/10 text-amber-200 border border-white/15">Día de ingreso · Noches jaladas · Pagos diarios · Deudas diarias</span>
+        <span id="tituloDialogCuentasHab" class="font-black text-sm text-amber-300">📋 Cuenta Detallada por Habitación</span>
+        <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-white/10 text-amber-200 border border-white/15">Día de ingreso · Recorrido · Desglose diario · Pagos y Tienda</span>
       </div>
       <button type="button" onclick="cerrarModalCuentasHab()" class="text-slate-300 hover:text-white font-black text-sm w-6 h-6 rounded hover:bg-red-600 cursor-pointer">✕</button>
     </div>
 
-    <div class="p-3.5 space-y-3 max-h-[87vh] overflow-y-auto text-xs">
-      <!-- Barra superior: Habitación + Alcance + Descargar PDF + Enviar al WhatsApp con número -->
-      <div class="bg-white rounded-lg border border-[#D8C7B8] p-2.5 shadow-2xs space-y-2">
+    <div class="p-3.5 space-y-2.5 max-h-[88vh] overflow-y-auto text-xs">
+      <!-- Barra superior: Habitación + Alcance + Orden + Descargar PDF + Enviar al WhatsApp con número -->
+      <div class="bg-white rounded-lg border border-[#D8C7B8] p-2.5 shadow-2xs">
         <div class="flex flex-wrap items-center gap-2">
           <label for="chHabInput" class="font-black text-[11px] text-slate-800 uppercase">🛏️ Hab.:</label>
           <input type="text" id="chHabInput" inputmode="numeric" maxlength="6" autocomplete="off"
@@ -1160,9 +1160,9 @@
 
           <select id="chModoVista" onchange="chCargar(document.getElementById('chHabInput').value)"
                   class="px-2 py-1.5 rounded-lg border border-slate-300 bg-slate-50 font-black text-[11px] text-slate-800 cursor-pointer"
-                  title="Ver todas las noches jaladas desde el Día de Ingreso o solo desde el último corte en S/ 0.00">
-            <option value="ingreso" selected>📅 Desde Día de Ingreso (Todas las noches jaladas)</option>
-            <option value="ciclo">⚖️ Solo desde último saldo en S/ 0.00</option>
+                  title="Ver desde el Día de Ingreso o solo desde el último saldo en S/ 0.00">
+            <option value="ingreso" selected>📅 Desde Día de Ingreso</option>
+            <option value="ciclo">⚖️ Desde último saldo en S/ 0.00</option>
           </select>
 
           <button type="button" id="btnChOrden" onclick="chToggleOrden()"
@@ -1190,42 +1190,34 @@
             </div>
           </div>
         </div>
-
-        <!-- Solo habitaciones que llevan varias noches jaladas (sin mostrar todas las ocupadas de 1 día) -->
-        <div id="chFilaHabsMultiDia" class="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-100">
-          <span class="text-[10px] font-extrabold text-slate-500 uppercase">🌙 Habs. con noches jaladas:</span>
-          <div id="chChipsHabs" class="flex items-center gap-1.5 flex-wrap"></div>
-        </div>
       </div>
 
       <div id="chStatusMsg" class="hidden px-3 py-2 rounded-lg text-xs font-extrabold border"></div>
 
       <!-- Contenedor principal de la cuenta detallada -->
-      <div id="chContenidoCuenta" class="space-y-3 hidden">
-        <!-- 1. Banner destacado del DÍA DE INGRESO + Recorrido de Noches Jaladas -->
-        <div id="chBannerIngreso" class="bg-amber-50/90 border-2 border-amber-300 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2"></div>
+      <div id="chContenidoCuenta" class="space-y-2.5 hidden">
+        <!-- 1. Franja Ejecutiva Única: Día de Ingreso | Huésped y Recorrido | Noches Jaladas | Deuda Pendiente -->
+        <div id="chBannerIngreso" class="grid grid-cols-1 sm:grid-cols-12 gap-2"></div>
 
-        <!-- 2. Tarjetas de Resumen General Acumulado -->
-        <div id="chCardsResumen" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
-
-        <!-- 3. TABLA PRINCIPAL: Desglose Día por Día (Noches Jaladas, Deudas Diarias, Adicionales y Pagos Diarios) -->
+        <!-- 2. TABLA PRINCIPAL: Desglose Día por Día (con Adicional Servicio y Tienda separados y claros) -->
         <div class="bg-white rounded-lg border border-[#D8C7B8] overflow-hidden shadow-2xs">
           <div class="bg-slate-800 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between flex-wrap gap-2">
-            <span>📅 Desglose Día por Día — Todas las Noches Jaladas, Pagos Diarios y Deudas Diarias</span>
+            <span>📅 Desglose por Día — Tarifa, Adicional Servicio, Tienda, Pagos Diarios y Deuda Diaria</span>
             <span id="chSubtituloDias" class="text-[10px] font-bold text-amber-200"></span>
           </div>
-          <div class="overflow-x-auto max-h-[370px] overflow-y-auto">
+          <div class="overflow-x-auto max-h-[410px] overflow-y-auto">
             <table class="w-full text-left text-[11px] border-collapse">
               <thead class="sticky top-0 z-10">
                 <tr class="bg-slate-100 text-slate-800 font-black border-b border-slate-300 text-[10.5px]">
                   <th class="px-2.5 py-1.5 w-32">Noche / Fecha</th>
-                  <th class="px-2 py-1.5 w-14 text-center">Hab.</th>
-                  <th class="px-2 py-1.5 w-24 text-right bg-amber-50/80" title="Deuda arrastrada de la noche anterior">Deuda Jalada Ant.</th>
-                  <th class="px-2 py-1.5 w-22 text-right">Tarifa Noche</th>
-                  <th class="px-2.5 py-1.5">Adicionales del Día (Detalle)</th>
-                  <th class="px-2 py-1.5 w-24 text-right bg-slate-200/70" title="Deuda Ant. + Tarifa + Adicionales del Día">Total del Día</th>
-                  <th class="px-2.5 py-1.5">Pagos Diarios (Medio de Pago)</th>
-                  <th class="px-2.5 py-1.5 w-28 text-right">Deuda Cierre Día</th>
+                  <th class="px-2 py-1.5 w-12 text-center">Hab.</th>
+                  <th class="px-2 py-1.5 w-22 text-right bg-amber-50/80" title="Deuda arrastrada del día anterior">Deuda Ant.</th>
+                  <th class="px-2 py-1.5 w-20 text-right">Tarifa</th>
+                  <th class="px-2.5 py-1.5 bg-teal-50/60 text-teal-950" title="Visitas, Garaje, Lavandería, Ducha, Comprobante, etc.">🛎️ Adic. Servicio</th>
+                  <th class="px-2.5 py-1.5 bg-pink-50/50 text-pink-950" title="Productos de Tienda consumidos ese día">🛒 Tienda</th>
+                  <th class="px-2 py-1.5 w-22 text-right bg-slate-200/70" title="Deuda Ant. + Tarifa + Adicionales del Día">Total Día</th>
+                  <th class="px-2.5 py-1.5">Pagos Diarios (Medio)</th>
+                  <th class="px-2.5 py-1.5 w-26 text-right">Deuda Cierre</th>
                 </tr>
               </thead>
               <tbody id="chTablaDiasBody" class="divide-y divide-slate-200"></tbody>
@@ -1233,20 +1225,20 @@
           </div>
         </div>
 
-        <!-- 4. Dos columnas: Lista de Pagos Hechos (con Tipo de Pago) + Lista de Adicionales Detallados -->
+        <!-- 3. Dos columnas inferiores: Lista de Pagos Realizados + Lista de Tienda y Servicios -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
           <div class="bg-white rounded-lg border border-emerald-300 overflow-hidden shadow-2xs">
             <div class="bg-emerald-900 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between">
-              <span>💳 Lista de Pagos Realizados (por Fecha y Tipo de Pago)</span>
-              <span id="chBadgeTotPagos" class="px-1.5 py-0.5 rounded bg-white/15 text-emerald-100 text-[10px]">S/ 0.00</span>
+              <span>💳 Lista de Pagos Realizados</span>
+              <span id="chBadgeTotPagos" class="px-1.5 py-0.5 rounded bg-white/15 text-emerald-100 text-[10px]">0 pago(s)</span>
             </div>
             <div id="chListaPagos" class="p-2 max-h-48 overflow-y-auto divide-y divide-slate-100 text-[11px]"></div>
           </div>
 
           <div class="bg-white rounded-lg border border-amber-300 overflow-hidden shadow-2xs">
             <div class="bg-amber-900 text-white px-3 py-1.5 font-black text-[11px] uppercase flex items-center justify-between">
-              <span>➕ Lista de Adicionales (Tienda / Visitas / Otros)</span>
-              <span id="chBadgeTotAdic" class="px-1.5 py-0.5 rounded bg-white/15 text-amber-100 text-[10px]">S/ 0.00</span>
+              <span>🛒 Lista de Tienda y Servicios Adicionales</span>
+              <span id="chBadgeTotAdic" class="px-1.5 py-0.5 rounded bg-white/15 text-amber-100 text-[10px]">0 ítem(s)</span>
             </div>
             <div id="chListaAdicionales" class="p-2 max-h-48 overflow-y-auto divide-y divide-slate-100 text-[11px]"></div>
           </div>
@@ -8914,7 +8906,7 @@
     var R = res.resumen || {};
     var subD = document.getElementById('chSubtituloDias');
     if (subD) {
-      subD.textContent = (R.diasCount || 1) + ' noche(s) jaladas · Día de Ingreso: ' + (res.fechaIngresoInicial || R.fechaInicio || '') + ' → Hoy: ' + (R.fechaUltima || '');
+      subD.textContent = 'Ingreso: ' + (res.fechaIngresoInicial || R.fechaInicio || '') + ' → ' + (R.fechaUltima || '') + ' (' + (R.diasCount || 1) + ' noches)';
     }
     var tbodyD = document.getElementById('chTablaDiasBody');
     if (!tbodyD) return;
@@ -8922,17 +8914,42 @@
     if (CH.ordenDesc) lista.reverse();
 
     tbodyD.innerHTML = lista.map(function (d) {
-      var adicHtml = '';
-      if (d.adicionalesDetalle && d.adicionalesDetalle.length) {
-        adicHtml = d.adicionalesDetalle.map(function (ad) {
-          var ico = ad.categoria === 'Tienda' ? '🛒' : '🚶';
-          return '<div class="flex items-center justify-between gap-2 py-0.5">' +
-            '<span>' + ico + ' <b>' + vpEsc(ad.descripcion) + '</b>' + (ad.hora ? (' <span class="text-slate-400 text-[10px]">(' + vpEsc(ad.hora) + ')</span>') : '') + '</span>' +
-            '<span class="font-black text-amber-900 whitespace-nowrap">' + chSoles(ad.monto) + '</span>' +
+      // Columna 1 de adicionales: Adicional Servicio (Visitas, Garaje, Lavandería, Ducha, Comprobante)
+      var servArr = d.serviciosDetalle || [];
+      var servHtml = '';
+      if (servArr.length) {
+        servHtml = servArr.map(function (sv) {
+          var ico = sv.icono || '🛎️';
+          var nom = sv.etiqueta || sv.descripcion || 'Servicio';
+          var horaBadge = sv.hora
+            ? ' <span class="px-1 py-0.2 rounded bg-teal-900/10 text-teal-900 font-mono font-bold text-[9.5px]">' + vpEsc(sv.hora) + '</span>'
+            : '';
+          return '<div class="flex items-center justify-between gap-1.5 py-0.5 px-1.5 my-0.5 rounded bg-teal-50/90 border border-teal-200/80">' +
+            '<span class="font-extrabold text-teal-950 text-[10.5px]">' + ico + ' ' + vpEsc(nom) + horaBadge + '</span>' +
+            '<span class="font-black text-teal-950 whitespace-nowrap text-[10.5px]">' + chSoles(sv.monto) + '</span>' +
           '</div>';
         }).join('');
       } else {
-        adicHtml = '<span class="text-slate-400">—</span>';
+        servHtml = '<span class="text-slate-300">—</span>';
+      }
+
+      // Columna 2 de adicionales: Consumo Tienda
+      var tiendaArr = d.tiendaDetalle || [];
+      var tiendaHtml = '';
+      if (tiendaArr.length) {
+        tiendaHtml = tiendaArr.map(function (tn) {
+          var nomT = tn.etiqueta || tn.descripcion || 'Tienda';
+          var horaT = tn.hora ? (' <span class="text-slate-400 font-mono text-[9.5px]">(' + vpEsc(tn.hora) + ')</span>') : '';
+          var badgePagado = !tn.cargadoACuenta
+            ? ' <span class="px-1 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">' + vpEsc(tn.modo) + '</span>'
+            : '';
+          return '<div class="flex items-center justify-between gap-1.5 py-0.5 px-1.5 my-0.5 rounded bg-pink-50/70 border border-pink-200/70">' +
+            '<span class="font-bold text-slate-800 text-[10.5px]">🛒 ' + vpEsc(nomT) + horaT + badgePagado + '</span>' +
+            '<span class="font-black text-pink-950 whitespace-nowrap text-[10.5px]">' + chSoles(tn.monto) + '</span>' +
+          '</div>';
+        }).join('');
+      } else {
+        tiendaHtml = '<span class="text-slate-300">—</span>';
       }
 
       var pagosHtml = '';
@@ -8965,7 +8982,7 @@
 
       return '<tr class="hover:bg-amber-50/40 align-top ' + (esIngreso ? 'bg-amber-50/30' : '') + '">' +
         '<td class="px-2.5 py-2 whitespace-nowrap">' +
-          '<div class="font-black text-slate-900">Noche ' + d.diaNum + ' · ' + vpEsc(d.dow) + ' ' + vpEsc(d.fechaIn) + tagIng + '</div>' +
+          '<div class="font-black text-slate-900">Día ' + d.diaNum + ' · ' + vpEsc(d.dow) + ' ' + vpEsc(d.fechaIn) + tagIng + '</div>' +
           '<div class="text-[10px] text-slate-500">Salida: ' + vpEsc(d.fechaOut || '-') + (d.horaIn ? (' · ' + vpEsc(d.horaIn)) : '') + '</div>' +
         '</td>' +
         '<td class="px-2 py-2 text-center font-black text-slate-900">' + vpEsc(d.hab) + '</td>' +
@@ -8974,7 +8991,8 @@
           '<div class="font-black text-slate-900">' + chSoles(d.alojamiento) + '</div>' +
           (d.noches > 1 ? ('<div class="text-[9.5px] text-slate-500">' + d.noches + 'n × ' + chSoles(d.tarifa) + '</div>') : '') +
         '</td>' +
-        '<td class="px-2.5 py-2">' + adicHtml + '</td>' +
+        '<td class="px-2 py-1.5 bg-teal-50/20">' + servHtml + '</td>' +
+        '<td class="px-2 py-1.5 bg-pink-50/15">' + tiendaHtml + '</td>' +
         '<td class="px-2 py-2 text-right font-black text-slate-900 whitespace-nowrap bg-slate-50">' + chSoles(d.cargoTotalDia) + '</td>' +
         '<td class="px-2.5 py-2">' + pagosHtml + '</td>' +
         '<td class="px-2.5 py-2 text-right whitespace-nowrap">' + badgeSaldoDia + '</td>' +
@@ -8999,27 +9017,6 @@
       var habSel = String(res.hab || limpio || '');
       if (inp && habSel) inp.value = habSel;
 
-      // Solo mostrar botones rápidos de las habitaciones que tienen varias noches jaladas (> 1 noche)
-      var filaMulti = document.getElementById('chFilaHabsMultiDia');
-      var chips = document.getElementById('chChipsHabs');
-      if (chips && filaMulti) {
-        if (!CH.habsMultiDia.length) {
-          filaMulti.classList.add('hidden');
-        } else {
-          filaMulti.classList.remove('hidden');
-          chips.innerHTML = CH.habsMultiDia.map(function (h) {
-            var act = String(h.hab) === habSel;
-            var nomCorto = String(h.huesped || '').split(' ').slice(0, 2).join(' ');
-            var cls = act
-              ? 'px-2.5 py-0.5 rounded-md bg-amber-900 text-white border border-amber-950 font-black text-[10.5px] cursor-pointer shadow-2xs'
-              : 'px-2.5 py-0.5 rounded-md bg-slate-100 hover:bg-amber-50 text-slate-800 border border-slate-300 font-bold text-[10.5px] cursor-pointer';
-            return '<button type="button" data-hab="' + vpEsc(h.hab) + '" onclick="chCargar(this.getAttribute(&quot;data-hab&quot;))" class="' + cls + '" title="Ingreso: ' + vpEsc(h.desdeDmy) + ' (' + h.dias + ' noches)">' +
-              '<span>Hab. <b>' + vpEsc(h.hab) + '</b> · ' + vpEsc(nomCorto) + ' (' + h.dias + 'n)</span>' +
-            '</button>';
-          }).join('');
-        }
-      }
-
       if (!res.encontrado) {
         if (cont) cont.classList.add('hidden');
         chMsg('info', res.mensaje || 'Escribe el número de una habitación (ej. 206).');
@@ -9039,75 +9036,47 @@
         ? R.habsRecorridas.join(' → ')
         : ('Hab. ' + res.hab);
 
-      // 1. Banner del Día de Ingreso y Noches Jaladas
+      // 1. Franja Ejecutiva Única (Día de Ingreso | Huésped y Recorrido | Noches Jaladas | Deuda Pendiente)
       var banner = document.getElementById('chBannerIngreso');
       if (banner) {
         var fIng = res.fechaIngresoInicial || R.fechaInicio || '-';
         var hIng = res.horaIngresoInicial || R.horaInicio || '';
-        banner.innerHTML =
-          '<div class="flex flex-wrap items-center gap-3">' +
-            '<div class="bg-amber-900 text-white px-3 py-1.5 rounded-lg">' +
-              '<div class="text-[9.5px] font-bold uppercase text-amber-200">📅 Día de Ingreso Inicial</div>' +
-              '<div class="text-sm font-black">' + vpEsc(fIng) + (hIng ? (' · ' + vpEsc(hIng)) : '') + '</div>' +
-            '</div>' +
-            '<div>' +
-              '<div class="text-sm font-black text-slate-900">👤 ' + vpEsc(res.huesped) + (res.dni ? (' <span class="text-xs font-mono text-slate-600">(DNI: ' + vpEsc(res.dni) + ')</span>') : '') + '</div>' +
-              '<div class="text-[11px] font-bold text-amber-950 mt-0.5">' +
-                '🌙 <b>' + (R.diasCount || 1) + ' noches jaladas</b> (' + vpEsc(R.fechaInicio || '') + ' → ' + vpEsc(R.fechaUltima || '') + ') · 🛏️ Recorrido: <b>' + vpEsc(habsTxt) + '</b>' +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-          '<div class="text-right">' +
-            '<div class="text-[10px] font-black uppercase text-slate-500">Deuda / Saldo al Día de Hoy</div>' +
-            '<div class="text-base font-black ' + (Number(R.saldoActual || 0) > 0.009 ? 'text-rose-800' : 'text-emerald-800') + '">' + chSoles(R.saldoActual) + '</div>' +
-          '</div>';
-      }
-
-      // 2. Tarjetas de Resumen
-      var cards = document.getElementById('chCardsResumen');
-      if (cards) {
         var saldoAct = Number(R.saldoActual || 0);
         var clsSaldo = saldoAct > 0.009
           ? 'bg-rose-50 border-rose-300 text-rose-950'
           : (saldoAct < -0.009 ? 'bg-sky-50 border-sky-300 text-sky-950' : 'bg-emerald-50 border-emerald-300 text-emerald-950');
-        var txtSaldoLbl = saldoAct > 0.009 ? '⚖️ DEUDA PENDIENTE HOY' : (saldoAct < -0.009 ? '⚖️ SALDO A FAVOR' : '✅ CUENTA AL DÍA');
-        cards.innerHTML =
-          '<div class="bg-white rounded-lg border border-slate-200 p-2.5">' +
+        var txtSaldoLbl = saldoAct > 0.009 ? '⚖️ DEUDA PENDIENTE' : (saldoAct < -0.009 ? '⚖️ SALDO A FAVOR' : '✅ CUENTA AL DÍA');
+
+        banner.innerHTML =
+          '<div class="sm:col-span-3 bg-amber-900 text-white rounded-xl px-3.5 py-2.5 flex flex-col justify-center shadow-2xs">' +
+            '<div class="text-[10px] font-extrabold uppercase text-amber-200">📅 Día de Ingreso</div>' +
+            '<div class="text-base font-black mt-0.5">' + vpEsc(fIng) + (hIng ? (' <span class="text-xs font-bold text-amber-200">· ' + vpEsc(hIng) + '</span>') : '') + '</div>' +
+          '</div>' +
+          '<div class="sm:col-span-4 bg-white border border-[#D8C7B8] rounded-xl px-3.5 py-2.5 flex flex-col justify-center shadow-2xs">' +
+            '<div class="text-xs font-black text-slate-900 truncate">👤 ' + vpEsc(res.huesped) + (res.dni ? (' <span class="text-[11px] font-mono text-slate-500">(' + vpEsc(res.dni) + ')</span>') : '') + '</div>' +
+            '<div class="text-[11px] font-extrabold text-amber-950 mt-1">🛏️ Recorrido: <span class="px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-950 font-black">' + vpEsc(habsTxt) + '</span></div>' +
+          '</div>' +
+          '<div class="sm:col-span-2 bg-white border border-slate-200 rounded-xl px-3 py-2.5 flex flex-col justify-center shadow-2xs">' +
             '<div class="text-[10px] font-black uppercase text-slate-500">🌙 Noches Jaladas</div>' +
             '<div class="text-base font-black text-slate-900 mt-0.5">' + (R.diasCount || 1) + ' noche(s)</div>' +
-            '<div class="text-[10px] font-bold text-slate-600 mt-0.5">Ingreso: ' + vpEsc(R.fechaInicio || '') + '</div>' +
+            '<div class="text-[10px] font-bold text-slate-500">' + vpEsc(R.fechaInicio || '') + ' → ' + vpEsc(R.fechaUltima || '') + '</div>' +
           '</div>' +
-          '<div class="bg-white rounded-lg border border-slate-200 p-2.5">' +
-            '<div class="text-[10px] font-black uppercase text-slate-500">🛏️ Total Hospedaje</div>' +
-            '<div class="text-base font-black text-slate-900 mt-0.5">' + chSoles(R.totalAlojamiento) + '</div>' +
-            '<div class="text-[10px] font-bold text-slate-500 mt-0.5">Habs: ' + vpEsc(habsTxt) + '</div>' +
-          '</div>' +
-          '<div class="bg-amber-50/60 rounded-lg border border-amber-200 p-2.5">' +
-            '<div class="text-[10px] font-black uppercase text-amber-900">➕ Total Adicionales</div>' +
-            '<div class="text-base font-black text-amber-950 mt-0.5">' + chSoles(R.totalAdicionales) + '</div>' +
-            '<div class="text-[10px] font-bold text-amber-900 mt-0.5">🛒 Tienda: ' + chSoles(R.totalTienda) + ' · 🚶 Visita/Serv: ' + chSoles(R.totalServicios) + '</div>' +
-          '</div>' +
-          '<div class="bg-emerald-50/70 rounded-lg border border-emerald-200 p-2.5">' +
-            '<div class="text-[10px] font-black uppercase text-emerald-900">💰 Total Pagado</div>' +
-            '<div class="text-base font-black text-emerald-950 mt-0.5">' + chSoles(R.totalPagado) + '</div>' +
-            '<div class="text-[10px] font-bold text-emerald-900 mt-0.5">💵 Efec: ' + chSoles(R.pagadoEfectivo) + ' · 📱 Yape: ' + chSoles(R.pagadoYape) + (Number(R.pagadoVisaBanco || 0) > 0 ? (' · 💳 VISA: ' + chSoles(R.pagadoVisaBanco)) : '') + '</div>' +
-          '</div>' +
-          '<div class="rounded-lg border p-2.5 ' + clsSaldo + '">' +
+          '<div class="sm:col-span-3 rounded-xl border-2 px-3.5 py-2.5 flex flex-col justify-center shadow-2xs ' + clsSaldo + '">' +
             '<div class="text-[10px] font-black uppercase">' + txtSaldoLbl + '</div>' +
-            '<div class="text-lg font-black mt-0.5">' + chSoles(Math.abs(saldoAct)) + '</div>' +
-            '<div class="text-[10px] font-bold mt-0.5">Al cierre del ' + vpEsc(R.fechaUltima || '') + '</div>' +
+            '<div class="text-xl font-black mt-0.5">' + chSoles(Math.abs(saldoAct)) + '</div>' +
+            '<div class="text-[10px] font-bold opacity-80">Al cierre del ' + vpEsc(R.fechaUltima || '') + '</div>' +
           '</div>';
       }
 
-      // 3. Tabla de Desglose Día por Día
+      // 2. Tabla de Desglose Día por Día
       chRenderTablaDias(res);
 
-      // 4. Lista de Pagos realizados
+      // 3. Lista de Pagos realizados
       var bPagos = document.getElementById('chBadgeTotPagos');
-      if (bPagos) bPagos.textContent = (res.todosLosPagos || []).length + ' pago(s) · ' + chSoles(R.totalPagado);
+      var arrP = res.todosLosPagos || [];
+      if (bPagos) bPagos.textContent = arrP.length + ' pago(s)';
       var lPagos = document.getElementById('chListaPagos');
       if (lPagos) {
-        var arrP = res.todosLosPagos || [];
         if (!arrP.length) {
           lPagos.innerHTML = '<div class="py-4 text-center text-slate-400 font-semibold">No registra pagos en estos días.</div>';
         } else {
@@ -9129,19 +9098,20 @@
         }
       }
 
-      // 5. Lista de Adicionales registrados
+      // 4. Lista de Tienda y Servicios Adicionales
       var bAdic = document.getElementById('chBadgeTotAdic');
-      if (bAdic) bAdic.textContent = (res.todosLosAdicionales || []).length + ' ítem(s) · ' + chSoles(R.totalAdicionales);
+      var arrA = res.todosLosAdicionales || [];
+      if (bAdic) bAdic.textContent = arrA.length + ' ítem(s)';
       var lAdic = document.getElementById('chListaAdicionales');
       if (lAdic) {
-        var arrA = res.todosLosAdicionales || [];
         if (!arrA.length) {
-          lAdic.innerHTML = '<div class="py-4 text-center text-slate-400 font-semibold">Sin adicionales de tienda ni visitas en estos días.</div>';
+          lAdic.innerHTML = '<div class="py-4 text-center text-slate-400 font-semibold">Sin consumos de tienda ni servicios adicionales.</div>';
         } else {
           lAdic.innerHTML = arrA.map(function (a) {
+            var ico = a.icono || (a.categoria === 'Tienda' ? '🛒' : '🛎️');
             var badgeCat = a.categoria === 'Tienda'
               ? '<span class="px-1.5 py-0.2 rounded bg-pink-100 text-pink-900 border border-pink-200 font-black text-[9.5px]">🛒 Tienda</span>'
-              : '<span class="px-1.5 py-0.2 rounded bg-teal-100 text-teal-900 border border-teal-200 font-black text-[9.5px]">🚶 ' + vpEsc(a.categoria || 'Adicional') + '</span>';
+              : '<span class="px-1.5 py-0.2 rounded bg-teal-100 text-teal-900 border border-teal-200 font-black text-[9.5px]">' + ico + ' ' + vpEsc(a.categoria || 'Servicio') + '</span>';
             return '<div class="py-1.5 px-1 flex items-center justify-between gap-2 hover:bg-slate-50">' +
               '<div class="min-w-0">' +
                 '<div class="flex items-center gap-1.5 flex-wrap">' +
