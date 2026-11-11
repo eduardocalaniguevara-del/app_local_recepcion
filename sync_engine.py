@@ -261,9 +261,13 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                 elif k_name == "gastos":
                     gastos_rows = [(st_g + i, r) for i, r in enumerate(rows_k)]
 
-        # 5. Guardar todo en SQLite en una transacción rápida
+        # 5. Guardar todo en SQLite en una transacción rápida (sin disparar _supabase_outbox desde Sheets)
         ahora_iso = datetime.now().isoformat()
         with db_transaction() as conn:
+            try:
+                conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1")
+            except Exception:
+                pass
             prev_sh_row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'spreadsheet_id_activo'").fetchone()
             prev_sh_id = str(prev_sh_row["valor"]).strip() if prev_sh_row else ""
             if prev_sh_id != SPREADSHEET_ID:
@@ -1118,6 +1122,10 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                     for old_cp in conn.execute("SELECT pase_uuid FROM control_pases WHERE synced = 1").fetchall():
                         if str(old_cp["pase_uuid"]) not in ids_rem_pases:
                             conn.execute("DELETE FROM control_pases WHERE pase_uuid = ?", (old_cp["pase_uuid"],))
+            try:
+                conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+            except Exception:
+                pass
 
         return {
             "status": "OK",
