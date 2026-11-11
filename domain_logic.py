@@ -6162,9 +6162,10 @@ def _inyectar_rutas_en_servidor_activo() -> None:
         from fastapi.responses import FileResponse
 
         for mod_name in ("main", "__main__"):
-            m = _sys.modules.get(mod_name)
-            if not m or not hasattr(m, "app"):
+            _cand = _sys.modules.get(mod_name)
+            if not _cand or not hasattr(_cand, "app") or not hasattr(_cand, "_obtener_vista_formulario_local"):
                 continue
+            m = _cand
             app_inst = getattr(m, "app")
             if hasattr(m, "BRIDGE_BODY_LOCAL") and isinstance(m.BRIDGE_BODY_LOCAL, str):
                 m.BRIDGE_BODY_LOCAL = m.BRIDGE_BODY_LOCAL.replace(
@@ -6201,7 +6202,9 @@ def _inyectar_rutas_en_servidor_activo() -> None:
                     if method_name in ("obtenerDatosPanelDisponibilidad", "cambiarFechaPanelDisponibilidad"):
                         res = _dl_self.obtener_datos_panel_local(args[0] if len(args) > 0 and args[0] else None)
                     elif method_name == "obtenerVistaFormulario":
-                        res = m._obtener_vista_formulario_local(args[0] if args else "")
+                        import main as _main_mod
+                        _fn_vista = getattr(m, "_obtener_vista_formulario_local", None) or getattr(_main_mod, "_obtener_vista_formulario_local")
+                        res = _fn_vista(args[0] if args else "")
                     elif method_name == "obtenerDatosInicialesCheckIn":
                         res = _dl_self.obtener_datos_iniciales_checkin_local()
                     elif method_name in ("consultarDniReniec", "consultarDocumentoPadron"):
