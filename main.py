@@ -61,6 +61,7 @@ from sunat_wsp_service import (
     obtener_estado_job_sunat,
 )
 from sync_engine import process_sync_queue, pull_from_sheets
+from supabase_sync import init_supabase_local_triggers, sync_with_supabase
 from auto_updater import (
     iniciar_hilo_auto_actualizacion,
     obtener_version_actual,
@@ -93,11 +94,15 @@ def _run_sync_cycle(force_full: bool = False) -> None:
     if not _sync_lock.acquire(blocking=False):
         return
     try:
-        # 1. Subir primero cualquier operación pendiente en la cola local (FIFO idempotente)
+        # 0. Sincronización ultrarrápida (< 150 ms) con Supabase (Grupo 2: ovalo_sistema.db <-> hostal-ovalo)
+        sync_with_supabase()
+        # 1. Subir primero cualquier operación pendiente en la cola local (FIFO idempotente) a Google Sheets
         process_sync_queue()
         # 2. Descargar novedades desde Google Sheets (sin pisar filas dirty=1)
         boot_done = _is_bootstrap_completed()
         pull_from_sheets(full_bootstrap=(force_full or not boot_done))
+        # 3. Subir a Supabase cualquier novedad recién traída desde Google Sheets
+        sync_with_supabase()
     except Exception as exc:
         print(f"[SyncWorker] Advertencia en ciclo de sincronización: {exc}")
     finally:
@@ -120,6 +125,7 @@ def _background_sync_worker() -> None:
 async def lifespan(app: FastAPI):
     init_db()
     tm.init_tablet_tables()
+    init_supabase_local_triggers()
     worker = threading.Thread(target=_background_sync_worker, name="OvaloSyncWorker", daemon=True)
     worker.start()
     iniciar_hilo_auto_actualizacion(intervalo_segundos=20)
@@ -691,6 +697,23 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
         raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/supabase/status")
+@app.post("/api/supabase/sync")
+def api_supabase_sync():
+    res = sync_with_supabase()
+    conn = get_connection()
+    try:
+        outbox_cnt = conn.execute("SELECT COUNT(*) AS c FROM _supabase_outbox").fetchone()["c"]
+        r_cur = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'").fetchone()
+        r_ts = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_sync_iso'").fetchone()
+    finally:
+        conn.close()
+    res["outbox_pendientes"] = outbox_cnt
+    res["sb_last_log_id"] = int(r_cur["valor"]) if (r_cur and str(r_cur["valor"]).isdigit()) else 0
+    res["sb_last_sync_iso"] = str(r_ts["valor"]) if r_ts else ""
+    return res
 
 
 if __name__ == "__main__":

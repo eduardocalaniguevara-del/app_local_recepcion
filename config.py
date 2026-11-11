@@ -7,16 +7,36 @@ Hotel El Óvalo Mariátegui
 
 import json
 import os
+import shutil
+import socket
 from pathlib import Path
 
 BASE_APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_APP_DIR / "data"
 STATIC_DIR = BASE_APP_DIR / "static"
-DB_PATH = DATA_DIR / "ovalo_local.db"
 PERFIL_HOTEL_PATH = DATA_DIR / "hotel_perfil.json"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
+
+_ES_CARPETA_TERRAZAS = "terrazas" in str(BASE_APP_DIR).lower()
+
+# Unificación de Base Compartida Grupo 2 (ovalo_sistema.db) para Hotel El Óvalo Mariátegui
+if _ES_CARPETA_TERRAZAS:
+    DB_PATH = DATA_DIR / "ovalo_local.db"
+else:
+    _ROOT_OVALO_DB = BASE_APP_DIR.parent / "ovalo_sistema.db"
+    _DATA_OVALO_DB = DATA_DIR / "ovalo_sistema.db"
+    _LEGACY_LOCAL_DB = DATA_DIR / "ovalo_local.db"
+    if _ROOT_OVALO_DB.exists():
+        DB_PATH = _ROOT_OVALO_DB
+    else:
+        if not _DATA_OVALO_DB.exists() and _LEGACY_LOCAL_DB.exists():
+            try:
+                shutil.copy2(str(_LEGACY_LOCAL_DB), str(_DATA_OVALO_DB))
+            except Exception:
+                pass
+        DB_PATH = _DATA_OVALO_DB
 
 _PERFIL_OVALO = {
     "nombre_hotel": "Hotel El Óvalo Mariátegui",
@@ -142,3 +162,18 @@ def _col_letra_a_indice(letras: str) -> int:
 
 
 COL_TIPO_ADICIONAL_IDX = _col_letra_a_indice(COL_TIPO_ADICIONAL)
+
+# --- Sincronización en Vivo con Supabase (Grupo 2 Compartido: ovalo_sistema.db <-> hostal-ovalo <-> Laptop 2) ---
+SUPABASE_ENABLED = not _ES_CARPETA_TERRAZAS
+SUPABASE_URL = "https://fmlfqupwscymosvwnnzx.supabase.co"
+SUPABASE_ANON_KEY = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZtbGZxdXB3c2N5bW9zdndubnp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0MjYzNzUsImV4cCI6MjExMDAwMjM3NX0."
+    "pi3f4dEklYT28oBxYhktYlWwGiLkFdMqhqSq6-gfZ2g"
+)
+SUPABASE_SYNC_TOKEN = "ovalo_master_sync_2026_k9x"
+EQUIPO_ID = (
+    "LAPTOP_1_ADMIN"
+    if (BASE_APP_DIR.parent / "wsp_wspdocs_russ.db").exists()
+    else f"LAPTOP_2_RECEPCION_{socket.gethostname()}"
+)
