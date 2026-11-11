@@ -3105,6 +3105,8 @@ def obtener_datos_pagos_posteriores_local() -> Dict[str, Any]:
     res = []
     habs_vistas: Dict[str, bool] = {}
     for st in candidatas_pp:
+        if st.get("esContinuacionCerrada"):
+            continue
         if st.get("esCancelada") or st.get("esInactiva"):
             if float(st.get("saldo") or 0) <= 0:
                 continue
@@ -3127,7 +3129,7 @@ def obtener_datos_pagos_posteriores_local() -> Dict[str, Any]:
         comp_extra = float(st.get("adicComp") or 0)
         deuda_ant = float(st.get("deudaAnt") or 0)
         pagado = float(st.get("pagado") or 0)
-        total_cuenta = round(subtotal_aloj + snacks + servicios + comp_extra, 2)
+        total_cuenta = round(subtotal_aloj + snacks + servicios + comp_extra + deuda_ant, 2)
 
         res.append({
             "fila": st["fila"],
