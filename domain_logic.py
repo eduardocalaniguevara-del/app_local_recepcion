@@ -661,8 +661,6 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
         if fecha_override:
             fecha_vis = normalizar_fecha_dmy(fecha_override) or fecha_hoy_dmy_val
             _ULTIMA_FECHA_PANEL_ISO = dmy_a_iso(fecha_vis)
-        elif _ULTIMA_FECHA_PANEL_ISO:
-            fecha_vis = normalizar_fecha_dmy(_ULTIMA_FECHA_PANEL_ISO) or fecha_hoy_dmy_val
         else:
             fecha_vis = fecha_hoy_dmy_val
             _ULTIMA_FECHA_PANEL_ISO = fecha_hoy_iso_val
