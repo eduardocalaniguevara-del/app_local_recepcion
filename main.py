@@ -475,11 +475,13 @@ def api_sync_status():
     )
 
 
+@app.post("/api/update")
 @app.post("/api/system/update")
 def api_system_update():
     res = verificar_y_aplicar_actualizacion()
-    if res.get("actualizado"):
-        reiniciar_servidor_en_caliente()
+    reiniciar_servidor_en_caliente()
+    res["recargado_en_caliente"] = True
+    res["version_activa"] = obtener_version_actual()
     return res
 
 

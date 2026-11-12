@@ -6453,6 +6453,16 @@ def _inyectar_rutas_en_servidor_activo() -> None:
                         except Exception:
                             pass
 
+            if "/api/update" not in rutas_existentes:
+                @app_inst.post("/api/update")
+                def _hot_api_update():
+                    from auto_updater import verificar_y_aplicar_actualizacion, reiniciar_servidor_en_caliente, obtener_version_actual
+                    res_u = verificar_y_aplicar_actualizacion()
+                    reiniciar_servidor_en_caliente()
+                    res_u["recargado_en_caliente"] = True
+                    res_u["version_activa"] = obtener_version_actual()
+                    return res_u
+
             try:
                 import importlib as _il
                 for _mod_name in ("database", "supabase_sync", "sync_engine", "auto_updater"):
@@ -6462,13 +6472,20 @@ def _inyectar_rutas_en_servidor_activo() -> None:
                     _sb_mod = sys.modules["supabase_sync"]
                     if hasattr(_sb_mod, "init_supabase_local_triggers"):
                         _sb_mod.init_supabase_local_triggers()
-                    if hasattr(_sb_mod, "sync_with_supabase"):
-                        threading.Thread(target=_sb_mod.sync_with_supabase, daemon=True).start()
+                    def _sync_and_hb():
+                        try:
+                            if hasattr(_sb_mod, "sync_with_supabase"):
+                                _sb_mod.sync_with_supabase()
+                            if hasattr(_sb_mod, "_enviar_heartbeat_equipo"):
+                                _sb_mod._enviar_heartbeat_equipo(force=True)
+                        except Exception:
+                            pass
+                    threading.Thread(target=_sync_and_hb, daemon=True).start()
             except Exception:
                 pass
     except Exception:
         pass
 
 
-_inyectar_rutas_en_servidor_activo()  # sync_v4
+_inyectar_rutas_en_servidor_activo()  # sync_v5
 

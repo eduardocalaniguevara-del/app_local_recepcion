@@ -596,19 +596,36 @@ def _bootstrap_tablas_hostal_si_vacias() -> int:
         conn.close()
 
 
-def _enviar_heartbeat_equipo() -> None:
-    """Registra cada 60s en Supabase que este equipo (Laptop 1 o Laptop 2) está en línea."""
+def _enviar_heartbeat_equipo(force: bool = False) -> None:
+    """Registra en Supabase que este equipo (Laptop 1 o Laptop 2) está en línea junto con su versión y cursor."""
     global _last_heartbeat_ts
     now = time.time()
-    if now - _last_heartbeat_ts < 60.0:
+    if not force and (now - _last_heartbeat_ts < 45.0):
         return
     _last_heartbeat_ts = now
     try:
+        ver = ""
+        try:
+            from auto_updater import obtener_version_actual
+            ver = obtener_version_actual()
+        except Exception:
+            ver = ""
+        last_lid = "0"
+        try:
+            c = get_connection()
+            try:
+                r_cur = c.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'").fetchone()
+                if r_cur and r_cur["valor"]:
+                    last_lid = str(r_cur["valor"])
+            finally:
+                c.close()
+        except Exception:
+            pass
         now_iso = datetime.now().isoformat()
         payload = [
             {
                 "clave": f"heartbeat_{EQUIPO_ID}",
-                "valor": f"ONLINE | {now_iso}",
+                "valor": f"ONLINE | {now_iso} | v={ver} | log={last_lid}",
                 "updated_at": now_iso,
             }
         ]
