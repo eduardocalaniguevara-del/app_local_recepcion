@@ -45,9 +45,22 @@ _ultimo_archivo_drive_mtime: str = ""
 _ultimo_archivo_drive_nombre: str = ""
 
 
+def _migrar_tabla_yape_antigua(conn) -> None:
+    """
+    Si la tabla yape_conciliacion_hostal existe con el esquema ANTIGUO (sin fecha_operacion),
+    la renombra como respaldo (con todo su contenido) para que se cree la nueva sin perder datos.
+    """
+    cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(yape_conciliacion_hostal)").fetchall()}
+    if cols and "fecha_operacion" not in cols:
+        sufijo = datetime.now().strftime("%Y%m%d_%H%M%S")
+        conn.execute(f"ALTER TABLE yape_conciliacion_hostal RENAME TO yape_conciliacion_hostal_antigua_{sufijo}")
+        conn.commit()
+
+
 def init_yape_tables() -> None:
     conn = get_connection()
     try:
+        _migrar_tabla_yape_antigua(conn)
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS yape_conciliacion_hostal (

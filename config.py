@@ -99,6 +99,11 @@ def cargar_perfil_hotel() -> dict:
 PERFIL_HOTEL = cargar_perfil_hotel()
 NOMBRE_HOTEL = str(PERFIL_HOTEL.get("nombre_hotel") or _DEFAULT_PERFIL["nombre_hotel"]).strip()
 
+# --- MODO PRUEBA (Sistema "ovalo_mariategui_prueba") ---
+# Se activa SOLO con "modo_prueba": true en data/hotel_perfil.json (carpeta data/ nunca la pisa el actualizador).
+# En modo prueba: sin Supabase, sin Google Sheets, sin auto-actualización desde GitHub, sin SUNAT, sin WhatsApp.
+MODO_PRUEBA = bool(PERFIL_HOTEL.get("modo_prueba", False)) and not _ES_CARPETA_TERRAZAS
+
 # Google Sheets Maestro (leído dinámicamente de data/hotel_perfil.json en cada hotel)
 SPREADSHEET_ID = str(PERFIL_HOTEL.get("spreadsheet_id") or _DEFAULT_PERFIL["spreadsheet_id"]).strip()
 SCOPES = [
@@ -142,7 +147,7 @@ APISPERU_DNI_URL = "https://dniruc.apisperu.com/api/v1/dni"
 APISPERU_RUC_URL = "https://dniruc.apisperu.com/api/v1/ruc"
 
 # Puerto del servidor local de Recepción (0.0.0.0 habilita vinculación Wi-Fi con Tablet Samsung S8+)
-APP_HOST = "0.0.0.0"
+APP_HOST = "127.0.0.1" if MODO_PRUEBA else "0.0.0.0"
 APP_PORT = int(PERFIL_HOTEL.get("app_port") or 8080)
 
 # Intervalo de sincronización automática en segundo plano (segundos)
@@ -164,7 +169,7 @@ def _col_letra_a_indice(letras: str) -> int:
 COL_TIPO_ADICIONAL_IDX = _col_letra_a_indice(COL_TIPO_ADICIONAL)
 
 # --- Sincronización en Vivo con Supabase (Grupo 2 Compartido: ovalo_sistema.db <-> hostal-ovalo <-> Laptop 2) ---
-SUPABASE_ENABLED = not _ES_CARPETA_TERRAZAS
+SUPABASE_ENABLED = (not _ES_CARPETA_TERRAZAS) and (not MODO_PRUEBA)
 SUPABASE_URL = "https://fmlfqupwscymosvwnnzx.supabase.co"
 SUPABASE_ANON_KEY = (
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
