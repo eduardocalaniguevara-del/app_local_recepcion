@@ -1432,21 +1432,31 @@ def guardar_checkin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _canon_ts_busq(raw_val: Any) -> str:
+    s = str(raw_val or "").strip().split(" #")[0].strip()
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{1,2}):(\d{1,2})$", s)
+    if m:
+        return f"{int(m.group(1)):02d}/{int(m.group(2)):02d}/{m.group(3)} {int(m.group(4)):02d}:{int(m.group(5)):02d}:{int(m.group(6)):02d}"
+    return s
+
+
 def _buscar_estancia_local(conn, fila: int = 0, id_busq: str = "", estancia_uuid: str = "", hab: str = "") -> sqlite3.Row:
     if estancia_uuid:
-        r = conn.execute("SELECT * FROM estancias WHERE estancia_uuid = ?", (estancia_uuid,)).fetchone()
+        r = conn.execute("SELECT * FROM estancias WHERE estancia_uuid = ?", (str(estancia_uuid).strip(),)).fetchone()
+        if r:
+            return r
+    if id_busq:
+        s_id = str(id_busq).strip()
+        c_id = _canon_ts_busq(s_id)
+        r = conn.execute(
+            "SELECT * FROM estancias WHERE id_timestamp_str IN (?, ?) OR estancia_uuid = ?",
+            (s_id, c_id, s_id),
+        ).fetchone()
         if r:
             return r
     if fila and int(fila) >= 2:
         r = conn.execute("SELECT * FROM estancias WHERE sheet_row = ?", (int(fila),)).fetchone()
         if r and (not hab or str(r["hab"]).strip() == str(hab).strip()):
-            return r
-    if id_busq:
-        r = conn.execute(
-            "SELECT * FROM estancias WHERE id_timestamp_str = ? OR estancia_uuid = ?",
-            (str(id_busq), str(id_busq)),
-        ).fetchone()
-        if r:
             return r
     if hab:
         # Prioridad estricta: 1) Estancia activa en la fecha visualizada en el panel (o hoy),
@@ -2208,17 +2218,28 @@ def obtener_estancia_para_modificar_local(hab_buscada: str, fila_o_id: Any = Non
 
 def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     with db_transaction() as conn:
+        fila_arg = int(datos.get("fila") or 0)
+        id_arg = str(datos.get("id") or "").strip()
+        uuid_arg = str(datos.get("estanciaUuid") or "").strip()
+        hab_orig_arg = re.sub(r"^hab\.?\s*", "", str(datos.get("habOriginal") or "").strip(), flags=re.IGNORECASE).strip()
+        hab_busq_arg = hab_orig_arg if (hab_orig_arg or fila_arg or id_arg or uuid_arg) else re.sub(
+            r"^hab\.?\s*", "", str(datos.get("hab") or "").strip(), flags=re.IGNORECASE
+        ).strip()
+
         actual = _buscar_estancia_local(
             conn,
-            fila=int(datos.get("fila") or 0),
-            id_busq=str(datos.get("id") or ""),
-            estancia_uuid=str(datos.get("estanciaUuid") or ""),
-            hab=str(datos.get("hab") or ""),
+            fila=fila_arg,
+            id_busq=id_arg,
+            estancia_uuid=uuid_arg,
+            hab=hab_busq_arg,
         )
 
-        hab_nueva = str(datos.get("hab") or actual["hab"]).strip()
+        hab_anterior = str(actual["hab"] or "").strip()
+        hab_nueva = re.sub(
+            r"^hab\.?\s*", "", str(datos.get("hab") or hab_anterior).strip(), flags=re.IGNORECASE
+        ).strip()
         tipo_hab = actual["tipo_hab"]
-        if hab_nueva != actual["hab"]:
+        if hab_nueva != hab_anterior:
             hc = conn.execute("SELECT tipo FROM habitaciones_config WHERE hab = ?", (hab_nueva,)).fetchone()
             if not hc:
                 raise ValueError(f"La habitación {hab_nueva} no existe en Config.")
@@ -2350,6 +2371,28 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 ),
             )
 
+        if hab_nueva != hab_anterior and estado_est == "En Curso" and not hotel_apoyo and ymd_in > 0 and ymd_out > 0:
+            conflicto = conn.execute(
+                """
+                SELECT huesped, fecha_in_dmy, fecha_out_dmy
+                FROM estancias
+                WHERE hab = ?
+                  AND estancia_uuid != ?
+                  AND estado_estancia = 'En Curso'
+                  AND trim(coalesce(hotel_apoyo, '')) = ''
+                  AND ymd_in < ?
+                  AND ymd_out > ?
+                ORDER BY ymd_in DESC, rowid DESC
+                LIMIT 1
+                """,
+                (hab_nueva, actual["estancia_uuid"], ymd_out, ymd_in),
+            ).fetchone()
+            if conflicto:
+                raise ValueError(
+                    f"La habitación {hab_nueva} ya está ocupada en esa fecha por {conflicto['huesped']} "
+                    f"({conflicto['fecha_in_dmy']} → {conflicto['fecha_out_dmy']}). Libera o mueve primero esa habitación."
+                )
+
         conn.execute(
             """
             UPDATE estancias SET
@@ -2378,6 +2421,36 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 datetime.now().isoformat(), actual["estancia_uuid"],
             ),
         )
+
+        if hab_nueva != hab_anterior:
+            id_ts_link = str(actual["id_timestamp_str"] or "").strip()
+            for tbl_link in ("pagos", "ventas_tienda", "servicios_detalle", "control_pases"):
+                conn.execute(
+                    f"UPDATE {tbl_link} SET hab = ? WHERE estancia_uuid = ? OR (id_estancia != '' AND id_estancia = ?)",
+                    (hab_nueva, actual["estancia_uuid"], id_ts_link),
+                )
+            pend_q = conn.execute(
+                "SELECT id, op_type, payload_json FROM sync_queue WHERE status = 'PENDING' AND entidad_uuid = ? AND op_type IN ('CHECKIN', 'CONTINUAR')",
+                (actual["estancia_uuid"],),
+            ).fetchall()
+            for pq in pend_q:
+                try:
+                    p_obj = json.loads(pq["payload_json"])
+                    key_fila = "fila_estancia" if pq["op_type"] == "CHECKIN" else "nueva_fila_estancia"
+                    if isinstance(p_obj.get(key_fila), list) and len(p_obj[key_fila]) > 12:
+                        p_obj[key_fila][11] = hab_nueva
+                        p_obj[key_fila][12] = tipo_hab
+                    for key_pr in ("pagos_rows", "pagos_nuevos"):
+                        if isinstance(p_obj.get(key_pr), list):
+                            for pr_item in p_obj[key_pr]:
+                                if isinstance(pr_item, list) and len(pr_item) > 3:
+                                    pr_item[3] = hab_nueva
+                    conn.execute(
+                        "UPDATE sync_queue SET payload_json = ? WHERE id = ?",
+                        (json.dumps(p_obj, ensure_ascii=False), pq["id"]),
+                    )
+                except Exception:
+                    pass
 
         if dni:
             conn.execute(
@@ -2431,6 +2504,7 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 "estancia_uuid": actual["estancia_uuid"],
                 "id_timestamp_str": actual["id_timestamp_str"],
                 "sheet_row": int(actual["sheet_row"] or 0),
+                "hab_anterior": hab_anterior,
                 "bloque_bm": [f_in_dmy, f_out_dmy, nombre, dni, sexo, n_acomp, dni_acomp, nac, reg, mot, hab_nueva, tipo_hab],
                 "tarifa": tarifa,
                 "bloque_su": [snacks, servicios, adic_comp],

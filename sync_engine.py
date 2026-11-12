@@ -28,7 +28,7 @@ from domain_logic import (
     parse_moneda,
 )
 
-_sync_lock = threading.Lock()
+_sync_lock = globals().get("_sync_lock") or threading.Lock()
 _gspread_client = None
 _spreadsheet = None
 
@@ -127,7 +127,8 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
     Lee los datos de Google Sheets y actualiza la caché local SQLite
     sin tocar ninguna estancia local que tenga cambios pendientes de subir (dirty = 1).
     """
-    if not _sync_lock.acquire(blocking=False):
+    lock = _sync_lock
+    if not lock.acquire(blocking=False):
         return {"status": "BUSY"}
 
     try:
@@ -458,6 +459,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
             ).fetchone()
             ts_en_sheets = set()
             seen_raw_bd = set()
+            sb_changed_est_uuids: List[str] = []
             for offset, r in enumerate(recent_bd_rows):
                 sheet_row_num = start_row_recent + offset
                 if not r or len(r) < 12:
@@ -477,13 +479,13 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                 existing = None
                 if not es_repetido_bd:
                     existing = conn.execute(
-                        "SELECT estancia_uuid, id_timestamp_str, dirty, parent_uuid FROM estancias WHERE id_timestamp_str IN (?, ?) LIMIT 1",
+                        "SELECT estancia_uuid, id_timestamp_str, dirty, parent_uuid, hab, estado_estancia, fecha_out_dmy, tarifa, pago_ini_efec, pago_ini_yape, pago_post_efec, pago_post_yape, pago_visa FROM estancias WHERE id_timestamp_str IN (?, ?) LIMIT 1",
                         (raw_ts_a, canon_ts_a),
                     ).fetchone()
                 else:
                     id_disamb = f"{raw_ts_a} #{sheet_row_num}"
                     existing = conn.execute(
-                        "SELECT estancia_uuid, id_timestamp_str, dirty, parent_uuid FROM estancias WHERE id_timestamp_str = ? OR (sheet_row = ? AND hab = ?) LIMIT 1",
+                        "SELECT estancia_uuid, id_timestamp_str, dirty, parent_uuid, hab, estado_estancia, fecha_out_dmy, tarifa, pago_ini_efec, pago_ini_yape, pago_post_efec, pago_post_yape, pago_visa FROM estancias WHERE id_timestamp_str = ? OR (sheet_row = ? AND hab = ?) LIMIT 1",
                         (id_disamb, sheet_row_num, hab_r),
                     ).fetchone()
 
@@ -505,6 +507,23 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
 
                 f_in = normalizar_fecha_dmy(_g(1))
                 f_out = normalizar_fecha_dmy(_g(2))
+                est_sh_val = _g(36) or "En Curso"
+                tarifa_sh_val = parse_moneda(_g(16))
+                p_ie_sh, p_iy_sh = parse_moneda(_g(22)), parse_moneda(_g(23))
+                p_pe_sh, p_py_sh, p_vi_sh = parse_moneda(_g(24)), parse_moneda(_g(25)), parse_moneda(_g(38))
+                if (
+                    existing is None
+                    or str(existing["hab"] or "").strip() != hab_r
+                    or str(existing["estado_estancia"] or "").strip() != est_sh_val
+                    or str(existing["fecha_out_dmy"] or "").strip() != f_out
+                    or abs(float(existing["tarifa"] or 0) - tarifa_sh_val) > 0.009
+                    or abs(float(existing["pago_ini_efec"] or 0) - p_ie_sh) > 0.009
+                    or abs(float(existing["pago_ini_yape"] or 0) - p_iy_sh) > 0.009
+                    or abs(float(existing["pago_post_efec"] or 0) - p_pe_sh) > 0.009
+                    or abs(float(existing["pago_post_yape"] or 0) - p_py_sh) > 0.009
+                    or abs(float(existing["pago_visa"] or 0) - p_vi_sh) > 0.009
+                ):
+                    sb_changed_est_uuids.append(est_uuid)
                 ymd_in = fecha_dmy_a_ymd(f_in)
                 ymd_out = fecha_dmy_a_ymd(f_out) or (ymd_in + 1 if ymd_in else 0)
                 nac_val = _g(8) or "Perú"
@@ -1124,6 +1143,14 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                             conn.execute("DELETE FROM control_pases WHERE pase_uuid = ?", (old_cp["pase_uuid"],))
             try:
                 conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+                if sb_changed_est_uuids:
+                    conn.executemany(
+                        """
+                        INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+                        VALUES ('estancias', ?, '', 'UPSERT', datetime('now', 'localtime'))
+                        """,
+                        [(u,) for u in sb_changed_est_uuids],
+                    )
             except Exception:
                 pass
 
@@ -1148,7 +1175,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
             pass
         return {"status": "OFFLINE", "error": str(e)}
     finally:
-        _sync_lock.release()
+        lock.release()
 
 
 # ==============================================================================
@@ -1281,7 +1308,8 @@ def process_sync_queue() -> Dict[str, Any]:
     if not pending_items:
         return {"status": "IDLE", "processed": 0}
 
-    if not _sync_lock.acquire(blocking=False):
+    lock = _sync_lock
+    if not lock.acquire(blocking=False):
         return {"status": "BUSY", "processed": 0}
 
     processed = 0
@@ -1640,9 +1668,22 @@ def process_sync_queue() -> Dict[str, Any]:
                             break
 
                 elif op_type == "MODIFICAR":
-                    t_row = _resolver_fila_estancia_en_sheets(
-                        ws_bd, int(payload.get("sheet_row") or 0), payload.get("id_timestamp_str") or ""
-                    )
+                    s_hint = int(payload.get("sheet_row") or 0)
+                    id_ts_mod = str(payload.get("id_timestamp_str") or "")
+                    if s_hint < 2 and item["entity_uuid"]:
+                        c_tmp = get_connection()
+                        try:
+                            r_sh = c_tmp.execute(
+                                "SELECT sheet_row, id_timestamp_str FROM estancias WHERE estancia_uuid = ?",
+                                (item["entity_uuid"],),
+                            ).fetchone()
+                            if r_sh:
+                                s_hint = int(r_sh["sheet_row"] or 0)
+                                if not id_ts_mod:
+                                    id_ts_mod = str(r_sh["id_timestamp_str"] or "")
+                        finally:
+                            c_tmp.close()
+                    t_row = _resolver_fila_estancia_en_sheets(ws_bd, s_hint, id_ts_mod)
                     if t_row >= 2:
                         ws_bd.batch_update(
                             [
@@ -1664,12 +1705,46 @@ def process_sync_queue() -> Dict[str, Any]:
                             ],
                             value_input_option="USER_ENTERED",
                         )
+                    hab_ant = str(payload.get("hab_anterior") or "").strip()
+                    hab_nva = str(payload["bloque_bm"][10] or "").strip() if len(payload.get("bloque_bm") or []) > 10 else ""
+                    if hab_ant and hab_nva and hab_ant != hab_nva and id_ts_mod:
+                        canon_mod = _canon_ts_id(id_ts_mod.split(" #")[0])
+                        if canon_mod:
+                            try:
+                                if ws_pagos is None:
+                                    ws_pagos = sh.worksheet("Registro_Pagos")
+                                pg_cd = ws_pagos.get("C2:D") or []
+                                lotes_pg_hab = []
+                                for idx_pg0, r_cd in enumerate(pg_cd, start=2):
+                                    c_est = r_cd[0] if len(r_cd) > 0 else ""
+                                    if c_est and _canon_ts_id(c_est) == canon_mod:
+                                        lotes_pg_hab.append({"range": f"D{idx_pg0}", "values": [[hab_nva]]})
+                                if lotes_pg_hab:
+                                    ws_pagos.batch_update(lotes_pg_hab, value_input_option="USER_ENTERED")
+                            except Exception:
+                                pass
+                            try:
+                                if ws_tienda is None:
+                                    ws_tienda = sh.worksheet("2.Registro_Ventas_Tienda")
+                                vt_fj = ws_tienda.get("F2:J") or []
+                                lotes_vt_hab = []
+                                for idx_vt0, r_fj in enumerate(vt_fj, start=2):
+                                    j_est = r_fj[4] if len(r_fj) > 4 else ""
+                                    if j_est and _canon_ts_id(j_est) == canon_mod:
+                                        lotes_vt_hab.append({"range": f"F{idx_vt0}", "values": [[hab_nva]]})
+                                if lotes_vt_hab:
+                                    ws_tienda.batch_update(lotes_vt_hab, value_input_option="USER_ENTERED")
+                            except Exception:
+                                pass
                     for paj in payload.get("pagos_ajuste") or []:
                         if ws_pagos is None:
                             ws_pagos = sh.worksheet("Registro_Pagos")
                         _append_fila_idempotente(ws_pagos, paj[0], paj, "J")
                     with db_transaction() as c_up:
-                        c_up.execute("UPDATE estancias SET dirty = 0 WHERE estancia_uuid = ?", (item["entity_uuid"],))
+                        c_up.execute(
+                            "UPDATE estancias SET sheet_row = CASE WHEN ? >= 2 THEN ? ELSE sheet_row END, dirty = 0 WHERE estancia_uuid = ?",
+                            (t_row, t_row, item["entity_uuid"]),
+                        )
 
                 elif op_type == "LIBERAR":
                     t_row = _resolver_fila_estancia_en_sheets(
@@ -2023,4 +2098,4 @@ def process_sync_queue() -> Dict[str, Any]:
             pass
         return {"status": "OFFLINE", "processed": processed, "error": str(e)}
     finally:
-        _sync_lock.release()
+        lock.release()

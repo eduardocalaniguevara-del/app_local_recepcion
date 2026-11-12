@@ -5,40 +5,233 @@ Motor SQLite Offline-First (Modo WAL + Synchronous FULL)
 Resiste apagones y cortes de internet en 0 ms.
 """
 
+import os
+import shutil
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator
 from config import DB_PATH
 
-_db_init_lock = threading.Lock()
+_db_init_lock = globals().get("_db_init_lock") or threading.Lock()
+_db_repair_lock = globals().get("_db_repair_lock") or threading.Lock()
 
 
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH), timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=20000;")
     conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA synchronous=FULL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
-    conn.execute("PRAGMA busy_timeout=15000;")
     return conn
+
+
+def repair_db_if_malformed(force: bool = False) -> bool:
+    """
+    Verifica con PRAGMA quick_check si ovalo_sistema.db sufrió corrupción de páginas B-tree
+    (ej. en _supabase_outbox tras apagón o cierre forzado) y la reconstruye automáticamente
+    en caliente (0 pérdida de tablas de negocio, compatible con Windows WAL aunque otro proceso la tenga abierta).
+    """
+    db_file = Path(DB_PATH)
+    if not db_file.exists():
+        return False
+
+    with _db_repair_lock:
+        needs_repair = force
+        if not needs_repair:
+            chk_conn = None
+            try:
+                chk_conn = sqlite3.connect(str(db_file), timeout=15.0)
+                chk_conn.execute("PRAGMA busy_timeout=15000;")
+                res = chk_conn.execute("PRAGMA quick_check(1);").fetchall()
+                if not res or str(res[0][0]).strip().lower() != "ok":
+                    needs_repair = True
+            except sqlite3.DatabaseError as exc:
+                if any(k in str(exc).lower() for k in ("malformed", "corrupt", "not a database")):
+                    needs_repair = True
+            finally:
+                if chk_conn:
+                    try:
+                        chk_conn.close()
+                    except Exception:
+                        pass
+
+        if not needs_repair:
+            return False
+
+        print(f"[DB-REPAIR] Corrupción B-tree detectada en {db_file.name}. Iniciando autorreparación sin pérdida...")
+        tmp_clean = db_file.parent / f"{db_file.stem}_clean_rebuild.db"
+        bak_corrupt = db_file.parent / f"{db_file.stem}.corrupt_bak.db"
+        for f_old in (tmp_clean, Path(f"{tmp_clean}-wal"), Path(f"{tmp_clean}-shm")):
+            if f_old.exists():
+                try:
+                    f_old.unlink()
+                except Exception:
+                    pass
+
+        src = sqlite3.connect(str(db_file), timeout=30.0)
+        src.execute("PRAGMA busy_timeout=20000;")
+        dst = sqlite3.connect(str(tmp_clean), timeout=30.0)
+        try:
+            dst.execute("PRAGMA journal_mode=DELETE;")
+            dst.execute("PRAGMA synchronous=OFF;")
+            dst.execute("PRAGMA foreign_keys=OFF;")
+
+            tables_meta = src.execute(
+                "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND sql IS NOT NULL"
+            ).fetchall()
+            indexes_meta = src.execute(
+                "SELECT name, sql FROM sqlite_master WHERE type='index' AND sql IS NOT NULL"
+            ).fetchall()
+
+            for t_name, t_sql in tables_meta:
+                dst.execute(t_sql)
+
+            for t_name, _ in tables_meta:
+                if t_name == "_supabase_outbox":
+                    continue  # Cola temporal de triggers: se recrea limpia
+                cols_info = dst.execute(f'PRAGMA table_info("{t_name}")').fetchall()
+                col_names = [c[1] for c in cols_info]
+                if not col_names:
+                    continue
+                cols_quoted = ", ".join(f'"{c}"' for c in col_names)
+                placeholders = ", ".join("?" for _ in col_names)
+                insert_sql = f'INSERT OR IGNORE INTO "{t_name}" ({cols_quoted}) VALUES ({placeholders})'
+
+                try:
+                    rows = src.execute(f'SELECT {cols_quoted} FROM "{t_name}"').fetchall()
+                    if rows:
+                        dst.executemany(insert_sql, rows)
+                except sqlite3.DatabaseError:
+                    # Rescate fila por fila por rowid si alguna página intermedia estuviera dañada
+                    try:
+                        bounds = src.execute(f'SELECT MIN(rowid), MAX(rowid) FROM "{t_name}"').fetchone()
+                        if bounds and bounds[0] is not None and bounds[1] is not None:
+                            for rid in range(int(bounds[0]), int(bounds[1]) + 1):
+                                try:
+                                    r_one = src.execute(
+                                        f'SELECT {cols_quoted} FROM "{t_name}" WHERE rowid = ?', (rid,)
+                                    ).fetchone()
+                                    if r_one:
+                                        dst.execute(insert_sql, r_one)
+                                except sqlite3.DatabaseError:
+                                    continue
+                    except Exception:
+                        pass
+
+            for _, idx_sql in indexes_meta:
+                try:
+                    dst.execute(idx_sql)
+                except Exception:
+                    pass
+
+            # Asegurar control de Supabase limpio y re-encolar estancias recientes por seguridad
+            dst.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS _supabase_sync_control (
+                    id      INTEGER PRIMARY KEY CHECK (id = 1),
+                    pulling INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT OR REPLACE INTO _supabase_sync_control (id, pulling) VALUES (1, 0);
+                CREATE TABLE IF NOT EXISTS _supabase_outbox (
+                    tabla      TEXT NOT NULL,
+                    pk1        TEXT NOT NULL,
+                    pk2        TEXT NOT NULL DEFAULT '',
+                    op         TEXT NOT NULL DEFAULT 'UPSERT',
+                    updated_at TEXT DEFAULT (datetime('now', 'localtime')),
+                    PRIMARY KEY (tabla, pk1, pk2)
+                );
+                """
+            )
+            try:
+                dst.execute(
+                    """
+                    INSERT OR IGNORE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+                    SELECT 'estancias', estancia_uuid, '', 'UPSERT', datetime('now', 'localtime')
+                    FROM estancias ORDER BY ymd_in DESC, sheet_row DESC LIMIT 40
+                    """
+                )
+            except Exception:
+                pass
+
+            dst.commit()
+        finally:
+            src.close()
+            dst.close()
+
+        try:
+            shutil.copy2(str(db_file), str(bak_corrupt))
+        except Exception:
+            pass
+
+        replaced = False
+        try:
+            for suf in ("-wal", "-shm"):
+                wf = Path(f"{db_file}{suf}")
+                if wf.exists():
+                    wf.unlink()
+            os.replace(str(tmp_clean), str(db_file))
+            replaced = True
+        except OSError:
+            # Si otro proceso en Windows mantiene abierto ovalo_sistema.db, sobrescribir páginas en vivo vía SQLite Backup API
+            clean_c = sqlite3.connect(str(tmp_clean), timeout=30.0)
+            live_c = sqlite3.connect(str(db_file), timeout=30.0)
+            try:
+                live_c.execute("PRAGMA busy_timeout=25000;")
+                clean_c.backup(live_c)
+                live_c.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                replaced = True
+            finally:
+                clean_c.close()
+                live_c.close()
+                try:
+                    tmp_clean.unlink()
+                except Exception:
+                    pass
+
+        if replaced:
+            print(f"[DB-REPAIR] Base {db_file.name} reconstruida y verificada con éxito (OK).")
+        return replaced
 
 
 @contextmanager
 def db_transaction() -> Iterator[sqlite3.Connection]:
     conn = get_connection()
+    need_repair_after = False
     try:
         conn.execute("BEGIN IMMEDIATE;")
         yield conn
         conn.commit()
+    except sqlite3.DatabaseError as db_exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        if any(k in str(db_exc).lower() for k in ("malformed", "corrupt", "not a database")):
+            need_repair_after = True
+        raise
     except Exception:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         raise
     finally:
         conn.close()
+        if need_repair_after:
+            try:
+                if repair_db_if_malformed(force=True):
+                    from supabase_sync import init_supabase_local_triggers
+                    init_supabase_local_triggers()
+            except Exception:
+                pass
 
 
 def init_db() -> None:
+    repair_db_if_malformed(force=False)
     with _db_init_lock:
         conn = get_connection()
         try:

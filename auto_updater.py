@@ -227,10 +227,6 @@ def recargar_en_memoria_sin_cortes() -> None:
             importlib.reload(sys.modules["domain_logic"])
         if "horario_logic" in sys.modules:
             importlib.reload(sys.modules["horario_logic"])
-        if "database" in sys.modules:
-            importlib.reload(sys.modules["database"])
-        if "sync_engine" in sys.modules:
-            importlib.reload(sys.modules["sync_engine"])
         if "pases_logic" in sys.modules:
             importlib.reload(sys.modules["pases_logic"])
         if "tablet_manager" in sys.modules:
@@ -456,6 +452,10 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
                         _guardar_sha_local(s_rem)
                         return {"actualizado": False, "motivo": "al_dia", "version": s_rem[:7]}
                     if s_rem:
+                        # Si HEAD local está adelantado respecto a origin/main (commit local previo al push), no revertir hacia atrás
+                        anc = _run_git(["merge-base", "--is-ancestor", s_rem, s_loc], timeout=5)
+                        if anc.returncode == 0:
+                            return {"actualizado": False, "motivo": "local_adelantado", "version": s_loc[:7]}
                         try:
                             df = _run_git(["diff", "--name-only", s_loc, s_rem], timeout=10)
                             cambiados = [x.strip() for x in df.stdout.splitlines() if x.strip()]
@@ -484,6 +484,7 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
     core_py = {
         "main.py",
         "sync_engine.py",
+        "supabase_sync.py",
         "config.py",
         "database.py",
         "auto_updater.py",

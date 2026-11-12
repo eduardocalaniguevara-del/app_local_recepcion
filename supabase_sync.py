@@ -9,6 +9,7 @@ Motor de Sincronización Bidireccional en Tiempo Real con Supabase (Grupo 2: ova
 """
 
 import json
+import sqlite3
 import threading
 import time
 import urllib.error
@@ -24,9 +25,9 @@ from config import (
     SUPABASE_SYNC_TOKEN,
     SUPABASE_URL,
 )
-from database import get_connection
+from database import get_connection, repair_db_if_malformed
 
-_sb_lock = threading.Lock()
+_sb_lock = globals().get("_sb_lock") or threading.Lock()
 _table_cols_cache: Dict[str, List[str]] = {}
 _last_heartbeat_ts: float = 0.0
 _bootstrap_checked: bool = False
@@ -53,7 +54,7 @@ TABLAS_GRUPO2_PK: Dict[str, Tuple[str, ...]] = {
     "servicios_detalle": ("serv_uuid",),
     "historial_movimientos": ("mov_id",),
     "auditoria_audio_noche": ("clip_id",),
-    "sunat_ventas": ("id",),
+    "sunat_ventas": ("nro_cp",),
     "sunat_lineas_cache": ("id_linea",),
     "calzado_cache": ("clave_calzado",),
     "sire_compras_hostal": ("id",),
@@ -63,10 +64,22 @@ TABLAS_GRUPO2_PK: Dict[str, Tuple[str, ...]] = {
     "tablet_firmas_conformidad": ("id",),
     "tablet_buzon_mejoras": ("id",),
     "wsp_recepcion_chats": ("jid",),
-    "wsp_recepcion_mensajes": ("id_mensaje",),
+    "wsp_recepcion_mensajes": ("id",),
     "wsp_recepcion_documentos": ("id",),
     "wsp_recepcion_cola_envio": ("id",),
 }
+
+
+def _resolve_pk_cols(conn, tabla: str) -> Tuple[str, ...]:
+    cfg_pks = TABLAS_GRUPO2_PK.get(tabla)
+    info = conn.execute(f"PRAGMA table_info({tabla})").fetchall()
+    if not info:
+        return ()
+    col_names = {str(r[1]) for r in info}
+    if cfg_pks and all(c in col_names for c in cfg_pks):
+        return cfg_pks
+    real_pks = tuple(str(r[1]) for r in sorted([r for r in info if int(r[5] or 0) > 0], key=lambda x: int(x[5])))
+    return real_pks[:2] if real_pks else ()
 
 
 def _headers(extra: Dict[str, str] | None = None) -> Dict[str, str]:
@@ -96,24 +109,16 @@ def init_supabase_local_triggers() -> None:
             """
             -- Tablas adicionales del Grupo 2 (Facturación SUNAT, SIRE, OCR Hostal, Conciliación Yape, WSP Recepción)
             CREATE TABLE IF NOT EXISTS sunat_ventas (
-                id                INTEGER PRIMARY KEY AUTOINCREMENT,
-                periodo_mes       TEXT NOT NULL DEFAULT '',
-                tipo_doc          TEXT NOT NULL DEFAULT '',
-                nro_cp            TEXT NOT NULL DEFAULT '',
-                serie             TEXT NOT NULL DEFAULT '',
-                numero            INTEGER NOT NULL DEFAULT 0,
-                fecha_emision     TEXT NOT NULL DEFAULT '',
-                receptor_doc_tipo TEXT NOT NULL DEFAULT '',
-                receptor_doc      TEXT NOT NULL DEFAULT '',
-                receptor_nombre   TEXT NOT NULL DEFAULT '',
-                moneda            TEXT NOT NULL DEFAULT 'PEN',
-                total             REAL NOT NULL DEFAULT 0,
-                estado            TEXT NOT NULL DEFAULT 'VIGENTE',
-                resumen_items     TEXT NOT NULL DEFAULT '',
-                items_json        TEXT NOT NULL DEFAULT '[]',
-                origen_json       TEXT NOT NULL DEFAULT '',
-                updated_at        TEXT DEFAULT (datetime('now', 'localtime')),
-                UNIQUE(tipo_doc, nro_cp)
+                nro_cp          TEXT PRIMARY KEY,
+                tipo            TEXT NOT NULL DEFAULT '',
+                periodo_mes     TEXT NOT NULL DEFAULT '',
+                fecha_emision   TEXT DEFAULT '',
+                receptor_doc    TEXT DEFAULT '',
+                receptor_nombre TEXT DEFAULT '',
+                monto_total     REAL DEFAULT 0,
+                estado          TEXT DEFAULT 'VIGENTE',
+                resumen_items   TEXT DEFAULT '',
+                actualizado_en  TEXT DEFAULT (datetime('now', 'localtime'))
             );
 
             CREATE TABLE IF NOT EXISTS sire_compras_hostal (
@@ -171,56 +176,48 @@ def init_supabase_local_triggers() -> None:
             );
 
             CREATE TABLE IF NOT EXISTS wsp_recepcion_chats (
-                jid                  TEXT PRIMARY KEY,
-                nombre               TEXT,
-                tipo                 TEXT,
-                ultimo_mensaje       TEXT,
-                fecha_ultimo_mensaje TEXT,
-                no_leidos            INTEGER DEFAULT 0,
-                actualizado_en       TEXT DEFAULT (datetime('now', 'localtime'))
+                jid               TEXT PRIMARY KEY,
+                nombre            TEXT,
+                es_grupo          INTEGER DEFAULT 0,
+                ultimo_mensaje_ts INTEGER DEFAULT 0,
+                actualizado_en    TEXT DEFAULT (datetime('now', 'localtime'))
             );
 
             CREATE TABLE IF NOT EXISTS wsp_recepcion_mensajes (
-                id_mensaje     TEXT PRIMARY KEY,
-                jid            TEXT NOT NULL,
-                remitente_jid  TEXT,
-                nombre_emisor  TEXT,
-                es_mio         INTEGER DEFAULT 0,
-                timestamp_unix INTEGER,
-                fecha_hora     TEXT,
-                tipo_mensaje   TEXT,
-                texto          TEXT,
-                tiene_archivo  INTEGER DEFAULT 0,
-                ruta_archivo   TEXT,
-                creado_en      TEXT DEFAULT (datetime('now', 'localtime'))
+                id               TEXT PRIMARY KEY,
+                chat_jid         TEXT,
+                chat_nombre      TEXT,
+                remitente_nombre TEXT,
+                desde_recepcion  INTEGER DEFAULT 0,
+                fecha_hora       TEXT,
+                timestamp        INTEGER,
+                tipo             TEXT,
+                texto            TEXT,
+                archivo_ruta     TEXT
             );
 
             CREATE TABLE IF NOT EXISTS wsp_recepcion_documentos (
-                id                INTEGER PRIMARY KEY AUTOINCREMENT,
-                id_mensaje        TEXT UNIQUE,
-                jid               TEXT,
-                fecha_hora        TEXT,
-                tipo_archivo      TEXT,
-                nombre_archivo    TEXT,
-                ruta_local        TEXT,
-                metodo_extraccion TEXT,
-                categoria         TEXT,
-                ruc_emisor        TEXT,
-                serie_numero      TEXT,
-                monto_detectado   TEXT,
-                operacion_nro     TEXT,
-                texto_extraido    TEXT,
-                fecha_procesado   TEXT DEFAULT (datetime('now', 'localtime'))
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                mensaje_id      TEXT UNIQUE,
+                fecha_hora      TEXT,
+                chat_nombre     TEXT,
+                categoria       TEXT,
+                serie_numero    TEXT,
+                ruc_dni         TEXT,
+                monto_detectado REAL,
+                operacion_nro   TEXT,
+                archivo_ruta    TEXT,
+                texto_extraido  TEXT
             );
 
             CREATE TABLE IF NOT EXISTS wsp_recepcion_cola_envio (
                 id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                telefono_o_jid   TEXT NOT NULL,
-                mensaje          TEXT,
-                ruta_adjunto     TEXT,
-                nombre_adjunto   TEXT,
+                destino_telefono TEXT NOT NULL,
+                cliente_nombre   TEXT,
+                nro_comprobante  TEXT,
+                texto            TEXT,
+                archivo_ruta     TEXT,
                 estado           TEXT DEFAULT 'PENDIENTE',
-                detalle_error    TEXT,
                 creado_en        TEXT DEFAULT (datetime('now', 'localtime')),
                 enviado_en       TEXT
             );
@@ -249,8 +246,11 @@ def init_supabase_local_triggers() -> None:
             for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
 
-        for tabla, pk_cols in TABLAS_GRUPO2_PK.items():
+        for tabla in TABLAS_GRUPO2_PK.keys():
             if tabla not in existing_tables:
+                continue
+            pk_cols = _resolve_pk_cols(conn, tabla)
+            if not pk_cols:
                 continue
             if len(pk_cols) == 1:
                 c1 = pk_cols[0]
@@ -263,7 +263,11 @@ def init_supabase_local_triggers() -> None:
 
             conn.executescript(
                 f"""
-                CREATE TRIGGER IF NOT EXISTS trg_sb_ins_{tabla}
+                DROP TRIGGER IF EXISTS trg_sb_ins_{tabla};
+                DROP TRIGGER IF EXISTS trg_sb_upd_{tabla};
+                DROP TRIGGER IF EXISTS trg_sb_del_{tabla};
+
+                CREATE TRIGGER trg_sb_ins_{tabla}
                 AFTER INSERT ON {tabla}
                 FOR EACH ROW
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
@@ -272,7 +276,7 @@ def init_supabase_local_triggers() -> None:
                     VALUES ('{tabla}', {new_pk1}, {new_pk2}, 'UPSERT', datetime('now', 'localtime'));
                 END;
 
-                CREATE TRIGGER IF NOT EXISTS trg_sb_upd_{tabla}
+                CREATE TRIGGER trg_sb_upd_{tabla}
                 AFTER UPDATE ON {tabla}
                 FOR EACH ROW
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
@@ -281,7 +285,7 @@ def init_supabase_local_triggers() -> None:
                     VALUES ('{tabla}', {new_pk1}, {new_pk2}, 'UPSERT', datetime('now', 'localtime'));
                 END;
 
-                CREATE TRIGGER IF NOT EXISTS trg_sb_del_{tabla}
+                CREATE TRIGGER trg_sb_del_{tabla}
                 AFTER DELETE ON {tabla}
                 FOR EACH ROW
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
@@ -328,7 +332,7 @@ def push_to_supabase() -> int:
         total_pushed = 0
 
         for (tabla, op), pk_list in grouped.items():
-            pk_cols = TABLAS_GRUPO2_PK.get(tabla)
+            pk_cols = _resolve_pk_cols(conn, tabla)
             if not pk_cols:
                 conn.executemany(
                     "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ?",
@@ -337,61 +341,78 @@ def push_to_supabase() -> int:
                 conn.commit()
                 continue
 
-            if op == "UPSERT":
-                rows_payload = []
-                processed_pks = []
-                for p1, p2 in pk_list:
-                    if len(pk_cols) == 1:
-                        row = conn.execute(
-                            f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ?",
-                            (p1,),
-                        ).fetchone()
-                    else:
-                        row = conn.execute(
-                            f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ? AND CAST({pk_cols[1]} AS TEXT) = ?",
-                            (p1, p2),
-                        ).fetchone()
-                    processed_pks.append((tabla, p1, p2))
-                    if row is not None:
-                        rows_payload.append(dict(row))
+            try:
+                if op == "UPSERT":
+                    rows_payload = []
+                    processed_pks = []
+                    for p1, p2 in pk_list:
+                        if len(pk_cols) == 1:
+                            row = conn.execute(
+                                f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ?",
+                                (p1,),
+                            ).fetchone()
+                        else:
+                            row = conn.execute(
+                                f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ? AND CAST({pk_cols[1]} AS TEXT) = ?",
+                                (p1, p2),
+                            ).fetchone()
+                        processed_pks.append((tabla, p1, p2))
+                        if row is not None:
+                            rows_payload.append(dict(row))
 
-                if rows_payload:
-                    on_conflict = ",".join(pk_cols)
-                    url = f"{SUPABASE_URL}/rest/v1/{tabla}?on_conflict={on_conflict}"
-                    data_bytes = json.dumps(rows_payload, ensure_ascii=False).encode("utf-8")
-                    req = urllib.request.Request(
-                        url,
-                        data=data_bytes,
-                        headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
-                        method="POST",
-                    )
-                    with urllib.request.urlopen(req, timeout=20) as resp:
-                        if resp.status not in (200, 201, 204):
-                            raise RuntimeError(f"HTTP {resp.status} subiendo {tabla}")
-                    total_pushed += len(rows_payload)
+                    if rows_payload:
+                        on_conflict = ",".join(pk_cols)
+                        url = f"{SUPABASE_URL}/rest/v1/{tabla}?on_conflict={on_conflict}"
+                        data_bytes = json.dumps(rows_payload, ensure_ascii=False).encode("utf-8")
+                        req = urllib.request.Request(
+                            url,
+                            data=data_bytes,
+                            headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                            method="POST",
+                        )
+                        with urllib.request.urlopen(req, timeout=20) as resp:
+                            if resp.status not in (200, 201, 204):
+                                raise RuntimeError(f"HTTP {resp.status} subiendo {tabla}")
+                        total_pushed += len(rows_payload)
 
-                conn.executemany(
-                    "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ?",
-                    processed_pks,
-                )
-                conn.commit()
-
-            elif op == "DELETE":
-                for p1, p2 in pk_list:
-                    if len(pk_cols) == 1:
-                        q = f"{pk_cols[0]}=eq.{urllib.parse.quote(p1)}"
-                    else:
-                        q = f"{pk_cols[0]}=eq.{urllib.parse.quote(p1)}&{pk_cols[1]}=eq.{urllib.parse.quote(p2)}"
-                    url = f"{SUPABASE_URL}/rest/v1/{tabla}?{q}"
-                    req = urllib.request.Request(url, headers=_headers(), method="DELETE")
-                    with urllib.request.urlopen(req, timeout=15) as resp:
-                        pass
-                    conn.execute(
+                    conn.executemany(
                         "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ?",
-                        (tabla, p1, p2),
+                        processed_pks,
                     )
-                    total_pushed += 1
-                conn.commit()
+                    conn.commit()
+
+                elif op == "DELETE":
+                    for p1, p2 in pk_list:
+                        if len(pk_cols) == 1:
+                            q = f"{pk_cols[0]}=eq.{urllib.parse.quote(p1)}"
+                        else:
+                            q = f"{pk_cols[0]}=eq.{urllib.parse.quote(p1)}&{pk_cols[1]}=eq.{urllib.parse.quote(p2)}"
+                        url = f"{SUPABASE_URL}/rest/v1/{tabla}?{q}"
+                        req = urllib.request.Request(url, headers=_headers(), method="DELETE")
+                        with urllib.request.urlopen(req, timeout=15) as resp:
+                            pass
+                        conn.execute(
+                            "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ?",
+                            (tabla, p1, p2),
+                        )
+                        total_pushed += 1
+                    conn.commit()
+            except urllib.error.HTTPError as he:
+                body_err = ""
+                try:
+                    body_err = he.read().decode("utf-8", errors="replace")[:200]
+                except Exception:
+                    pass
+                print(f"[SupabaseSync] Aviso HTTP {he.code} en ({tabla}, {op}): {body_err}")
+                if he.code in (400, 404):
+                    # Descartar lote con esquema incompatible para nunca bloquear estancias/pagos
+                    conn.executemany(
+                        "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ?",
+                        [(tabla, p1, p2) for (p1, p2) in pk_list],
+                    )
+                    conn.commit()
+                else:
+                    raise
 
         return total_pushed
     finally:
@@ -428,8 +449,8 @@ def pull_from_supabase() -> int:
         max_log_id = last_log_id
 
         conn.execute("BEGIN IMMEDIATE;")
-        conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1;")
         try:
+            conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1;")
             for item in changes:
                 lid = int(item.get("log_id") or 0)
                 if lid > max_log_id:
@@ -442,7 +463,7 @@ def pull_from_supabase() -> int:
                 tabla = str(item.get("tabla") or "")
                 op = str(item.get("op") or "UPSERT")
                 row_data = item.get("row_json") or {}
-                pk_cols = TABLAS_GRUPO2_PK.get(tabla)
+                pk_cols = _resolve_pk_cols(conn, tabla)
                 if not pk_cols or not isinstance(row_data, dict):
                     continue
 
@@ -504,9 +525,14 @@ def pull_from_supabase() -> int:
                 """,
                 (now_iso, now_iso),
             )
-        finally:
             conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
             conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
 
         return pulled_count
     finally:
@@ -539,8 +565,8 @@ def _bootstrap_tablas_hostal_si_vacias() -> int:
                 continue
             valid_cols = _get_table_columns(conn, t)
             conn.execute("BEGIN IMMEDIATE;")
-            conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1;")
             try:
+                conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1;")
                 for row_data in rows:
                     cols_present = [c for c in valid_cols if c in row_data and row_data[c] is not None]
                     if not cols_present:
@@ -553,9 +579,14 @@ def _bootstrap_tablas_hostal_si_vacias() -> int:
                         vals,
                     )
                     total_boot += 1
-            finally:
                 conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
                 conn.commit()
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                raise
         return total_boot
     except Exception:
         return total_boot
@@ -597,12 +628,24 @@ def sync_with_supabase() -> Dict[str, Any]:
     """
     if not SUPABASE_ENABLED:
         return {"status": "DISABLED", "pushed": 0, "pulled": 0}
-    if not _sb_lock.acquire(blocking=False):
+    lock = _sb_lock
+    if not lock.acquire(blocking=False):
         return {"status": "BUSY", "pushed": 0, "pulled": 0}
     try:
-        boot = _bootstrap_tablas_hostal_si_vacias()
-        pushed = push_to_supabase()
-        pulled = pull_from_supabase() + boot
+        try:
+            boot = _bootstrap_tablas_hostal_si_vacias()
+            pushed = push_to_supabase()
+            pulled = pull_from_supabase() + boot
+        except sqlite3.DatabaseError as db_err:
+            if any(k in str(db_err).lower() for k in ("malformed", "corrupt", "not a database")):
+                if repair_db_if_malformed(force=True):
+                    init_supabase_local_triggers()
+                    pushed = push_to_supabase()
+                    pulled = pull_from_supabase()
+                else:
+                    raise
+            else:
+                raise
         _enviar_heartbeat_equipo()
         return {
             "status": "OK",
@@ -612,6 +655,7 @@ def sync_with_supabase() -> Dict[str, Any]:
             "ts": datetime.now().isoformat(),
         }
     except Exception as exc:
+        print(f"[SupabaseSync] Error en sincronización ({EQUIPO_ID}): {exc}")
         return {
             "status": "ERROR",
             "equipo": EQUIPO_ID,
@@ -619,4 +663,4 @@ def sync_with_supabase() -> Dict[str, Any]:
             "ts": datetime.now().isoformat(),
         }
     finally:
-        _sb_lock.release()
+        lock.release()

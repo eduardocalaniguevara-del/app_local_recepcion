@@ -1422,6 +1422,8 @@
       <form id="formModificarEstancia" onsubmit="guardarCambiosEstancia(event)" class="p-4 space-y-3 text-xs max-h-[82vh] overflow-y-auto">
         <input type="hidden" id="mod_fila">
         <input type="hidden" id="mod_id">
+        <input type="hidden" id="mod_estanciaUuid">
+        <input type="hidden" id="mod_habOriginal">
 
         <!-- Fila 1: Habitación, Estado, Check-In, Check-Out -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
@@ -2453,7 +2455,7 @@
                   🔁
                 </button>
                 <button class="p-0.5 rounded-md bg-transparent hover:bg-slate-200/80 text-[15px] leading-none transition-all hover:scale-110 cursor-pointer"
-                        onclick="abrirModalModificarEstancia(event, '${h.hab}', ${h.filaNum || 0}, '${h.id || h.estanciaUuid || ""}')"
+                        onclick="abrirModalModificarEstancia(event, '${h.hab}', ${h.filaNum || 0}, '${h.estanciaUuid || h.id || ""}')"
                         title="Modificar datos de la estancia activa (Hab. ${h.hab})">
                   ✏️
                 </button>
@@ -2757,6 +2759,8 @@
 
             document.getElementById("mod_fila").value = est.fila || "";
             document.getElementById("mod_id").value = est.id || "";
+            if (document.getElementById("mod_estanciaUuid")) document.getElementById("mod_estanciaUuid").value = est.estanciaUuid || "";
+            if (document.getElementById("mod_habOriginal")) document.getElementById("mod_habOriginal").value = est.hab || hab || "";
             document.getElementById("mod_hab").value = est.hab || hab;
             document.getElementById("mod_estadoEstancia").value = est.estadoEstancia || "En Curso";
             document.getElementById("mod_fechaIn").value = est.fechaIn || "";
@@ -2834,6 +2838,8 @@
         const hLocal = habitacionesData.find(x => String(x.hab) === String(hab)) || {};
         if (loader) loader.classList.add("hidden");
         if (form) form.classList.remove("hidden");
+        if (document.getElementById("mod_estanciaUuid")) document.getElementById("mod_estanciaUuid").value = hLocal.estanciaUuid || "";
+        if (document.getElementById("mod_habOriginal")) document.getElementById("mod_habOriginal").value = hab || "";
         document.getElementById("mod_hab").value = hab;
         document.getElementById("mod_nombre").value = hLocal.huesped && hLocal.huesped !== "-" ? hLocal.huesped : "";
         document.getElementById("mod_tarifa").value = hLocal.tarifaPactada || 0;
@@ -2885,7 +2891,9 @@
       const payload = Object.assign({}, cacheEstanciaMod, {
         fila: document.getElementById("mod_fila").value,
         id: document.getElementById("mod_id").value,
-        hab: document.getElementById("mod_hab").value,
+        estanciaUuid: (document.getElementById("mod_estanciaUuid") || {}).value || cacheEstanciaMod.estanciaUuid || "",
+        habOriginal: (document.getElementById("mod_habOriginal") || {}).value || cacheEstanciaMod.hab || "",
+        hab: String(document.getElementById("mod_hab").value || "").trim(),
         estadoEstancia: document.getElementById("mod_estadoEstancia").value,
         fechaIn: document.getElementById("mod_fechaIn").value,
         fechaOut: document.getElementById("mod_fechaOut").value,
@@ -3249,7 +3257,7 @@
             </div>
 
             <div class="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
-              <button type="button" onclick="cerrarModalHistorialDia(); abrirModalModificarEstancia(event, '${hab}', ${item.fila})" class="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-bold text-[11px] cursor-pointer flex items-center gap-1 shadow-2xs">
+              <button type="button" onclick="cerrarModalHistorialDia(); abrirModalModificarEstancia(event, '${hab}', ${item.fila || 0}, '${item.estanciaUuid || item.id || ""}')" class="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-bold text-[11px] cursor-pointer flex items-center gap-1 shadow-2xs">
                 <span>✏️</span> Ver / Modificar ficha
               </button>
               ${btnRestaurar}
@@ -6587,6 +6595,7 @@
       estanciaUuid: f.estanciaUuid,
       fila: f.fila,
       id: f.id,
+      habOriginal: f.hab,
       fechaIn: gv('bdeFechaIn'),
       fechaOut: gv('bdeFechaOut'),
       hab: gv('bdeHab'),

@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from config import APP_HOST, APP_PORT, STATIC_DIR, SYNC_INTERVAL_SECONDS, NOMBRE_HOTEL
-from database import get_connection, init_db
+from database import get_connection, init_db, repair_db_if_malformed
 import tablet_manager as tm
 from domain_logic import (
     actualizar_comprobante_desde_panel_local,
@@ -530,7 +530,7 @@ def api_sunat_orden(payload: Dict[str, Any]):
 
 
 @app.post("/api/rpc/{method_name}")
-def api_rpc_handler(method_name: str, body: RpcPayload):
+def api_rpc_handler(method_name: str, body: RpcPayload, _retried: bool = False):
     import domain_logic as dl
 
     args = body.args or []
@@ -696,6 +696,16 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
     except HTTPException:
         raise
     except Exception as exc:
+        err_low = str(exc).lower()
+        if not _retried and ("malformed" in err_low or "corrupt" in err_low):
+            try:
+                repair_db_if_malformed(force=True)
+                init_supabase_local_triggers()
+                return api_rpc_handler(method_name, body, _retried=True)
+            except HTTPException:
+                raise
+            except Exception as exc2:
+                raise HTTPException(status_code=400, detail=str(exc2))
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -703,13 +713,28 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
 @app.post("/api/supabase/sync")
 def api_supabase_sync():
     res = sync_with_supabase()
-    conn = get_connection()
     try:
-        outbox_cnt = conn.execute("SELECT COUNT(*) AS c FROM _supabase_outbox").fetchone()["c"]
-        r_cur = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'").fetchone()
-        r_ts = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_sync_iso'").fetchone()
-    finally:
-        conn.close()
+        conn = get_connection()
+        try:
+            outbox_cnt = conn.execute("SELECT COUNT(*) AS c FROM _supabase_outbox").fetchone()["c"]
+            r_cur = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'").fetchone()
+            r_ts = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_sync_iso'").fetchone()
+        finally:
+            conn.close()
+    except Exception as exc:
+        if "malformed" in str(exc).lower() or "corrupt" in str(exc).lower():
+            repair_db_if_malformed(force=True)
+            init_supabase_local_triggers()
+            res = sync_with_supabase()
+            conn = get_connection()
+            try:
+                outbox_cnt = conn.execute("SELECT COUNT(*) AS c FROM _supabase_outbox").fetchone()["c"]
+                r_cur = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'").fetchone()
+                r_ts = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_sync_iso'").fetchone()
+            finally:
+                conn.close()
+        else:
+            raise
     res["outbox_pendientes"] = outbox_cnt
     res["sb_last_log_id"] = int(r_cur["valor"]) if (r_cur and str(r_cur["valor"]).isdigit()) else 0
     res["sb_last_sync_iso"] = str(r_ts["valor"]) if r_ts else ""
