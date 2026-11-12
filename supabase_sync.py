@@ -632,7 +632,7 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
     """
     if not SUPABASE_ENABLED:
         return
-    marker_key = "sb_resync_20261112_v3"
+    marker_key = "sb_resync_20261112_v4"
     conn = get_connection()
     try:
         r = conn.execute(
@@ -645,7 +645,7 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
         conn.execute(
             """
             INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-            SELECT 'estancias', estancia_uuid, '', 'UPSERT', ?
+            SELECT 'estancias', CAST(estancia_uuid AS TEXT), '', 'UPSERT', ?
             FROM estancias
             WHERE ymd_in >= 20261108 OR ymd_out >= 20261111 OR sheet_row = 0 OR dirty = 1
             """,
@@ -654,7 +654,7 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
         conn.execute(
             """
             INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-            SELECT 'pagos', pago_uuid, '', 'UPSERT', ?
+            SELECT 'pagos', CAST(pago_id AS TEXT), '', 'UPSERT', ?
             FROM pagos
             WHERE ymd_pago >= 20261108 OR sheet_row = 0 OR dirty = 1
             """,
@@ -663,7 +663,7 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
         conn.execute(
             """
             INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-            SELECT 'gastos', gasto_uuid, '', 'UPSERT', ?
+            SELECT 'gastos', CAST(gasto_uuid AS TEXT), '', 'UPSERT', ?
             FROM gastos
             WHERE ymd_gasto >= 20261108 OR sheet_row = 0 OR dirty = 1
             """,
@@ -672,7 +672,7 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
         conn.execute(
             """
             INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-            SELECT 'ventas_tienda', venta_uuid, '', 'UPSERT', ?
+            SELECT 'ventas_tienda', CAST(venta_uuid AS TEXT), '', 'UPSERT', ?
             FROM ventas_tienda
             WHERE ymd_venta >= 20261108 OR sheet_row = 0 OR dirty = 1
             """,
@@ -681,8 +681,8 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
         conn.execute(
             """
             INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-            SELECT 'colores_habitacion', habitacion, '', 'UPSERT', ?
-            FROM colores_habitacion
+            SELECT 'habitaciones_colores', CAST(hab AS TEXT), CAST(fecha_dmy AS TEXT), 'UPSERT', ?
+            FROM habitaciones_colores
             """,
             (now_iso,),
         )
