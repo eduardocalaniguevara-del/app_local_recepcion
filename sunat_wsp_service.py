@@ -35,6 +35,7 @@ from config import (
     EJECUTAR_REMOTO_SCRIPT,
     EMITIR_COMPROBANTE_SCRIPT,
     HOSTAL_SISTEMA_DIR,
+    MODO_PRUEBA,
     REGLAS_AUDITORIA_JSON,
     SCRIPTS_HOSTAL_DIR,
 )
@@ -471,6 +472,8 @@ def _despachar_wsp_pdf(
       de Laptop 1 y usar el archivo PDF guardado en Laptop 2.
     """
     py_bin = _python_cli_bin()
+    if MODO_PRUEBA:
+        return False, "🧪 MODO PRUEBA: el envío por WhatsApp está deshabilitado (no se envió nada).", ""
     en_recepcion = es_laptop_recepcion_directa()
     pista_archivo = os.path.basename(pdf_path) if pdf_path else (nro_cp or "")
 
@@ -923,6 +926,9 @@ def ejecutar_orden_sunat_wsp(
     - Si data['sincrono'] == True, espera y devuelve el resultado directo.
     """
     accion_raw = str(data.get("accion") or "").upper().strip()
+    if MODO_PRUEBA:
+        _msg_p = "🧪 MODO PRUEBA: la emisión SUNAT está deshabilitada en el sistema de prueba (no se emite nada real)."
+        return {"status": "ERROR", "exito": False, "error": _msg_p, "mensaje": _msg_p}
     modo_borrador = bool(data.get("modoBorrador", False))
     if accion_raw == "BORRADOR":
         accion = "EMITIR"

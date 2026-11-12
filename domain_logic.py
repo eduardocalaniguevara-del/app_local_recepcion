@@ -35,6 +35,7 @@ from config import (
     COL_TIPO_ADICIONAL,
     COL_TIPO_ADICIONAL_IDX,
     FORMULA_SNACKS_EN_S2,
+    MODO_PRUEBA,
     NOMBRE_HOTEL,
     SPREADSHEET_ID,
 )
@@ -727,7 +728,7 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
             r_aj = conn.execute("SELECT 1 FROM habitaciones_config WHERE hab IN ('101','102','103','104','105') LIMIT 1").fetchone()
             if r_aj:
                 tiene_hab_ajena = True
-        if (prev_sh_id and prev_sh_id != SPREADSHEET_ID) or tiene_hab_ajena:
+        if not MODO_PRUEBA and ((prev_sh_id and prev_sh_id != SPREADSHEET_ID) or tiene_hab_ajena):
             conn.execute("DELETE FROM habitaciones_config")
             conn.execute("DELETE FROM estancias WHERE dirty = 0")
             conn.execute("DELETE FROM pagos WHERE synced = 1")

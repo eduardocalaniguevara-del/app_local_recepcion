@@ -25,6 +25,11 @@
       "id": "COPIAR_LEEME_RECEPCION_DESCARGAS_02",
       "target": "ovalo",
       "comando_cmd": "if exist \"C:\\Users\\ovalo mariategui\\Downloads\" (mkdir \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\" >nul 2>&1 & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion.md\" & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\\leemeantrigravityrecepcion.md\") & if exist \"C:\\Hostal_Sistema\\scripts\\copiar_a_descargas_laptop2.py\" python \"C:\\Hostal_Sistema\\scripts\\copiar_a_descargas_laptop2.py\""
+    },
+    {
+      "id": "CREAR_ENTORNO_PRUEBA_01",
+      "target": "todos",
+      "comando_cmd": "Crear_Entorno_Prueba.bat"
     }
   ]
 }

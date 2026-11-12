@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from config import APP_HOST, APP_PORT, STATIC_DIR, SYNC_INTERVAL_SECONDS, NOMBRE_HOTEL
+from config import APP_HOST, APP_PORT, MODO_PRUEBA, STATIC_DIR, SYNC_INTERVAL_SECONDS, NOMBRE_HOTEL
 from database import get_connection, init_db
 import tablet_manager as tm
 import yape_manager as ym
@@ -92,6 +92,8 @@ def _is_bootstrap_completed() -> bool:
 
 
 def _run_sync_cycle(force_full: bool = False) -> None:
+    if MODO_PRUEBA:
+        return  # Sistema de PRUEBA: nunca sincroniza con Supabase ni con Google Sheets
     if not _sync_lock.acquire(blocking=False):
         return
     try:
@@ -371,6 +373,16 @@ def index():
     html = html.replace("{{NOMBRE_HOTEL}}", NOMBRE_HOTEL)
     html = re.sub(r'/static/js/api_bridge\.js(?:\?[^"]*)?"', f'/static/js/api_bridge.js?v={mtime_ui}"', html)
     html = re.sub(r'/static/js/facturacion_sunat\.js(?:\?[^"]*)?"', f'/static/js/facturacion_sunat.js?v={mtime_ui}"', html)
+    if MODO_PRUEBA:
+        html = html.replace("<title>", "<title>🧪 PRUEBA — ", 1)
+        banner = (
+            '<div style="position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#c2410c;color:#fff;'
+            'font:700 12px/1 system-ui,sans-serif;text-align:center;padding:4px 8px;letter-spacing:.5px;'
+            'pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.4)">'
+            '🧪 SISTEMA DE PRUEBA — OVALO MARIATEGUI PRUEBA · Los datos NO son reales y NO llegan a la hoja, Supabase, SUNAT ni WhatsApp'
+            '</div><div style="height:22px"></div>'
+        )
+        html = re.sub(r"(<body[^>]*>)", lambda _m: _m.group(1) + banner, html, count=1, flags=re.IGNORECASE)
     if "yape_vivo.js" in html:
         html = re.sub(r'/static/js/yape_vivo\.js(?:\?[^"]*)?"', f'/static/js/yape_vivo.js?v={mtime_ui}"', html)
     else:

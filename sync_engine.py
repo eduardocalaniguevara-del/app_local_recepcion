@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 import gspread
 from google.oauth2.service_account import Credentials
 
-from config import DATA_DIR, SCOPES, SPREADSHEET_ID, SYNC_INTERVAL_SECONDS, obtener_ruta_credenciales
+from config import DATA_DIR, MODO_PRUEBA, SCOPES, SPREADSHEET_ID, SYNC_INTERVAL_SECONDS, obtener_ruta_credenciales
 from database import db_transaction, get_connection
 from config import COL_TIPO_ADICIONAL, COL_TIPO_ADICIONAL_IDX, FORMULA_SNACKS_EN_S2
 from domain_logic import (
@@ -38,6 +38,8 @@ _sheet_tabs_cache = None
 
 def _get_spreadsheet():
     global _gspread_client, _spreadsheet
+    if MODO_PRUEBA:
+        raise RuntimeError("MODO PRUEBA: el acceso a Google Sheets está bloqueado en el sistema de prueba.")
     if _spreadsheet is not None and getattr(_spreadsheet, "id", None) == SPREADSHEET_ID:
         return _spreadsheet
     creds_path = obtener_ruta_credenciales()
@@ -127,6 +129,8 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
     Lee los datos de Google Sheets y actualiza la caché local SQLite
     sin tocar ninguna estancia local que tenga cambios pendientes de subir (dirty = 1).
     """
+    if MODO_PRUEBA:
+        return {"status": "MODO_PRUEBA"}
     if not _sync_lock.acquire(blocking=False):
         return {"status": "BUSY"}
 
@@ -1254,6 +1258,8 @@ def process_sync_queue() -> Dict[str, Any]:
     """
     Procesa en orden FIFO estricto las operaciones pendientes en sync_queue.
     """
+    if MODO_PRUEBA:
+        return {"status": "MODO_PRUEBA", "procesados": 0}
     conn = get_connection()
     try:
         pending_items = conn.execute(

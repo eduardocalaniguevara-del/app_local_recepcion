@@ -24,7 +24,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, Any, List
 
-from config import BASE_APP_DIR, DATA_DIR, NOMBRE_HOTEL, PERFIL_HOTEL_PATH, SPREADSHEET_ID
+from config import BASE_APP_DIR, DATA_DIR, MODO_PRUEBA, NOMBRE_HOTEL, PERFIL_HOTEL_PATH, SPREADSHEET_ID
 
 _GIT_CANDIDATES = [
     r"C:\Hostal_Sistema\tools\mingit\cmd\git.exe",
@@ -418,7 +418,14 @@ def ejecutar_salvavidas_sheets(celda_cmd: str) -> None:
 
 
 def _preservar_tablet_andino_local() -> bool:
-    """Si GitHub aún tiene el TabletKiosco antiguo, preserva Lobby Andino Dorado desde actualizacion_webapp_local."""
+    """
+    [DESACTIVADO por defecto] Antiguo "overlay" que copiaba archivos desde
+    C:\\Hostal_Sistema\\actualizacion_webapp_local sobre la app cada 20 s (sobrescribía cambios y
+    saltaba GitHub). Desde 12/11/2026 la ÚNICA fuente de verdad es GitHub (+ sistema de prueba).
+    Solo se reactiva creando el archivo data/activar_overlay_local.flag.
+    """
+    if not (DATA_DIR / "activar_overlay_local.flag").exists():
+        return False
     changed_main = False
     respaldo = Path(r"C:\Hostal_Sistema\actualizacion_webapp_local")
     if not respaldo.exists():
@@ -529,6 +536,11 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
     Intenta primero por Git si existe .git funcional; si no existe .git o falla cualquier paso,
     aplica actualización directa por HTTPS ZIP en Python puro (0 dependencia de git.exe).
     """
+    if MODO_PRUEBA:
+        # Sistema de PRUEBA: jamás baja código de GitHub ni ejecuta órdenes remotas; solo recarga en caliente
+        # los archivos que tú editas en esta carpeta.
+        _verificar_recarga_local_mtime()
+        return {"actualizado": False, "motivo": "modo_prueba", "version": obtener_version_actual()}
     if _preservar_tablet_andino_local():
         reiniciar_proceso_completo()
     _verificar_recarga_local_mtime()
