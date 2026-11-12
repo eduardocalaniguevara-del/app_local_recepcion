@@ -686,7 +686,7 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
         conn.execute(
             """
             UPDATE sync_queue
-            SET status = 'PENDING', retry_count = 0, last_error = ''
+            SET status = 'PENDING', attempts = 0, last_error = ''
             WHERE status IN ('ERROR', 'AUTOCURADO') AND created_at >= '2026-11-10'
             """
         )
