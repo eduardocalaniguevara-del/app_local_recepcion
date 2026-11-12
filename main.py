@@ -24,8 +24,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from config import APP_HOST, APP_PORT, STATIC_DIR, SYNC_INTERVAL_SECONDS, NOMBRE_HOTEL
-from database import get_connection, init_db, repair_db_if_malformed
+from database import get_connection, init_db
 import tablet_manager as tm
+import yape_manager as ym
 from domain_logic import (
     actualizar_comprobante_desde_panel_local,
     cancelar_estancia_local,
@@ -94,17 +95,15 @@ def _run_sync_cycle(force_full: bool = False) -> None:
     if not _sync_lock.acquire(blocking=False):
         return
     try:
-        import supabase_sync as _sb_live
-        import sync_engine as _se_live
         # 0. Sincronización ultrarrápida (< 150 ms) con Supabase (Grupo 2: ovalo_sistema.db <-> hostal-ovalo)
-        _sb_live.sync_with_supabase()
+        sync_with_supabase()
         # 1. Subir primero cualquier operación pendiente en la cola local (FIFO idempotente) a Google Sheets
-        _se_live.process_sync_queue()
+        process_sync_queue()
         # 2. Descargar novedades desde Google Sheets (sin pisar filas dirty=1)
         boot_done = _is_bootstrap_completed()
-        _se_live.pull_from_sheets(full_bootstrap=(force_full or not boot_done))
+        pull_from_sheets(full_bootstrap=(force_full or not boot_done))
         # 3. Subir a Supabase cualquier novedad recién traída desde Google Sheets
-        _sb_live.sync_with_supabase()
+        sync_with_supabase()
     except Exception as exc:
         print(f"[SyncWorker] Advertencia en ciclo de sincronización: {exc}")
     finally:
@@ -127,6 +126,7 @@ def _background_sync_worker() -> None:
 async def lifespan(app: FastAPI):
     init_db()
     tm.init_tablet_tables()
+    ym.init_yape_tables()
     init_supabase_local_triggers()
     worker = threading.Thread(target=_background_sync_worker, name="OvaloSyncWorker", daemon=True)
     worker.start()
@@ -145,7 +145,7 @@ app = FastAPI(
 
 @app.middleware("http")
 async def candado_seguridad_red_tablet(request: Request, call_next):
-    """Bloquea cualquier acceso desde Wi-Fi a rutas de Caja/Recepción; los dispositivos externos solo ven /tablet."""
+    """Bloquea cualquier acceso desde Wi-Fi a rutas de Caja/Recepción; los dispositivos externos solo ven /tablet o /yape."""
     client_host = (request.client.host if request.client else "") or ""
     es_localhost = client_host in ("127.0.0.1", "::1", "localhost")
     if not es_localhost:
@@ -155,6 +155,8 @@ async def candado_seguridad_red_tablet(request: Request, call_next):
         rutas_permitidas_tablet = (
             path == "/tablet"
             or path.startswith("/api/tablet/")
+            or path == "/yape"
+            or path.startswith("/api/yape/")
             or path == "/static/js/tailwind_local.js"
             or path == "/favicon.ico"
         )
@@ -321,7 +323,9 @@ BRIDGE_BODY_LOCAL = """
     };
 
     window.addEventListener('message', function(e) {
-      if (e.data && e.data.type === 'SET_CONTEXT') window.aplicarContextoDesdePanel(e.data.context);
+      if (e.data && e.data.type === 'SET_CONTEXT') {
+        window.aplicarContextoDesdePanel(e.data.context);
+      }
     });
   })();
 </script>"""
@@ -355,11 +359,22 @@ def _obtener_vista_formulario_local(nombre_vista: str) -> str:
 def index():
     panel_path = STATIC_DIR / "PanelDisponibilidad.html"
     js_sunat_path = STATIC_DIR / "js" / "facturacion_sunat.js"
+    js_yape_path = STATIC_DIR / "js" / "yape_vivo.js"
     html = panel_path.read_text(encoding="utf-8")
-    mtime_ui = int(max(panel_path.stat().st_mtime, js_sunat_path.stat().st_mtime if js_sunat_path.exists() else 0))
+    mtime_ui = int(
+        max(
+            panel_path.stat().st_mtime,
+            js_sunat_path.stat().st_mtime if js_sunat_path.exists() else 0,
+            js_yape_path.stat().st_mtime if js_yape_path.exists() else 0,
+        )
+    )
     html = html.replace("{{NOMBRE_HOTEL}}", NOMBRE_HOTEL)
-    html = html.replace('/static/js/api_bridge.js"', f'/static/js/api_bridge.js?v={mtime_ui}"')
-    html = html.replace('/static/js/facturacion_sunat.js"', f'/static/js/facturacion_sunat.js?v={mtime_ui}"')
+    html = re.sub(r'/static/js/api_bridge\.js(?:\?[^"]*)?"', f'/static/js/api_bridge.js?v={mtime_ui}"', html)
+    html = re.sub(r'/static/js/facturacion_sunat\.js(?:\?[^"]*)?"', f'/static/js/facturacion_sunat.js?v={mtime_ui}"', html)
+    if "yape_vivo.js" in html:
+        html = re.sub(r'/static/js/yape_vivo\.js(?:\?[^"]*)?"', f'/static/js/yape_vivo.js?v={mtime_ui}"', html)
+    else:
+        html = html.replace("</head>", f'  <script src="/static/js/yape_vivo.js?v={mtime_ui}"></script>\n</head>', 1)
     return HTMLResponse(
         content=html,
         media_type="text/html; charset=utf-8",
@@ -407,12 +422,19 @@ def api_tablet_estado(request: Request, from_tablet: int = 0):
 
 
 @app.get("/api/tablet/foto/{filename}")
-def api_tablet_foto(filename: str):
-    safe_name = Path(filename).name
-    fpath = tm.FOTOS_HABS_DIR / safe_name
-    if not fpath.is_file():
+def api_tablet_foto(filename: str, w: str = ""):
+    fpath = tm.obtener_ruta_foto_tablet(filename, w)
+    if not fpath or not fpath.is_file():
         raise HTTPException(status_code=404, detail="Foto no encontrada")
-    return FileResponse(str(fpath), headers={"Cache-Control": "max-age=300"})
+    return FileResponse(str(fpath), headers={"Cache-Control": "max-age=3600" if w else "max-age=300"})
+
+
+@app.get("/api/tablet/producto-foto/{filename}")
+def api_tablet_producto_foto(filename: str, w: str = "thumb"):
+    fpath = tm.obtener_ruta_foto_tablet(filename, w, carpeta=tm.FOTOS_PRODS_DIR)
+    if not fpath or not fpath.is_file():
+        raise HTTPException(status_code=404, detail="Foto de producto no encontrada")
+    return FileResponse(str(fpath), headers={"Cache-Control": "max-age=3600"})
 
 
 @app.post("/api/tablet/seleccionar-hab")
@@ -477,13 +499,11 @@ def api_sync_status():
     )
 
 
-@app.post("/api/update")
 @app.post("/api/system/update")
 def api_system_update():
     res = verificar_y_aplicar_actualizacion()
-    reiniciar_servidor_en_caliente()
-    res["recargado_en_caliente"] = True
-    res["version_activa"] = obtener_version_actual()
+    if res.get("actualizado"):
+        reiniciar_servidor_en_caliente()
     return res
 
 
@@ -535,10 +555,6 @@ def api_sunat_orden(payload: Dict[str, Any]):
 
 @app.post("/api/rpc/{method_name}")
 def api_rpc_handler(method_name: str, body: RpcPayload):
-    return _ejecutar_rpc_handler(method_name, body, _retried=False)
-
-
-def _ejecutar_rpc_handler(method_name: str, body: RpcPayload, _retried: bool = False):
     import domain_logic as dl
 
     args = body.args or []
@@ -694,6 +710,10 @@ def _ejecutar_rpc_handler(method_name: str, body: RpcPayload, _retried: bool = F
             raise HTTPException(status_code=404, detail=f"Método RPC no soportado: {method_name}")
 
         if method_name in WRITE_METHODS:
+            try:
+                ym.conciliar_yapes_sqlite()
+            except Exception:
+                pass
             _sync_wakeup_event.set()
 
         sync_st = dl.obtener_estado_red_cola()
@@ -704,45 +724,140 @@ def _ejecutar_rpc_handler(method_name: str, body: RpcPayload, _retried: bool = F
     except HTTPException:
         raise
     except Exception as exc:
-        err_low = str(exc).lower()
-        if not _retried and ("malformed" in err_low or "corrupt" in err_low):
-            try:
-                repair_db_if_malformed(force=True)
-                init_supabase_local_triggers()
-                return _ejecutar_rpc_handler(method_name, body, _retried=True)
-            except HTTPException:
-                raise
-            except Exception as exc2:
-                raise HTTPException(status_code=400, detail=str(exc2))
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/yape", response_class=HTMLResponse)
+def vista_yape_celular():
+    return HTMLResponse(
+        content=ym.generar_html_yape_celular(),
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@app.get("/api/yape/recientes")
+def api_yape_recientes(fecha: str = "", limite: int = 80, forzar_drive: int = 0):
+    try:
+        res = ym.obtener_resumen_yapes_sqlite(fecha_dmy=fecha, limite=limite, forzar_drive=bool(forzar_drive))
+        return JSONResponse(content=res, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/yape/webhook")
+async def api_yape_webhook_get(
+    texto: str = "",
+    titulo: str = "",
+    monto: float = 0.0,
+    remitente: str = "",
+    codigo: str = "",
+    estado: str = "PENDIENTE",
+):
+    try:
+        res = ym.registrar_yape_entrante_sqlite(
+            {
+                "texto": texto,
+                "titulo": titulo,
+                "monto": monto,
+                "remitente": remitente,
+                "codigo": codigo,
+                "estado_auditoria": estado,
+            }
+        )
+        if res.get("ok"):
+            _sync_wakeup_event.set()
+        return JSONResponse(content=res)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/yape/webhook")
+async def api_yape_webhook_post(request: Request):
+    try:
+        body_bytes = await request.body()
+        datos: Dict[str, Any] = {}
+        if body_bytes:
+            try:
+                datos = json.loads(body_bytes.decode("utf-8", errors="replace"))
+            except Exception:
+                # Si viene como texto plano o urlencoded desde app Android
+                raw_txt = body_bytes.decode("utf-8", errors="replace").strip()
+                datos = {"texto": raw_txt}
+        # Combinar también query params si los enviaron en la URL del POST
+        for k, v in request.query_params.items():
+            if k not in datos or not datos[k]:
+                datos[k] = v
+
+        res = ym.registrar_yape_entrante_sqlite(datos)
+        if res.get("ok"):
+            _sync_wakeup_event.set()
+        return JSONResponse(content=res)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/yape/subir-excel")
+async def api_yape_subir_excel(request: Request):
+    try:
+        ctype = (request.headers.get("content-type") or "").lower()
+        filename = request.headers.get("x-filename") or "Reporte_Yape.xlsx"
+        raw = await request.body()
+
+        if "multipart/form-data" in ctype:
+            # Extraer archivo de multipart sin requerir paquetes externos
+            from email.parser import BytesParser
+            from email.policy import default as default_policy
+
+            header_bytes = f"Content-Type: {request.headers.get('content-type')}\r\n\r\n".encode("utf-8")
+            msg = BytesParser(policy=default_policy).parsebytes(header_bytes + raw)
+            file_bytes = b""
+            for part in msg.iter_parts():
+                fn = part.get_filename()
+                if fn:
+                    filename = fn
+                    file_bytes = part.get_payload(decode=True) or b""
+                    break
+            if not file_bytes:
+                raise ValueError("No se encontró archivo adjunto en la subida.")
+        else:
+            file_bytes = raw
+
+        res = ym.importar_excel_yape_bytes(file_bytes, filename=filename)
+        if res.get("ok"):
+            _sync_wakeup_event.set()
+        return JSONResponse(content=res)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/yape/accion")
+def api_yape_accion(payload: Dict[str, Any]):
+    try:
+        res = ym.gestionar_accion_yape_sqlite(payload)
+        if res.get("ok"):
+            _sync_wakeup_event.set()
+        return JSONResponse(content=res)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/yape/macrodroid")
+def api_yape_macrodroid():
+    return JSONResponse(content=ym.generar_macro_macrodroid())
 
 
 @app.get("/api/supabase/status")
 @app.post("/api/supabase/sync")
 def api_supabase_sync():
     res = sync_with_supabase()
+    conn = get_connection()
     try:
-        conn = get_connection()
-        try:
-            outbox_cnt = conn.execute("SELECT COUNT(*) AS c FROM _supabase_outbox").fetchone()["c"]
-            r_cur = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'").fetchone()
-            r_ts = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_sync_iso'").fetchone()
-        finally:
-            conn.close()
-    except Exception as exc:
-        if "malformed" in str(exc).lower() or "corrupt" in str(exc).lower():
-            repair_db_if_malformed(force=True)
-            init_supabase_local_triggers()
-            res = sync_with_supabase()
-            conn = get_connection()
-            try:
-                outbox_cnt = conn.execute("SELECT COUNT(*) AS c FROM _supabase_outbox").fetchone()["c"]
-                r_cur = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'").fetchone()
-                r_ts = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_sync_iso'").fetchone()
-            finally:
-                conn.close()
-        else:
-            raise
+        outbox_cnt = conn.execute("SELECT COUNT(*) AS c FROM _supabase_outbox").fetchone()["c"]
+        r_cur = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'").fetchone()
+        r_ts = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_sync_iso'").fetchone()
+    finally:
+        conn.close()
     res["outbox_pendientes"] = outbox_cnt
     res["sb_last_log_id"] = int(r_cur["valor"]) if (r_cur and str(r_cur["valor"]).isdigit()) else 0
     res["sb_last_sync_iso"] = str(r_ts["valor"]) if r_ts else ""

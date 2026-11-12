@@ -421,13 +421,260 @@ def _info_amenidades_por_tipo(tipo_raw: str) -> Dict[str, Any]:
     }
 
 
+FOTOS_PRODS_DIR = DATA_DIR / "fotos_productos"
+FOTOS_PRODS_DIR.mkdir(parents=True, exist_ok=True)
+THUMBS_DIR = FOTOS_HABS_DIR / "_miniaturas"
+_TAMANOS_FOTO = {"thumb": (640, 75), "med": (1600, 82)}
+
+_DOCS_FOTOS_CANDS = [
+    Path.home() / "Documents" / "FOTOS HABITACIONES",
+    Path(r"C:\Users\ovalo mariategui\Documents\FOTOS HABITACIONES"),
+]
+_DOCS_TIENDA_CANDS = [
+    Path.home() / "Documents" / "FOTOS TIENDA",
+    Path(r"C:\Users\ovalo mariategui\Documents\FOTOS TIENDA"),
+]
+_ULTIMA_SYNC_FOTOS_TS = 0.0
+_NOTAS_CARPETA_HAB: Dict[str, str] = {}
+
+
+def _sincronizar_fotos_desde_documentos() -> None:
+    """Sincroniza automáticamente Documents/FOTOS HABITACIONES y Documents/FOTOS TIENDA cada 25 s (TABLET_LOBBY_ANDINO_V2)."""
+    global _ULTIMA_SYNC_FOTOS_TS
+    ahora = time.time()
+    if ahora - _ULTIMA_SYNC_FOTOS_TS < 25.0:
+        return
+    _ULTIMA_SYNC_FOTOS_TS = ahora
+    import re as _re
+    import shutil as _sh
+    exts = (".jpg", ".jpeg", ".png", ".webp")
+
+    for root in _DOCS_FOTOS_CANDS:
+        if not root.exists():
+            continue
+        try:
+            for folder in sorted(root.iterdir()):
+                if not folder.is_dir():
+                    continue
+                m = _re.search(r"(\d{3})", folder.name)
+                if not m:
+                    continue
+                hab_num = m.group(1)
+                # Extraer etiqueta especial de carpeta si existe (ej. "VISTA A LA CALLE")
+                partes = folder.name.split("-", 1)
+                if len(partes) == 2:
+                    nota_raw = partes[1].strip()
+                    if nota_raw and "compartid" not in nota_raw.lower():
+                        _NOTAS_CARPETA_HAB[hab_num] = nota_raw.title()
+                files = sorted([f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in exts])
+                for idx, f in enumerate(files, 1):
+                    dst_f = FOTOS_HABS_DIR / f"{hab_num}_{idx:02d}.jpg"
+                    if not dst_f.exists() or dst_f.stat().st_size != f.stat().st_size:
+                        _sh.copy2(f, dst_f)
+        except Exception:
+            pass
+        break
+
+    for root_t in _DOCS_TIENDA_CANDS:
+        if not root_t.exists():
+            continue
+        try:
+            for f in sorted(root_t.iterdir()):
+                if f.is_file() and f.suffix.lower() in exts:
+                    dst_p = FOTOS_PRODS_DIR / f.name
+                    if not dst_p.exists() or dst_p.stat().st_size != f.stat().st_size:
+                        _sh.copy2(f, dst_p)
+        except Exception:
+            pass
+        break
+
+
+def _ajustar_info_por_tipo(tipo_raw: str, info: Dict[str, Any], nota_carpeta: str = "") -> Dict[str, Any]:
+    """Corrige baño compartido/privado, tina, simple y familiar; agrega maxPersonas y notas especiales."""
+    t = (tipo_raw or "").strip().lower()
+    info = dict(info)
+    amen = list(info.get("amenidades") or [])
+    compartido = "compartid" in t
+    if "simple" in t:
+        info["camas"] = "1 Cama de 1.5 Plazas"
+        info["capacidad"] = "1 huésped"
+        info["descripcion"] = "Habitación individual, silenciosa y práctica para descansar con total tranquilidad."
+        info["icono"] = "🛌"
+    if "familiar" in t:
+        info["camas"] = "2 Camas Amplias (Familiar)"
+        info["capacidad"] = "Hasta 4 huéspedes"
+        info["descripcion"] = "Nuestra habitación más amplia, pensada para familias o grupos con total comodidad."
+        info["icono"] = "👨‍👩‍👧‍👦"
+        amen = ["Espacio Familiar", "2 Camas Amplias", "Smart TV", "Baño Privado", "Agua Caliente 24h", "Wi-Fi Alta Velocidad"]
+    if "tina" in t:
+        info["descripcion"] = "Matrimonial con tina de baño propia: el plus ideal para relajarse después del viaje."
+        if "Tina de Baño" not in amen:
+            amen.insert(0, "Tina de Baño")
+    if compartido:
+        amen = ["Baño Compartido" if a == "Baño Privado" else a for a in amen]
+        info["descripcion"] = info["descripcion"].replace("descanso privado.", "estadía cómoda y económica.")
+    if nota_carpeta and nota_carpeta not in amen:
+        amen.insert(0, nota_carpeta)
+    info["amenidades"] = amen
+    info["banoPrivado"] = not compartido
+    if "familiar" in t:
+        info["maxPersonas"] = 4
+    elif "triple" in t or "doble" in t:
+        info["maxPersonas"] = 3
+    elif "simple" in t:
+        info["maxPersonas"] = 1
+    else:
+        info["maxPersonas"] = 2
+    return info
+
+
+def _parsear_precio_ref(precio_raw: str):
+    """'75-65' -> (75.0, 65.0) ; '80' -> (80.0, None)."""
+    import re as _re
+    nums = []
+    for m in _re.findall(r"\d+(?:[.,]\d+)?", precio_raw or ""):
+        try:
+            nums.append(float(m.replace(",", ".")))
+        except Exception:
+            pass
+    if not nums:
+        return None, None
+    noche = max(nums)
+    desde = min(nums)
+    return noche, (desde if desde < noche else None)
+
+
+def _familia_tipo_hab(tipo: str) -> str:
+    t = (tipo or "").lower()
+    for k in ("tina", "familiar", "matrimonial", "doble", "simple", "triple"):
+        if k in t:
+            return k
+    return "otro"
+
+
+def obtener_ruta_foto_tablet(filename: str, w: str = "", carpeta: Optional[Path] = None) -> Optional[Path]:
+    """Foto original o versión liviana (?w=thumb | ?w=med) cacheada en disco (reduce fotos de 8 MB a ~55 KB)."""
+    base_dir = carpeta or FOTOS_HABS_DIR
+    safe = Path(filename or "").name
+    src = base_dir / safe
+    if not safe or not src.is_file():
+        return None
+    cfg = _TAMANOS_FOTO.get((w or "").strip().lower())
+    if not cfg:
+        return src
+    lado, calidad = cfg
+    try:
+        st = src.stat()
+        t_dir = base_dir / "_miniaturas"
+        t_dir.mkdir(parents=True, exist_ok=True)
+        dst = t_dir / f"{src.stem}__{w}_{int(st.st_mtime)}_{st.st_size}.jpg"
+        if not dst.exists():
+            from PIL import Image, ImageOps
+            with Image.open(src) as im:
+                im = ImageOps.exif_transpose(im).convert("RGB")
+                im.thumbnail((lado, lado), Image.LANCZOS)
+                tmp = dst.with_name(f"{dst.stem}.{threading.get_ident()}.tmp")
+                im.save(tmp, "JPEG", quality=calidad, optimize=True, progressive=True)
+                tmp.replace(dst)
+        return dst
+    except Exception:
+        return src
+
+
+def _normalizar_slug_prod(texto: str) -> str:
+    import re as _re
+    import unicodedata as _ud
+    s = _ud.normalize("NFKD", (texto or "").lower()).encode("ascii", "ignore").decode("ascii")
+    return _re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+
+
+def _buscar_foto_producto(nombre: str) -> str:
+    slug = _normalizar_slug_prod(nombre)
+    if not slug or not FOTOS_PRODS_DIR.exists():
+        return ""
+    exts = (".jpg", ".jpeg", ".png", ".webp")
+    try:
+        for f in sorted(FOTOS_PRODS_DIR.iterdir(), key=lambda x: x.name.lower()):
+            if not f.is_file() or f.suffix.lower() not in exts:
+                continue
+            f_slug = _normalizar_slug_prod(f.stem)
+            if f_slug == slug or (len(f_slug) >= 4 and (f_slug in slug or slug in f_slug)):
+                return f"/api/tablet/producto-foto/{f.name}"
+    except Exception:
+        pass
+    return ""
+
+
+def _embellecer_nombre_producto(nombre: str) -> str:
+    mapa = {
+        "hs pequeño": "Shampoo H&S (Sachet)",
+        "hs pequeno": "Shampoo H&S (Sachet)",
+        "head shoulders": "Shampoo Head & Shoulders",
+        "pantene": "Shampoo Pantene (Sachet)",
+        "ponds": "Crema Facial Pond's",
+        "rexona hombre y mujer": "Desodorante Rexona",
+        "bloqueador": "Bloqueador Solar (Sachet)",
+        "prestobarba": "Afeitadora Prestobarba",
+        "cepillo": "Cepillo Dental",
+        "colinos chicos": "Pasta Dental Chica",
+        "jabon floreal": "Jabón de Tocador",
+        "toallas higienicas": "Toallas Higiénicas",
+        "preservativo": "Preservativo",
+        "peine": "Peine Personal",
+        "agua 600ml": "Agua Mineral 600 ml",
+        "agua 1l": "Agua Mineral 1 Litro",
+        "coca cola y gatorade": "Coca-Cola / Gatorade",
+        "coca cola lata": "Coca-Cola en Lata",
+        "gaseosa kr-oro": "Gaseosa KR / Oro",
+        "gaseosa energina-black": "Energina / Black",
+        "chicles-sublime": "Chicles / Sublime",
+        "soda-integral-bonobon": "Galleta Soda / Integral / Bon o Bon",
+        "galleta general": "Galleta Dulce",
+        "wafer grande": "Wafer Grande",
+        "papa lays": "Papas Lays",
+        "paleta": "Paleta Dulce",
+    }
+    low = (nombre or "").strip().lower()
+    if low in mapa:
+        return mapa[low]
+    limpio = (nombre or "").replace("-", " / ").strip()
+    return limpio[:1].upper() + limpio[1:] if limpio else ""
+
+
 def _clasificar_producto_tienda(nombre: str) -> Dict[str, str]:
-    n = (nombre or "").lower()
-    if any(k in n for k in ("agua", "coca", "inca", "gaseosa", "sporade", "gatorade", "frugos", "jugo", "energ", "volt", "red bull", "cerveza", "pilsen", "cusque", "anís", "anis", "mate", "té", "te ", "café", "cafe")):
-        return {"categoria": "Bebidas Heladas y Calientes", "icono": "🥤"}
-    if any(k in n for k in ("shampoo", "jabon", "jabón", "cepillo", "colinos", "pasta", "prestobarba", "toalla", "papel", "kotex", "nosotras", "preservativo", "condon", "peine", "desodorante", "hs ")):
-        return {"categoria": "Aseo y Cuidado Personal", "icono": "🧴"}
-    return {"categoria": "Snacks, Galletas y Chocolates", "icono": "🍫"}
+    n = f" {(nombre or '').lower()} "
+    # 1. Aseo y Cuidado Personal (corregido: incluye marcas Pantene, H&S, Pond's, Rexona, Bloqueador, etc.)
+    if any(k in n for k in ("shampoo", "champu", "pantene", "head", "h&s", " hs ", "sedal", "acondicionador")):
+        return {"categoria": "Aseo y Cuidado Personal", "icono": "🧴", "subtipo": "shampoo"}
+    if any(k in n for k in ("cepillo", "colinos", "colgate", "pasta", "dental", "enjuague", "listerine")):
+        return {"categoria": "Aseo y Cuidado Personal", "icono": "🪥", "subtipo": "dental"}
+    if any(k in n for k in ("jabon", "jabón", "floreal", "dove")):
+        return {"categoria": "Aseo y Cuidado Personal", "icono": "🧼", "subtipo": "jabon"}
+    if any(k in n for k in ("rexona", "desodorante", "axe")):
+        return {"categoria": "Aseo y Cuidado Personal", "icono": "✨", "subtipo": "desodorante"}
+    if any(k in n for k in ("ponds", "pond", "crema", "bloqueador", "protector", "nivea")):
+        return {"categoria": "Aseo y Cuidado Personal", "icono": "🧴", "subtipo": "crema"}
+    if any(k in n for k in ("prestobarba", "gillette", "afeitar")):
+        return {"categoria": "Aseo y Cuidado Personal", "icono": "🪒", "subtipo": "afeitar"}
+    if any(k in n for k in ("toalla", "papel", "kotex", "nosotras", "higienic", "higiénic", "preservativo", "condon", "condón", "peine", "algodon")):
+        return {"categoria": "Aseo y Cuidado Personal", "icono": "🛡️", "subtipo": "cuidado"}
+
+    # 2. Bebidas
+    if "agua" in n:
+        return {"categoria": "Bebidas Heladas y Calientes", "icono": "💧", "subtipo": "agua"}
+    if any(k in n for k in ("coca", "inca", "gaseosa", " kr", "kr-", "frugos", "jugo")):
+        return {"categoria": "Bebidas Heladas y Calientes", "icono": "🥤", "subtipo": "gaseosa"}
+    if any(k in n for k in ("sporade", "gatorade", "energ", "volt", "red bull")):
+        return {"categoria": "Bebidas Heladas y Calientes", "icono": "⚡", "subtipo": "hidratante"}
+    if any(k in n for k in ("cerveza", "pilsen", "cusque", "anís", "anis", "mate", " té", " te ", "café", "cafe")):
+        return {"categoria": "Bebidas Heladas y Calientes", "icono": "☕", "subtipo": "bebida"}
+
+    # 3. Snacks, Galletas y Chocolates
+    if "wafer" in n or "galleta" in n or "soda" in n:
+        return {"categoria": "Snacks, Galletas y Chocolates", "icono": "🍪", "subtipo": "galleta"}
+    if "papa" in n or "lays" in n or "piqueo" in n:
+        return {"categoria": "Snacks, Galletas y Chocolates", "icono": "🥔", "subtipo": "papas"}
+    return {"categoria": "Snacks, Galletas y Chocolates", "icono": "🍫", "subtipo": "chocolate"}
 
 
 def _buscar_fotos_habitacion(hab: str, tipo: str) -> List[str]:
@@ -442,27 +689,46 @@ def _buscar_fotos_habitacion(hab: str, tipo: str) -> List[str]:
     hab_low = hab.lower().strip()
     tipo_low = (tipo or "").lower().strip().replace(" ", "_")
 
+    vistas_huella = set()
     for f in sorted(archivos, key=lambda x: x.name.lower()):
         if not f.is_file() or f.suffix.lower() not in exts:
             continue
         stem = f.stem.lower()
+        if stem.startswith(("logo_", "qr_", "icon_", "_")):
+            continue
         if stem == hab_low or stem.startswith(f"{hab_low}_") or stem.startswith(f"hab_{hab_low}"):
+            try:
+                st_sz = f.stat().st_size
+                with f.open("rb") as fh:
+                    huella = (st_sz, fh.read(4096))
+                if huella in vistas_huella:
+                    continue
+                vistas_huella.add(huella)
+            except Exception:
+                pass
             urls.append(f"/api/tablet/foto/{f.name}")
     if not urls and tipo_low:
         for f in sorted(archivos, key=lambda x: x.name.lower()):
             if not f.is_file() or f.suffix.lower() not in exts:
                 continue
             stem = f.stem.lower()
+            if stem.startswith(("logo_", "qr_", "icon_", "_")):
+                continue
             if tipo_low in stem or stem in tipo_low:
                 urls.append(f"/api/tablet/foto/{f.name}")
     return urls
 
 
 def registrar_latido_tablet(client_ip: str, user_agent: str = "") -> None:
+    if not client_ip:
+        return
     with _tablet_lock:
+        ip_actual = str(_TABLET_LIVE_STATE.get("tablet_ip") or "")
+        es_local = client_ip in ("127.0.0.1", "::1", "localhost")
+        if es_local and ip_actual and ip_actual not in ("127.0.0.1", "::1", "localhost"):
+            return
         _TABLET_LIVE_STATE["ultimo_latido_ts"] = time.time()
-        if client_ip:
-            _TABLET_LIVE_STATE["tablet_ip"] = client_ip
+        _TABLET_LIVE_STATE["tablet_ip"] = client_ip
         if user_agent:
             _TABLET_LIVE_STATE["tablet_user_agent"] = user_agent[:120]
 
@@ -470,6 +736,7 @@ def registrar_latido_tablet(client_ip: str, user_agent: str = "") -> None:
 def obtener_datos_tablet_publico(client_ip: str = "", user_agent: str = "") -> Dict[str, Any]:
     """Devuelve toda la información sanitizada para la Tablet S8+ en 0 ms."""
     registrar_latido_tablet(client_ip, user_agent)
+    _sincronizar_fotos_desde_documentos()
     panel = obtener_datos_panel_local()
     vitrina = obtener_datos_vitrina_local()
     fecha_hoy = hoy_dmy()
@@ -548,8 +815,11 @@ def obtener_datos_tablet_publico(client_ip: str = "", user_agent: str = "") -> D
         else:
             estado_publico = "LIBRE"
 
-        info_tipo = _info_amenidades_por_tipo(tipo_raw)
+        info_tipo = _ajustar_info_por_tipo(tipo_raw, _info_amenidades_por_tipo(tipo_raw), _NOTAS_CARPETA_HAB.get(hab_num, ""))
         fotos = _buscar_fotos_habitacion(hab_num, tipo_raw)
+        if hab_num in ("105", "201") and len(fotos) > 1:
+            fotos = fotos[1:] + fotos[:1]
+        precio_noche, precio_desde = _parsear_precio_ref(precio_raw)
 
         habitaciones_publicas.append({
             "hab": hab_num,
@@ -571,7 +841,30 @@ def obtener_datos_tablet_publico(client_ip: str = "", user_agent: str = "") -> D
             "gradiente": info_tipo["gradiente"],
             "acento": info_tipo["acento"],
             "fotos": fotos,
+            "precioNoche": precio_noche,
+            "precioDesde": precio_desde,
+            "banoPrivado": info_tipo["banoPrivado"],
+            "maxPersonas": info_tipo["maxPersonas"],
+            "notaDestacada": _NOTAS_CARPETA_HAB.get(hab_num, ""),
         })
+
+    # Fotos representativas por tipo para habitaciones sin carpeta propia (ej. 303 toma galería de 304)
+    _fotos_por_tipo: Dict[str, List[str]] = {}
+    _fotos_por_familia: Dict[str, List[str]] = {}
+    for _hp in habitaciones_publicas:
+        if _hp["fotos"]:
+            _fotos_por_tipo.setdefault(_hp["tipo"], _hp["fotos"][:5])
+            _fotos_por_familia.setdefault(_familia_tipo_hab(_hp["tipo"]), _hp["fotos"][:5])
+    for _hp in habitaciones_publicas:
+        if _hp["fotos"]:
+            _hp["fotoTipo"] = ""
+            _hp["fotosReferenciales"] = []
+            _hp["fotoReferencial"] = False
+        else:
+            _ref_list = _fotos_por_tipo.get(_hp["tipo"]) or _fotos_por_familia.get(_familia_tipo_hab(_hp["tipo"]), [])
+            _hp["fotoTipo"] = _ref_list[0] if _ref_list else ""
+            _hp["fotosReferenciales"] = list(_ref_list)
+            _hp["fotoReferencial"] = bool(_ref_list)
 
     # Productos de Vitrina Tienda sanitizados para el cliente
     productos_tienda: List[Dict[str, Any]] = []
@@ -587,11 +880,15 @@ def obtener_datos_tablet_publico(client_ip: str = "", user_agent: str = "") -> D
         meta_p = _clasificar_producto_tienda(nom)
         productos_tienda.append({
             "producto": nom,
+            "nombreMostrado": _embellecer_nombre_producto(nom),
             "precio": precio_v,
             "stockDisponible": max(0, int(st_val)),
             "disponible": st_val > 0,
+            "nivelStock": "AGOTADO" if st_val <= 0 else ("ULTIMAS" if st_val <= 3 else "OK"),
             "categoria": meta_p["categoria"],
             "icono": meta_p["icono"],
+            "subtipo": meta_p.get("subtipo", "snack"),
+            "fotoUrl": _buscar_foto_producto(nom),
         })
 
     with _tablet_lock:

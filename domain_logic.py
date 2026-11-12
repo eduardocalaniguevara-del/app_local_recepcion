@@ -619,6 +619,103 @@ def es_empresa_corporativa(emp: Any) -> bool:
     return True
 
 
+
+def _calcular_uuids_deuda_trasladada(rows_est: list) -> set:
+    """
+    Identifica con emparejamiento 1-a-1 qué estancias (no canceladas) ya trasladaron
+    su saldo pendiente a una estancia posterior activa del mismo huésped.
+    Así, en fechas históricas:
+      - Los días intermedios de una cadena siguen sellados (🔒 Cerrado).
+      - La ÚLTIMA estadía de la cadena con deuda (saldo > 0) queda habilitada para cobrar/editar.
+    """
+    validas = []
+    for idx, r in enumerate(rows_est):
+        est = str(r["estado_estancia"] or "En Curso").strip()
+        obs = str(r["observaciones"] or "").strip()
+        if "cancel" in est.lower() or "[cancelada" in obs.lower():
+            continue
+        f_in = normalizar_fecha_dmy(r["fecha_in_dmy"])
+        f_out = normalizar_fecha_dmy(r["fecha_out_dmy"])
+        noches = max(1, int(r["noches"] or calcular_noches(f_in, f_out)))
+        tarifa = float(r["tarifa"] or 0)
+        sub = round(noches * tarifa, 2)
+        snacks = float(r["adic_snacks"] or 0)
+        serv = float(r["adic_servicios"] or 0)
+        acomp = float(r["adic_comp"] or 0)
+        pe = round(float(r["pago_ini_efec"] or 0) + float(r["pago_post_efec"] or 0), 2)
+        py = round(float(r["pago_ini_yape"] or 0) + float(r["pago_post_yape"] or 0), 2)
+        pv = round(float(r["pago_visa"] or 0), 2)
+        pag = round(pe + py + pv, 2)
+        dant = round(float(r["deuda_anterior"] or 0), 2)
+        saldo = round(sub + snacks + serv + acomp + dant - pag, 2)
+        d_in = None
+        d_out = None
+        try:
+            d_in = datetime.strptime(f_in, "%d/%m/%Y").date() if f_in else None
+            d_out = datetime.strptime(f_out, "%d/%m/%Y").date() if f_out else None
+        except Exception:
+            pass
+        validas.append({
+            "idx": idx,
+            "uuid": str(r["estancia_uuid"] or ""),
+            "parent_uuid": str(r["parent_uuid"] or ""),
+            "hab": str(r["hab"] or "").strip(),
+            "dni": normalizar_dni(r["dni"], r["nac"]),
+            "huesped": str(r["huesped"] or "").strip(),
+            "d_in": d_in,
+            "d_out": d_out,
+            "deuda_ant": dant,
+            "saldo": saldo,
+            "es_cont": "contin" in est.lower(),
+        })
+
+    hijos_usados = set()
+    trasladadas = set()
+    por_uuid = {x["uuid"]: x for x in validas if x["uuid"]}
+
+    # Paso 1: Enlaces explícitos parent_uuid hacia hijos no cancelados
+    for child in validas:
+        pu = child["parent_uuid"]
+        if pu and pu in por_uuid:
+            parent = por_uuid[pu]
+            if son_mismo_huesped(parent["dni"], parent["huesped"], child["dni"], child["huesped"]):
+                if abs(child["deuda_ant"] - parent["saldo"]) <= 0.2 or parent["hab"] == child["hab"]:
+                    trasladadas.add(parent["uuid"])
+                    hijos_usados.add(child["uuid"])
+
+    # Paso 2: Enlaces cronológicos 1-a-1 para estancias con deuda arrastrada sin parent_uuid
+    for parent in reversed(validas):
+        if parent["uuid"] in trasladadas or parent["saldo"] <= 0.009:
+            continue
+        candidatos = []
+        for child in validas:
+            if child["uuid"] == parent["uuid"] or child["uuid"] in hijos_usados:
+                continue
+            if not son_mismo_huesped(parent["dni"], parent["huesped"], child["dni"], child["huesped"]):
+                continue
+            if not parent["d_in"] or not child["d_in"]:
+                continue
+            diff_in = (child["d_in"] - parent["d_in"]).days
+            diff_out = (child["d_in"] - parent["d_out"]).days if parent["d_out"] else (diff_in - 1)
+            if diff_in < 0 or (diff_in == 0 and child["idx"] >= parent["idx"]):
+                continue
+            if diff_out > 2 and diff_in > 3:
+                continue
+            misma_deuda = abs(child["deuda_ant"] - parent["saldo"]) <= 0.2
+            misma_hab_cont = parent["es_cont"] and child["hab"] == parent["hab"] and child["deuda_ant"] > 0.009 and diff_out == 0
+            if not misma_deuda and not misma_hab_cont:
+                continue
+            score = (200 if diff_out == 0 else 0) + (140 if child["hab"] == parent["hab"] else 0) + (150 if misma_deuda else 0)
+            candidatos.append((score, -child["idx"], child))
+        if candidatos:
+            candidatos.sort(key=lambda t: (t[0], t[1]), reverse=True)
+            elegido = candidatos[0][2]
+            trasladadas.add(parent["uuid"])
+            hijos_usados.add(elegido["uuid"])
+
+    return trasladadas
+
+
 def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str, Any]:
     global _ULTIMA_FECHA_PANEL_ISO
     conn = get_connection()
@@ -722,6 +819,7 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
         estancias_cache: List[Dict[str, Any]] = []
         mapa_bd_por_fecha: Dict[str, Dict[str, Any]] = {}
         mapa_historial_dia: Dict[str, List[Dict[str, Any]]] = {}
+        uuids_deuda_trasladada = _calcular_uuids_deuda_trasladada(rows_est)
 
         for r in rows_est:
             hab = str(r["hab"] or "").strip()
@@ -826,6 +924,7 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
                 "estadoEstancia": estado_est,
                 "continuoEstancia": es_continuacion_cerrada or (deuda_ant != 0),
                 "esContinuacionCerrada": es_continuacion_cerrada,
+                "deudaTrasladadaSiguiente": bool(r["estancia_uuid"] in uuids_deuda_trasladada),
                 "esInactiva": es_inactiva,
                 "esCancelada": es_cancelada,
                 "observaciones": obs_fila,
@@ -954,6 +1053,7 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
                     "estanciaUuidAyer": str(st_ayer["estanciaUuid"] or "") if st_ayer else "",
                     "deudaAnt": 0,
                     "continuoEstancia": False,
+                    "deudaTrasladadaSiguiente": False,
                     "esVueltoContinua": False,
                     "checkIn": "-",
                     "hora": "-",
@@ -1007,6 +1107,7 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
                     "estado": estado_clave,
                     "deudaAnt": deuda_ant,
                     "continuoEstancia": continuo,
+                    "deudaTrasladadaSiguiente": bool(st.get("deudaTrasladadaSiguiente")),
                     "esVueltoContinua": es_vuelto,
                     "checkIn": st["checkIn"],
                     "checkOut": st["checkOut"],
@@ -3181,9 +3282,10 @@ def obtener_datos_pagos_posteriores_local() -> Dict[str, Any]:
     for st in candidatas_pp:
         if st.get("esContinuacionCerrada"):
             continue
-        if st.get("esCancelada") or st.get("esInactiva"):
-            if float(st.get("saldo") or 0) <= 0:
-                continue
+        if st.get("esCancelada") or st.get("deudaTrasladadaSiguiente"):
+            continue
+        if st.get("esInactiva") and float(st.get("saldo") or 0) <= 0:
+            continue
         hab = str(st.get("hab") or "").strip()
         if not hab:
             continue

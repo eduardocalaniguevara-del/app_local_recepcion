@@ -199,10 +199,12 @@ def _verificar_recarga_local_mtime() -> bool:
         dl_path = BASE_APP_DIR / "domain_logic.py"
         hl_path = BASE_APP_DIR / "horario_logic.py"
         tm_path = BASE_APP_DIR / "tablet_manager.py"
+        ym_path = BASE_APP_DIR / "yape_manager.py"
         mt = max(
             dl_path.stat().st_mtime if dl_path.exists() else 0.0,
             hl_path.stat().st_mtime if hl_path.exists() else 0.0,
             tm_path.stat().st_mtime if tm_path.exists() else 0.0,
+            ym_path.stat().st_mtime if ym_path.exists() else 0.0,
         )
         if _LAST_DL_MTIME == 0.0:
             _LAST_DL_MTIME = mt
@@ -218,25 +220,30 @@ def _verificar_recarga_local_mtime() -> bool:
 
 def recargar_en_memoria_sin_cortes() -> None:
     """
-    Recarga domain_logic, supabase_sync, sync_engine y horario_logic directamente en memoria
-    y actualiza el timestamp de PanelDisponibilidad.html para que el navegador refresque la vista automáticamente.
+    Recarga domain_logic y horario_logic directamente en memoria y actualiza el timestamp
+    de PanelDisponibilidad.html para que el navegador refresque la vista automáticamente.
     """
     global _LAST_DL_MTIME
     try:
-        for _mod_k in ("database", "supabase_sync", "sync_engine", "horario_logic", "pases_logic", "tablet_manager", "domain_logic"):
-            if _mod_k in sys.modules:
-                importlib.reload(sys.modules[_mod_k])
-        if "supabase_sync" in sys.modules:
-            _sb_m = sys.modules["supabase_sync"]
-            if hasattr(_sb_m, "init_supabase_local_triggers"):
-                _sb_m.init_supabase_local_triggers()
+        if "domain_logic" in sys.modules:
+            importlib.reload(sys.modules["domain_logic"])
+        if "horario_logic" in sys.modules:
+            importlib.reload(sys.modules["horario_logic"])
+        if "tablet_manager" in sys.modules:
+            importlib.reload(sys.modules["tablet_manager"])
+        if "pases_logic" in sys.modules:
+            importlib.reload(sys.modules["pases_logic"])
+        if "yape_manager" in sys.modules:
+            importlib.reload(sys.modules["yape_manager"])
         dl_path = BASE_APP_DIR / "domain_logic.py"
         hl_path = BASE_APP_DIR / "horario_logic.py"
         tm_path = BASE_APP_DIR / "tablet_manager.py"
+        ym_path = BASE_APP_DIR / "yape_manager.py"
         _LAST_DL_MTIME = max(
             dl_path.stat().st_mtime if dl_path.exists() else 0.0,
             hl_path.stat().st_mtime if hl_path.exists() else 0.0,
             tm_path.stat().st_mtime if tm_path.exists() else 0.0,
+            ym_path.stat().st_mtime if ym_path.exists() else 0.0,
         )
     except Exception as exc:
         print(f"[AUTO-UPDATER] Aviso recargando módulos en memoria: {exc}")
@@ -409,12 +416,121 @@ def ejecutar_salvavidas_sheets(celda_cmd: str) -> None:
         print(f"[SALVAVIDAS SHEETS] Error en {oid}: {exc}")
 
 
+
+def _preservar_tablet_andino_local() -> bool:
+    """Si GitHub aún tiene el TabletKiosco antiguo, preserva Lobby Andino Dorado desde actualizacion_webapp_local."""
+    changed_main = False
+    respaldo = Path(r"C:\Hostal_Sistema\actualizacion_webapp_local")
+    if not respaldo.exists():
+        return False
+    for f_aud in (
+        "auditor_audio_noche.py",
+        "lenguaje_recepcion.py",
+        "informe_corroboracion.py",
+        "exportar_auditor_au.py",
+        "whisper_local_worker.py",
+        "camara_imou.py",
+        "evaluar_referencias.py",
+        "verificador_audio_imou.py",
+        "expediente_alertas.py",
+        "prueba_ab_audio.py",
+        "pases_logic.py",
+        "yape_manager.py",
+        "static/js/yape_vivo.js",
+        "static/PanelDisponibilidad.html",
+    ):
+        src_aud = respaldo / f_aud
+        dst_aud = BASE_APP_DIR / f_aud
+        if src_aud.exists():
+            try:
+                dst_aud.parent.mkdir(parents=True, exist_ok=True)
+                if not dst_aud.exists() or dst_aud.stat().st_size != src_aud.stat().st_size:
+                    shutil.copy2(src_aud, dst_aud)
+            except Exception:
+                pass
+    try:
+        au_bak_yape = respaldo / "auto_updater.py"
+        au_live_yape = BASE_APP_DIR / "auto_updater.py"
+        if au_bak_yape.exists() and au_live_yape.exists():
+            if "yape_manager.py" not in au_live_yape.read_text(encoding="utf-8", errors="ignore"):
+                shutil.copy2(au_bak_yape, au_live_yape)
+        m_bak_yape = respaldo / "main.py"
+        m_live_yape = BASE_APP_DIR / "main.py"
+        if m_bak_yape.exists() and m_live_yape.exists():
+            if "vista_yape_celular" not in m_live_yape.read_text(encoding="utf-8", errors="ignore"):
+                shutil.copy2(m_bak_yape, m_live_yape)
+                main_mod = sys.modules.get("main")
+                if not main_mod or not hasattr(main_mod, "vista_yape_celular"):
+                    changed_main = True
+    except Exception:
+        pass
+    try:
+        assets_bak = respaldo / "assets_tablet"
+        if assets_bak.exists():
+            fotos_dst = DATA_DIR / "fotos_habitaciones"
+            fotos_dst.mkdir(parents=True, exist_ok=True)
+            for f_asset in assets_bak.iterdir():
+                if f_asset.is_file():
+                    dst_a = fotos_dst / f_asset.name
+                    if not dst_a.exists():
+                        shutil.copy2(f_asset, dst_a)
+        tk_live = BASE_APP_DIR / "static" / "TabletKiosco.html"
+        tk_bak = respaldo / "static" / "TabletKiosco.html"
+        if tk_bak.exists() and "LOBBY ANDINO DORADO" in tk_bak.read_text(encoding="utf-8", errors="ignore"):
+            if not tk_live.exists() or "LOBBY ANDINO DORADO" not in tk_live.read_text(encoding="utf-8", errors="ignore"):
+                shutil.copy2(tk_bak, tk_live)
+                tm_bak = respaldo / "tablet_manager.py"
+                if tm_bak.exists():
+                    shutil.copy2(tm_bak, BASE_APP_DIR / "tablet_manager.py")
+                au_bak = respaldo / "auto_updater.py"
+                au_live = BASE_APP_DIR / "auto_updater.py"
+                if au_bak.exists() and au_live.exists():
+                    if "_preservar_tablet_andino_local" not in au_live.read_text(encoding="utf-8", errors="ignore"):
+                        shutil.copy2(au_bak, au_live)
+                m_bak = respaldo / "main.py"
+                m_live = BASE_APP_DIR / "main.py"
+                if m_bak.exists() and m_live.exists():
+                    if "api_tablet_pwa_manifest" not in m_live.read_text(encoding="utf-8", errors="ignore"):
+                        shutil.copy2(m_bak, m_live)
+                        changed_main = True
+                m_live = BASE_APP_DIR / "main.py"
+                if m_live.exists():
+                    m_txt = m_live.read_text(encoding="utf-8", errors="ignore")
+                    if "api_tablet_producto_foto" not in m_txt and "def api_tablet_foto(filename: str):" in m_txt:
+                        old_r = '@app.get("/api/tablet/foto/{filename}")\ndef api_tablet_foto(filename: str):\n    safe_name = Path(filename).name\n    fpath = tm.FOTOS_HABS_DIR / safe_name\n    if not fpath.is_file():\n        raise HTTPException(status_code=404, detail="Foto no encontrada")\n    return FileResponse(str(fpath), headers={"Cache-Control": "max-age=300"})'
+                        new_r = '@app.get("/api/tablet/foto/{filename}")\ndef api_tablet_foto(filename: str, w: str = ""):\n    fpath = tm.obtener_ruta_foto_tablet(filename, w)\n    if not fpath or not fpath.is_file():\n        raise HTTPException(status_code=404, detail="Foto no encontrada")\n    return FileResponse(str(fpath), headers={"Cache-Control": "max-age=3600" if w else "max-age=300"})\n\n\n@app.get("/api/tablet/producto-foto/{filename}")\ndef api_tablet_producto_foto(filename: str, w: str = "thumb"):\n    fpath = tm.obtener_ruta_foto_tablet(filename, w, carpeta=tm.FOTOS_PRODS_DIR)\n    if not fpath or not fpath.is_file():\n        raise HTTPException(status_code=404, detail="Foto de producto no encontrada")\n    return FileResponse(str(fpath), headers={"Cache-Control": "max-age=3600"})'
+                        if old_r in m_txt:
+                            m_live.write_text(m_txt.replace(old_r, new_r, 1), encoding="utf-8")
+                            changed_main = True
+        dl_live = BASE_APP_DIR / "domain_logic.py"
+        if dl_live.exists():
+            dl_txt_cur = dl_live.read_text(encoding="utf-8", errors="ignore")
+            if "def _inyectar_rutas_en_servidor_activo()  # sync_v4" in dl_txt_cur:
+                dl_txt_cur = dl_txt_cur.replace(
+                    "def _inyectar_rutas_en_servidor_activo()  # sync_v4\r\n -> None:",
+                    "def _inyectar_rutas_en_servidor_activo() -> None:  # sync_v4",
+                ).replace(
+                    "def _inyectar_rutas_en_servidor_activo()  # sync_v4\n -> None:",
+                    "def _inyectar_rutas_en_servidor_activo() -> None:  # sync_v4",
+                )
+                dl_live.write_text(dl_txt_cur, encoding="utf-8")
+        patch_script = respaldo / "apply_deuda_ultima_estadia_patch.py"
+        if dl_live.exists() and patch_script.exists():
+            if "deudaTrasladadaSiguiente" not in dl_live.read_text(encoding="utf-8", errors="ignore"):
+                subprocess.run([sys.executable, str(patch_script)], cwd=str(BASE_APP_DIR), timeout=20, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    except Exception as exc:
+        print(f"[AUTO-UPDATER] Aviso preservando Tablet Andino: {exc}")
+    return changed_main
+
+
 def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
     """
     Comprueba si GitHub (refs/heads/main) tiene un commit más reciente que la instalación local.
     Intenta primero por Git si existe .git funcional; si no existe .git o falla cualquier paso,
     aplica actualización directa por HTTPS ZIP en Python puro (0 dependencia de git.exe).
     """
+    if _preservar_tablet_andino_local():
+        reiniciar_proceso_completo()
     _verificar_recarga_local_mtime()
     procesar_ordenes_remotas()
 
@@ -451,10 +567,6 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
                         _guardar_sha_local(s_rem)
                         return {"actualizado": False, "motivo": "al_dia", "version": s_rem[:7]}
                     if s_rem:
-                        # Si HEAD local está adelantado respecto a origin/main (commit local previo al push), no revertir hacia atrás
-                        anc = _run_git(["merge-base", "--is-ancestor", s_rem, s_loc], timeout=5)
-                        if anc.returncode == 0:
-                            return {"actualizado": False, "motivo": "local_adelantado", "version": s_loc[:7]}
                         try:
                             df = _run_git(["diff", "--name-only", s_loc, s_rem], timeout=10)
                             cambiados = [x.strip() for x in df.stdout.splitlines() if x.strip()]
@@ -477,11 +589,17 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
         except Exception as exc:
             return {"actualizado": False, "motivo": "zip_error", "detalle": str(exc)}
 
+    if _preservar_tablet_andino_local() and 'main.py' not in cambiados:
+        cambiados.append('main.py')
     procesar_ordenes_remotas()
     recargar_en_memoria_sin_cortes()
 
     core_py = {
+        "main.py",
+        "sync_engine.py",
         "config.py",
+        "database.py",
+        "auto_updater.py",
         "lanzador_escritorio.py",
         "sunat_wsp_service.py",
     }

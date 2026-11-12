@@ -220,6 +220,10 @@
         <span id="dotEstadoTabletS8" class="inline-block w-2 h-2 rounded-full bg-slate-400"></span>
         <span>📲 Tablet S8+</span>
       </button>
+      <button type="button" id="btnTopBarYapeComprobador" onclick="if(window.abrirModalYapeComprobador) window.abrirModalYapeComprobador()" title="Lista de Yapes recibidos del día y modo Administrador"
+              class="px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 border-l border-[#D8C7B8] cursor-pointer transition-colors inline-flex items-center gap-1.5">
+        <span>📱 Yapes</span>
+      </button>
     </div>
 
     <!-- Botones de Visita y Cuentas por Habitación exactamente encima del carrito 🛒 de Venta Tienda -->
@@ -1996,6 +2000,7 @@
             estado: "libre",
             deudaAnt: 0,
             continuoEstancia: false,
+            deudaTrasladadaSiguiente: false,
             esVueltoContinua: false,
             checkIn: "-",
             hora: "-",
@@ -2048,6 +2053,7 @@
           estado: estadoClave,
           deudaAnt: deudaAnt,
           continuoEstancia: continuoEstancia,
+          deudaTrasladadaSiguiente: Boolean(st.deudaTrasladadaSiguiente),
           esVueltoContinua: esVueltoContinua,
           checkIn: st.checkIn || "-",
           checkOut: st.checkOut || "-",
@@ -2469,19 +2475,26 @@
               </button>`;
           } else {
             // FECHA ANTERIOR A AYER (HISTÓRICO):
-            // Solo permite cobrar (💳) si tiene deuda Y NO es deuda continuada/arrastrada al día siguiente.
-            if (esDebe && !esDeudaContinua && !h.continuoEstancia) {
+            // Permite cobrar (💳) y editar (✏️) si tiene deuda (saldo > 0) Y es su ÚLTIMA estadía
+            // (es decir, el saldo NO fue trasladado a una estancia posterior activa).
+            const deudaTrasladada = Boolean(h.deudaTrasladadaSiguiente);
+            if (esDebe && !deudaTrasladada) {
               accionBtn = `
-                <div class="flex items-center justify-center">
+                <div class="flex items-center justify-center gap-1.5">
                   <button class="p-0.5 rounded-md bg-transparent hover:bg-red-100 text-[16px] leading-none transition-all hover:scale-110 cursor-pointer"
                           onclick="accionDirecta(event, 'cobrar', '${h.hab}')"
-                          title="Cobrar deuda pendiente de fecha pasada (Hab. ${h.hab})">
+                          title="Cobrar deuda pendiente de última estadía (Hab. ${h.hab})">
                     💳
+                  </button>
+                  <button class="p-0.5 rounded-md bg-transparent hover:bg-slate-200/80 text-[15px] leading-none transition-all hover:scale-110 cursor-pointer"
+                          onclick="abrirModalModificarEstancia(event, '${h.hab}', ${h.filaNum || 0}, '${h.id || h.estanciaUuid || ""}')"
+                          title="Modificar datos de última estadía con deuda (Hab. ${h.hab})">
+                    ✏️
                   </button>
                 </div>`;
             } else {
-              const tituloCerrado = (esDeudaContinua || h.continuoEstancia)
-                ? "Estancia continuada: el saldo fue trasladado al día siguiente"
+              const tituloCerrado = deudaTrasladada
+                ? "Estancia intermedia: el saldo fue trasladado a su siguiente estadía"
                 : "Estancia histórica sin deuda";
               accionBtn = `<span class="text-[10px] text-slate-400 font-semibold" title="${tituloCerrado}">🔒 Cerrado</span>`;
             }
@@ -2724,8 +2737,10 @@
 
     function abrirModalModificarEstancia(e, hab, filaDirecta, idDirecto) {
       if (e) e.stopPropagation();
-      if (!esFechaRecientePermitida()) {
-        toast.textContent = "🔒 Solo se permite modificar estancias de Hoy o Ayer";
+      const habObjMod = (habitacionesData || []).find(x => String(x.hab) === String(hab));
+      const esUltimaEstadiaConDeuda = Boolean(habObjMod && Number(habObjMod.saldo) > 0 && !habObjMod.deudaTrasladadaSiguiente);
+      if (!esFechaRecientePermitida() && !esUltimaEstadiaConDeuda) {
+        toast.textContent = "🔒 Solo se permite modificar estancias de Hoy, Ayer o la última estadía con deuda pendiente";
         toast.classList.remove("hidden");
         setTimeout(() => toast.classList.add("hidden"), 2500);
         return;
@@ -9260,5 +9275,6 @@
   setTimeout(function () { vpCargar(''); }, 900);
 })();
 </script>
+<script src="/static/js/yape_vivo.js?v=20261112b"></script>
 </body>
 </html>
