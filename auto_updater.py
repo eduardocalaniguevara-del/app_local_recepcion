@@ -218,19 +218,18 @@ def _verificar_recarga_local_mtime() -> bool:
 
 def recargar_en_memoria_sin_cortes() -> None:
     """
-    Recarga domain_logic y horario_logic directamente en memoria y actualiza el timestamp
-    de PanelDisponibilidad.html para que el navegador refresque la vista automáticamente.
+    Recarga domain_logic, supabase_sync, sync_engine y horario_logic directamente en memoria
+    y actualiza el timestamp de PanelDisponibilidad.html para que el navegador refresque la vista automáticamente.
     """
     global _LAST_DL_MTIME
     try:
-        if "domain_logic" in sys.modules:
-            importlib.reload(sys.modules["domain_logic"])
-        if "horario_logic" in sys.modules:
-            importlib.reload(sys.modules["horario_logic"])
-        if "pases_logic" in sys.modules:
-            importlib.reload(sys.modules["pases_logic"])
-        if "tablet_manager" in sys.modules:
-            importlib.reload(sys.modules["tablet_manager"])
+        for _mod_k in ("database", "supabase_sync", "sync_engine", "horario_logic", "pases_logic", "tablet_manager", "domain_logic"):
+            if _mod_k in sys.modules:
+                importlib.reload(sys.modules[_mod_k])
+        if "supabase_sync" in sys.modules:
+            _sb_m = sys.modules["supabase_sync"]
+            if hasattr(_sb_m, "init_supabase_local_triggers"):
+                _sb_m.init_supabase_local_triggers()
         dl_path = BASE_APP_DIR / "domain_logic.py"
         hl_path = BASE_APP_DIR / "horario_logic.py"
         tm_path = BASE_APP_DIR / "tablet_manager.py"
@@ -482,12 +481,7 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
     recargar_en_memoria_sin_cortes()
 
     core_py = {
-        "main.py",
-        "sync_engine.py",
-        "supabase_sync.py",
         "config.py",
-        "database.py",
-        "auto_updater.py",
         "lanzador_escritorio.py",
         "sunat_wsp_service.py",
     }

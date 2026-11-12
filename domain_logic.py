@@ -6272,7 +6272,7 @@ def _inyectar_rutas_en_servidor_activo() -> None:
                     return FileResponse(str(pdf_path), media_type="application/pdf", filename=pdf_path.name, headers={"Cache-Control": "no-store"})
 
             # Reemplazar el endpoint /api/rpc/{method_name} en la tabla de rutas de FastAPI en vivo
-            def _nuevo_rpc_handler(method_name: str, body: Any):
+            def _nuevo_rpc_handler(method_name: str, body: Any, **_kwargs: Any):
                 args = getattr(body, "args", None) or []
                 try:
                     if method_name in ("obtenerDatosPanelDisponibilidad", "cambiarFechaPanelDisponibilidad"):
@@ -6444,6 +6444,28 @@ def _inyectar_rutas_en_servidor_activo() -> None:
                     r.endpoint = _nuevo_rpc_handler
                     if hasattr(r, "dependant") and hasattr(r.dependant, "call"):
                         r.dependant.call = _nuevo_rpc_handler
+                        try:
+                            if hasattr(r.dependant, "query_params"):
+                                r.dependant.query_params = [
+                                    qp for qp in r.dependant.query_params
+                                    if getattr(qp, "name", "") != "_retried"
+                                ]
+                        except Exception:
+                            pass
+
+            try:
+                import importlib as _il
+                for _mod_name in ("database", "supabase_sync", "sync_engine", "auto_updater"):
+                    if _mod_name in sys.modules:
+                        _il.reload(sys.modules[_mod_name])
+                if "supabase_sync" in sys.modules:
+                    _sb_mod = sys.modules["supabase_sync"]
+                    if hasattr(_sb_mod, "init_supabase_local_triggers"):
+                        _sb_mod.init_supabase_local_triggers()
+                    if hasattr(_sb_mod, "sync_with_supabase"):
+                        threading.Thread(target=_sb_mod.sync_with_supabase, daemon=True).start()
+            except Exception:
+                pass
     except Exception:
         pass
 

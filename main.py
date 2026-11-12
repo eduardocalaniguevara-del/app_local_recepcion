@@ -530,7 +530,11 @@ def api_sunat_orden(payload: Dict[str, Any]):
 
 
 @app.post("/api/rpc/{method_name}")
-def api_rpc_handler(method_name: str, body: RpcPayload, _retried: bool = False):
+def api_rpc_handler(method_name: str, body: RpcPayload):
+    return _ejecutar_rpc_handler(method_name, body, _retried=False)
+
+
+def _ejecutar_rpc_handler(method_name: str, body: RpcPayload, _retried: bool = False):
     import domain_logic as dl
 
     args = body.args or []
@@ -701,7 +705,7 @@ def api_rpc_handler(method_name: str, body: RpcPayload, _retried: bool = False):
             try:
                 repair_db_if_malformed(force=True)
                 init_supabase_local_triggers()
-                return api_rpc_handler(method_name, body, _retried=True)
+                return _ejecutar_rpc_handler(method_name, body, _retried=True)
             except HTTPException:
                 raise
             except Exception as exc2:

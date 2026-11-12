@@ -40,7 +40,7 @@ foreach ($i in @(__IDS__)) {
     if ($i -gt 4) { Stop-Process -Id $i -Force -ErrorAction SilentlyContinue }
 }
 Start-Sleep -Seconds 2
-Start-Process -FilePath '__BAT__' -ArgumentList '--no-browser' -WorkingDirectory '__DIR__' -WindowStyle Hidden
+Start-Process -FilePath "cmd.exe" -ArgumentList '/c ""__BAT__" --no-browser"' -WorkingDirectory '__DIR__' -WindowStyle Hidden
 '@
 
 $relevo = $plantilla.Replace('__IDS__', $idList).Replace('__BAT__', $bat).Replace('__DIR__', $dir)

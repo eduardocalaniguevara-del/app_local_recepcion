@@ -474,9 +474,11 @@ def pull_from_supabase() -> int:
                 if op == "UPSERT":
                     # Si es estancias y localmente tiene dirty=1 sin subir aún, respetar edición local
                     if tabla == "estancias" and row_data.get("estancia_uuid"):
+                        in_uuid = str(row_data["estancia_uuid"])
+                        in_ts = str(row_data.get("id_timestamp_str") or "").strip()
                         loc = conn.execute(
-                            "SELECT dirty FROM estancias WHERE estancia_uuid = ?",
-                            (str(row_data["estancia_uuid"]),),
+                            "SELECT estancia_uuid, dirty FROM estancias WHERE estancia_uuid = ? OR (id_timestamp_str != '' AND id_timestamp_str = ?)",
+                            (in_uuid, in_ts),
                         ).fetchone()
                         if loc and int(loc["dirty"] or 0) == 1:
                             continue
@@ -622,6 +624,90 @@ def _enviar_heartbeat_equipo() -> None:
         pass
 
 
+def _reconciliar_ultimos_dias_una_vez() -> None:
+    """
+    Asegura por única vez en Laptop 1 y Laptop 2 que cualquier estancia, pago, gasto,
+    venta o movimiento registrado localmente en los últimos días (mientras algún trigger
+    estuvo en reparación) se encole de inmediato en _supabase_outbox y sync_queue.
+    """
+    if not SUPABASE_ENABLED:
+        return
+    marker_key = "sb_resync_20261112_v3"
+    conn = get_connection()
+    try:
+        r = conn.execute(
+            "SELECT valor FROM estado_sistema WHERE clave = ?", (marker_key,)
+        ).fetchone()
+        if r and str(r["valor"]) == "OK":
+            return
+
+        now_iso = datetime.now().isoformat()
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+            SELECT 'estancias', estancia_uuid, '', 'UPSERT', ?
+            FROM estancias
+            WHERE ymd_in >= 20261108 OR ymd_out >= 20261111 OR sheet_row = 0 OR dirty = 1
+            """,
+            (now_iso,),
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+            SELECT 'pagos', pago_uuid, '', 'UPSERT', ?
+            FROM pagos
+            WHERE ymd_pago >= 20261108 OR sheet_row = 0 OR dirty = 1
+            """,
+            (now_iso,),
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+            SELECT 'gastos', gasto_uuid, '', 'UPSERT', ?
+            FROM gastos
+            WHERE ymd_gasto >= 20261108 OR sheet_row = 0 OR dirty = 1
+            """,
+            (now_iso,),
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+            SELECT 'ventas_tienda', venta_uuid, '', 'UPSERT', ?
+            FROM ventas_tienda
+            WHERE ymd_venta >= 20261108 OR sheet_row = 0 OR dirty = 1
+            """,
+            (now_iso,),
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+            SELECT 'colores_habitacion', habitacion, '', 'UPSERT', ?
+            FROM colores_habitacion
+            """,
+            (now_iso,),
+        )
+        conn.execute(
+            """
+            UPDATE sync_queue
+            SET status = 'PENDING', retry_count = 0, last_error = ''
+            WHERE status IN ('ERROR', 'AUTOCURADO') AND created_at >= '2026-11-10'
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO estado_sistema (clave, valor, updated_at)
+            VALUES (?, 'OK', ?)
+            ON CONFLICT(clave) DO UPDATE SET valor = 'OK', updated_at = excluded.updated_at
+            """,
+            (marker_key, now_iso),
+        )
+        conn.commit()
+    except Exception as exc:
+        print(f"[SupabaseSync] Aviso en reconciliación inicial: {exc}")
+    finally:
+        conn.close()
+
+
 def sync_with_supabase() -> Dict[str, Any]:
     """
     Ejecuta un ciclo completo Bidireccional (Push local -> Supabase + Pull Supabase -> local).
@@ -633,6 +719,7 @@ def sync_with_supabase() -> Dict[str, Any]:
         return {"status": "BUSY", "pushed": 0, "pulled": 0}
     try:
         try:
+            _reconciliar_ultimos_dias_una_vez()
             boot = _bootstrap_tablas_hostal_si_vacias()
             pushed = push_to_supabase()
             pulled = pull_from_supabase() + boot
