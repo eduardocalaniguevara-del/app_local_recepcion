@@ -28,7 +28,7 @@ from domain_logic import (
     parse_moneda,
 )
 
-_sync_lock = threading.Lock()
+_sync_lock = globals().get("_sync_lock") or threading.Lock()
 _gspread_client = None
 _spreadsheet = None
 
@@ -266,8 +266,25 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                     gastos_rows = [(st_g + i, r) for i, r in enumerate(rows_k)]
 
         # 5. Guardar todo en SQLite en una transacción rápida
+        # Silenciar triggers de espejo (_supabase_sync_control.pulling = 1) durante la reconstrucción
+        # masiva de cachés de Google Sheets, y encolar únicamente deltas reales de estancias.
         ahora_iso = datetime.now().isoformat()
         with db_transaction() as conn:
+            has_sb_ctrl = bool(
+                conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='_supabase_sync_control'"
+                ).fetchone()
+            )
+            has_sb_outbox = bool(
+                conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='_supabase_outbox'"
+                ).fetchone()
+            )
+            if has_sb_ctrl:
+                conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1")
+            estancias_delta_uuids: List[str] = []
+            estancias_deleted_uuids: List[str] = []
+
             prev_sh_row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'spreadsheet_id_activo'").fetchone()
             prev_sh_id = str(prev_sh_row["valor"]).strip() if prev_sh_row else ""
             if prev_sh_id != SPREADSHEET_ID:
@@ -477,13 +494,27 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                 existing = None
                 if not es_repetido_bd:
                     existing = conn.execute(
-                        "SELECT estancia_uuid, id_timestamp_str, dirty, parent_uuid FROM estancias WHERE id_timestamp_str IN (?, ?) LIMIT 1",
+                        """
+                        SELECT estancia_uuid, id_timestamp_str, dirty, parent_uuid,
+                               hab, huesped, dni, fecha_in_dmy, fecha_out_dmy, tarifa,
+                               estado_estancia, pago_ini_efec, pago_ini_yape, pago_post_efec,
+                               pago_post_yape, pago_visa, deuda_anterior, adic_servicios,
+                               adic_comp, nro_comp, estado_comp
+                        FROM estancias WHERE id_timestamp_str IN (?, ?) LIMIT 1
+                        """,
                         (raw_ts_a, canon_ts_a),
                     ).fetchone()
                 else:
                     id_disamb = f"{raw_ts_a} #{sheet_row_num}"
                     existing = conn.execute(
-                        "SELECT estancia_uuid, id_timestamp_str, dirty, parent_uuid FROM estancias WHERE id_timestamp_str = ? OR (sheet_row = ? AND hab = ?) LIMIT 1",
+                        """
+                        SELECT estancia_uuid, id_timestamp_str, dirty, parent_uuid,
+                               hab, huesped, dni, fecha_in_dmy, fecha_out_dmy, tarifa,
+                               estado_estancia, pago_ini_efec, pago_ini_yape, pago_post_efec,
+                               pago_post_yape, pago_visa, deuda_anterior, adic_servicios,
+                               adic_comp, nro_comp, estado_comp
+                        FROM estancias WHERE id_timestamp_str = ? OR (sheet_row = ? AND hab = ?) LIMIT 1
+                        """,
                         (id_disamb, sheet_row_num, hab_r),
                     ).fetchone()
 
@@ -510,6 +541,51 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                 nac_val = _g(8) or "Perú"
                 dni_val = normalizar_dni(_g(4), nac_val)
                 noches_val = max(1, int(parse_moneda(_g(15))) or calcular_noches(f_in, f_out))
+
+                tarifa_sh = parse_moneda(_g(16))
+                serv_sh = parse_moneda(_g(19))
+                comp_sh = parse_moneda(_g(20))
+                pi_ef_sh = parse_moneda(_g(22))
+                pi_yp_sh = parse_moneda(_g(23))
+                pp_ef_sh = parse_moneda(_g(24))
+                pp_yp_sh = parse_moneda(_g(25))
+                p_vis_sh = parse_moneda(_g(38))
+                deuda_sh = parse_moneda(_g(37))
+                est_comp_sh = _g(33)
+                nro_comp_sh = _g(34)
+                est_est_sh = _g(36) or "En Curso"
+                huesp_sh = _g(3)
+
+                if existing is None:
+                    estancias_delta_uuids.append(est_uuid)
+                else:
+                    new_sig = (
+                        hab_r, huesp_sh, dni_val, f_in, f_out, round(tarifa_sh, 2),
+                        est_est_sh, round(pi_ef_sh, 2), round(pi_yp_sh, 2), round(pp_ef_sh, 2),
+                        round(pp_yp_sh, 2), round(p_vis_sh, 2), round(deuda_sh, 2),
+                        round(serv_sh, 2), round(comp_sh, 2), nro_comp_sh, est_comp_sh,
+                    )
+                    old_sig = (
+                        str(existing["hab"] or ""),
+                        str(existing["huesped"] or ""),
+                        str(existing["dni"] or ""),
+                        str(existing["fecha_in_dmy"] or ""),
+                        str(existing["fecha_out_dmy"] or ""),
+                        round(float(existing["tarifa"] or 0.0), 2),
+                        str(existing["estado_estancia"] or ""),
+                        round(float(existing["pago_ini_efec"] or 0.0), 2),
+                        round(float(existing["pago_ini_yape"] or 0.0), 2),
+                        round(float(existing["pago_post_efec"] or 0.0), 2),
+                        round(float(existing["pago_post_yape"] or 0.0), 2),
+                        round(float(existing["pago_visa"] or 0.0), 2),
+                        round(float(existing["deuda_anterior"] or 0.0), 2),
+                        round(float(existing["adic_servicios"] or 0.0), 2),
+                        round(float(existing["adic_comp"] or 0.0), 2),
+                        str(existing["nro_comp"] or ""),
+                        str(existing["estado_comp"] or ""),
+                    )
+                    if new_sig != old_sig:
+                        estancias_delta_uuids.append(est_uuid)
 
                 conn.execute(
                     """
@@ -610,6 +686,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                 ).fetchall()
                 for st_r in stale_recs:
                     if st_r["id_timestamp_str"] not in ts_en_sheets:
+                        estancias_deleted_uuids.append(str(st_r["estancia_uuid"]))
                         conn.execute("DELETE FROM estancias WHERE estancia_uuid = ?", (st_r["estancia_uuid"],))
 
                 if col_a_bd and len(col_a_bd) >= 1:
@@ -635,6 +712,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                             continue
                         ck_old = _canon_ts_id(ts_base)
                         if ck_old not in canon_all_bd:
+                            estancias_deleted_uuids.append(str(old_r["estancia_uuid"]))
                             conn.execute("DELETE FROM estancias WHERE estancia_uuid = ?", (old_r["estancia_uuid"],))
                         elif ck_old in canon_hist_row and ck_old not in canon_hist_dup and int(old_r["sheet_row"] or 0) != canon_hist_row[ck_old]:
                             conn.execute("UPDATE estancias SET sheet_row = ? WHERE estancia_uuid = ?", (canon_hist_row[ck_old], old_r["estancia_uuid"]))
@@ -1115,6 +1193,32 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                         if str(old_cp["pase_uuid"]) not in ids_rem_pases:
                             conn.execute("DELETE FROM control_pases WHERE pase_uuid = ?", (old_cp["pase_uuid"],))
 
+            if has_sb_ctrl:
+                conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+            if has_sb_outbox:
+                if estancias_delta_uuids:
+                    conn.executemany(
+                        """
+                        INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+                        VALUES ('estancias', ?, '', 'UPSERT', ?)
+                        ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET
+                            op = excluded.op,
+                            updated_at = excluded.updated_at
+                        """,
+                        [(u_id, ahora_iso) for u_id in dict.fromkeys(estancias_delta_uuids)],
+                    )
+                if estancias_deleted_uuids:
+                    conn.executemany(
+                        """
+                        INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+                        VALUES ('estancias', ?, '', 'DELETE', ?)
+                        ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET
+                            op = excluded.op,
+                            updated_at = excluded.updated_at
+                        """,
+                        [(u_id, ahora_iso) for u_id in dict.fromkeys(estancias_deleted_uuids)],
+                    )
+
         return {
             "status": "OK",
             "estancias_leidas": len(recent_bd_rows),
@@ -1141,7 +1245,10 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
             pass
         return {"status": "OFFLINE", "error": str(e)}
     finally:
-        _sync_lock.release()
+        try:
+            _sync_lock.release()
+        except RuntimeError:
+            pass
 
 
 # ==============================================================================
@@ -2018,4 +2125,7 @@ def process_sync_queue() -> Dict[str, Any]:
             pass
         return {"status": "OFFLINE", "processed": processed, "error": str(e)}
     finally:
-        _sync_lock.release()
+        try:
+            _sync_lock.release()
+        except RuntimeError:
+            pass

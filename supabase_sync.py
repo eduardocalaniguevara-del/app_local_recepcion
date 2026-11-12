@@ -272,8 +272,11 @@ def init_supabase_local_triggers() -> None:
                 FOR EACH ROW
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
                 BEGIN
-                    INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-                    VALUES ('{tabla}', {new_pk1}, {new_pk2}, 'UPSERT', datetime('now', 'localtime'));
+                    INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+                    VALUES ('{tabla}', {new_pk1}, {new_pk2}, 'UPSERT', datetime('now', 'localtime'))
+                    ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET
+                        op = excluded.op,
+                        updated_at = excluded.updated_at;
                 END;
 
                 CREATE TRIGGER trg_sb_upd_{tabla}
@@ -281,8 +284,11 @@ def init_supabase_local_triggers() -> None:
                 FOR EACH ROW
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
                 BEGIN
-                    INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-                    VALUES ('{tabla}', {new_pk1}, {new_pk2}, 'UPSERT', datetime('now', 'localtime'));
+                    INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+                    VALUES ('{tabla}', {new_pk1}, {new_pk2}, 'UPSERT', datetime('now', 'localtime'))
+                    ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET
+                        op = excluded.op,
+                        updated_at = excluded.updated_at;
                 END;
 
                 CREATE TRIGGER trg_sb_del_{tabla}
@@ -290,8 +296,11 @@ def init_supabase_local_triggers() -> None:
                 FOR EACH ROW
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
                 BEGIN
-                    INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-                    VALUES ('{tabla}', {old_pk1}, {old_pk2}, 'DELETE', datetime('now', 'localtime'));
+                    INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+                    VALUES ('{tabla}', {old_pk1}, {old_pk2}, 'DELETE', datetime('now', 'localtime'))
+                    ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET
+                        op = excluded.op,
+                        updated_at = excluded.updated_at;
                 END;
                 """
             )
@@ -310,141 +319,176 @@ def _get_table_columns(conn, tabla: str) -> List[str]:
 def push_to_supabase() -> int:
     """
     Sube en lote todas las filas modificadas localmente en _supabase_outbox hacia Supabase.
-    Retorna la cantidad de registros sincronizados.
+    Separa lectura SQLite, peticiones HTTP y borrado SQLite para mantener 0 ms de bloqueo en ovalo_sistema.db.
     """
     if not SUPABASE_ENABLED:
         return 0
 
+    # FASE A: Lectura rápida en SQLite (< 5 ms) sin retener conexión durante peticiones HTTP
+    batches_to_send: List[Tuple[str, str, Tuple[str, ...], List[Tuple[str, str, str]], List[Dict[str, Any]]]] = []
+    invalid_keys: List[Tuple[str, str, str]] = []
+
     conn = get_connection()
     try:
         items = conn.execute(
-            "SELECT tabla, pk1, pk2, op FROM _supabase_outbox ORDER BY updated_at ASC LIMIT 400"
+            "SELECT tabla, pk1, pk2, op, COALESCE(updated_at, '') AS u_at FROM _supabase_outbox ORDER BY updated_at ASC LIMIT 400"
         ).fetchall()
         if not items:
             return 0
 
-        # Agrupar por (tabla, op)
-        grouped: Dict[Tuple[str, str], List[Tuple[str, str]]] = {}
+        grouped: Dict[Tuple[str, str], List[Tuple[str, str, str]]] = {}
         for r in items:
             key = (str(r["tabla"]), str(r["op"]))
-            grouped.setdefault(key, []).append((str(r["pk1"]), str(r["pk2"])))
-
-        total_pushed = 0
+            grouped.setdefault(key, []).append((str(r["pk1"]), str(r["pk2"]), str(r["u_at"])))
 
         for (tabla, op), pk_list in grouped.items():
             pk_cols = _resolve_pk_cols(conn, tabla)
             if not pk_cols:
-                conn.executemany(
-                    "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ?",
-                    [(tabla, p1, p2) for (p1, p2) in pk_list],
-                )
-                conn.commit()
+                invalid_keys.extend((tabla, p1, p2) for (p1, p2, _) in pk_list)
                 continue
 
-            try:
-                if op == "UPSERT":
-                    rows_payload = []
-                    processed_pks = []
-                    for p1, p2 in pk_list:
-                        if len(pk_cols) == 1:
-                            row = conn.execute(
-                                f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ?",
-                                (p1,),
-                            ).fetchone()
-                        else:
-                            row = conn.execute(
-                                f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ? AND CAST({pk_cols[1]} AS TEXT) = ?",
-                                (p1, p2),
-                            ).fetchone()
-                        processed_pks.append((tabla, p1, p2))
-                        if row is not None:
-                            rows_payload.append(dict(row))
+            rows_payload: List[Dict[str, Any]] = []
+            if op == "UPSERT":
+                for p1, p2, _ in pk_list:
+                    if len(pk_cols) == 1:
+                        row = conn.execute(
+                            f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ?",
+                            (p1,),
+                        ).fetchone()
+                    else:
+                        row = conn.execute(
+                            f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ? AND CAST({pk_cols[1]} AS TEXT) = ?",
+                            (p1, p2),
+                        ).fetchone()
+                    if row is not None:
+                        rows_payload.append(dict(row))
 
-                    if rows_payload:
-                        on_conflict = ",".join(pk_cols)
-                        url = f"{SUPABASE_URL}/rest/v1/{tabla}?on_conflict={on_conflict}"
-                        data_bytes = json.dumps(rows_payload, ensure_ascii=False).encode("utf-8")
-                        req = urllib.request.Request(
-                            url,
-                            data=data_bytes,
-                            headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
-                            method="POST",
-                        )
-                        with urllib.request.urlopen(req, timeout=20) as resp:
-                            if resp.status not in (200, 201, 204):
-                                raise RuntimeError(f"HTTP {resp.status} subiendo {tabla}")
-                        total_pushed += len(rows_payload)
-
-                    conn.executemany(
-                        "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ?",
-                        processed_pks,
-                    )
-                    conn.commit()
-
-                elif op == "DELETE":
-                    for p1, p2 in pk_list:
-                        if len(pk_cols) == 1:
-                            q = f"{pk_cols[0]}=eq.{urllib.parse.quote(p1)}"
-                        else:
-                            q = f"{pk_cols[0]}=eq.{urllib.parse.quote(p1)}&{pk_cols[1]}=eq.{urllib.parse.quote(p2)}"
-                        url = f"{SUPABASE_URL}/rest/v1/{tabla}?{q}"
-                        req = urllib.request.Request(url, headers=_headers(), method="DELETE")
-                        with urllib.request.urlopen(req, timeout=15) as resp:
-                            pass
-                        conn.execute(
-                            "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ?",
-                            (tabla, p1, p2),
-                        )
-                        total_pushed += 1
-                    conn.commit()
-            except urllib.error.HTTPError as he:
-                body_err = ""
-                try:
-                    body_err = he.read().decode("utf-8", errors="replace")[:200]
-                except Exception:
-                    pass
-                print(f"[SupabaseSync] Aviso HTTP {he.code} en ({tabla}, {op}): {body_err}")
-                if he.code in (400, 404):
-                    # Descartar lote con esquema incompatible para nunca bloquear estancias/pagos
-                    conn.executemany(
-                        "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ?",
-                        [(tabla, p1, p2) for (p1, p2) in pk_list],
-                    )
-                    conn.commit()
-                else:
-                    raise
-
-        return total_pushed
+            batches_to_send.append((tabla, op, pk_cols, pk_list, rows_payload))
     finally:
         conn.close()
+
+    # FASE B: Red HTTP hacia Supabase (0 conexiones SQLite abiertas -> imposible bloquear la base)
+    completed_keys: List[Tuple[str, str, str, str]] = []
+    total_pushed = 0
+    first_fatal_exc: Exception | None = None
+
+    for tabla, op, pk_cols, pk_list, rows_payload in batches_to_send:
+        try:
+            if op == "UPSERT":
+                if rows_payload:
+                    on_conflict = ",".join(pk_cols)
+                    url = f"{SUPABASE_URL}/rest/v1/{tabla}?on_conflict={on_conflict}"
+                    data_bytes = json.dumps(rows_payload, ensure_ascii=False).encode("utf-8")
+                    req = urllib.request.Request(
+                        url,
+                        data=data_bytes,
+                        headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=20) as resp:
+                        if resp.status not in (200, 201, 204):
+                            raise RuntimeError(f"HTTP {resp.status} subiendo {tabla}")
+                    total_pushed += len(rows_payload)
+                completed_keys.extend((tabla, p1, p2, u_at) for (p1, p2, u_at) in pk_list)
+
+            elif op == "DELETE":
+                if len(pk_cols) == 1:
+                    col0 = pk_cols[0]
+                    for idx_chunk in range(0, len(pk_list), 80):
+                        chunk = pk_list[idx_chunk : idx_chunk + 80]
+                        in_vals = ",".join(
+                            '"' + p1.replace('\\', '\\\\').replace('"', '\\"') + '"'
+                            for (p1, _, _) in chunk
+                        )
+                        q = f"{col0}=in.({urllib.parse.quote(in_vals)})"
+                        url = f"{SUPABASE_URL}/rest/v1/{tabla}?{q}"
+                        req = urllib.request.Request(url, headers=_headers(), method="DELETE")
+                        with urllib.request.urlopen(req, timeout=15):
+                            pass
+                        completed_keys.extend((tabla, p1, p2, u_at) for (p1, p2, u_at) in chunk)
+                        total_pushed += len(chunk)
+                else:
+                    for p1, p2, u_at in pk_list:
+                        q = f"{pk_cols[0]}=eq.{urllib.parse.quote(p1)}&{pk_cols[1]}=eq.{urllib.parse.quote(p2)}"
+                        url = f"{SUPABASE_URL}/rest/v1/{tabla}?{q}"
+                        req = urllib.request.Request(url, headers=_headers(), method="DELETE")
+                        with urllib.request.urlopen(req, timeout=15):
+                            pass
+                        completed_keys.append((tabla, p1, p2, u_at))
+                        total_pushed += 1
+        except urllib.error.HTTPError as he:
+            body_err = ""
+            try:
+                body_err = he.read().decode("utf-8", errors="replace")[:200]
+            except Exception:
+                pass
+            print(f"[SupabaseSync] Aviso HTTP {he.code} en ({tabla}, {op}): {body_err}")
+            if he.code in (400, 404):
+                completed_keys.extend((tabla, p1, p2, u_at) for (p1, p2, u_at) in pk_list)
+            elif first_fatal_exc is None:
+                first_fatal_exc = he
+        except Exception as exc:
+            if first_fatal_exc is None:
+                first_fatal_exc = exc
+
+    # FASE C: Limpieza atómica ultrarrápida (< 5 ms) en _supabase_outbox
+    if invalid_keys or completed_keys:
+        conn_del = get_connection()
+        try:
+            if invalid_keys:
+                conn_del.executemany(
+                    "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ?",
+                    invalid_keys,
+                )
+            if completed_keys:
+                conn_del.executemany(
+                    """
+                    DELETE FROM _supabase_outbox
+                    WHERE tabla = ? AND pk1 = ? AND pk2 = ?
+                      AND (? = '' OR updated_at IS NULL OR updated_at <= ?)
+                    """,
+                    [(t, p1, p2, u_at, u_at) for (t, p1, p2, u_at) in completed_keys],
+                )
+            conn_del.commit()
+        finally:
+            conn_del.close()
+
+    if first_fatal_exc is not None and not completed_keys:
+        raise first_fatal_exc
+
+    return total_pushed
 
 
 def pull_from_supabase() -> int:
     """
     Descarga novedades desde public.supabase_change_log en 1 sola petición HTTP
-    y las aplica en ovalo_sistema.db sin disparar bucle de eco.
+    fuera de cualquier bloqueo SQLite y las aplica sin disparar bucle de eco.
     """
     if not SUPABASE_ENABLED:
         return 0
 
-    conn = get_connection()
+    conn_r = get_connection()
     try:
-        r_cur = conn.execute(
+        r_cur = conn_r.execute(
             "SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'"
         ).fetchone()
         last_log_id = int(r_cur["valor"]) if (r_cur and str(r_cur["valor"]).isdigit()) else 0
+    finally:
+        conn_r.close()
 
-        url = (
-            f"{SUPABASE_URL}/rest/v1/supabase_change_log"
-            f"?log_id=gt.{last_log_id}&order=log_id.asc&limit=500"
-        )
-        req = urllib.request.Request(url, headers=_headers(), method="GET")
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            changes = json.loads(resp.read().decode("utf-8"))
+    url = (
+        f"{SUPABASE_URL}/rest/v1/supabase_change_log"
+        f"?log_id=gt.{last_log_id}&order=log_id.asc&limit=500"
+    )
+    req = urllib.request.Request(url, headers=_headers(), method="GET")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        changes = json.loads(resp.read().decode("utf-8"))
 
-        if not changes:
-            return 0
+    if not changes:
+        return 0
 
+    conn = get_connection()
+    try:
         pulled_count = 0
         max_log_id = last_log_id
 
@@ -641,6 +685,76 @@ def _enviar_heartbeat_equipo(force: bool = False) -> None:
         pass
 
 
+def _limpiar_inundacion_outbox_una_vez() -> None:
+    """
+    Purga por única vez los miles de registros espejo históricos acumulados en _supabase_outbox
+    por los ciclos previos de pull_from_sheets(), conservando cambios reales/recientes.
+    """
+    if not SUPABASE_ENABLED:
+        return
+    marker_key = "sb_outbox_flood_cleanup_v1"
+    conn = get_connection()
+    try:
+        r = conn.execute("SELECT valor FROM estado_sistema WHERE clave = ?", (marker_key,)).fetchone()
+        if r and str(r["valor"]) == "OK":
+            return
+        now_iso = datetime.now().isoformat()
+        conn.execute(
+            """
+            DELETE FROM _supabase_outbox
+            WHERE tabla IN (
+                'sunat_lineas_cache', 'calzado_cache', 'catalogos_local',
+                'habitaciones_config', 'vitrina_local', 'almacen_movimientos',
+                'horario_registros', 'horario_auditoria'
+            )
+            """
+        )
+        conn.execute(
+            """
+            DELETE FROM _supabase_outbox
+            WHERE tabla = 'ventas_tienda'
+              AND pk1 NOT IN (SELECT venta_uuid FROM ventas_tienda WHERE synced = 0)
+            """
+        )
+        conn.execute(
+            """
+            DELETE FROM _supabase_outbox
+            WHERE tabla = 'pagos'
+              AND pk1 NOT IN (SELECT pago_id FROM pagos WHERE synced = 0)
+            """
+        )
+        conn.execute(
+            """
+            DELETE FROM _supabase_outbox
+            WHERE tabla = 'gastos'
+              AND pk1 NOT IN (SELECT gasto_uuid FROM gastos WHERE synced = 0)
+            """
+        )
+        conn.execute(
+            """
+            DELETE FROM _supabase_outbox
+            WHERE tabla = 'estancias' AND op = 'UPSERT'
+              AND pk1 NOT IN (
+                  SELECT estancia_uuid FROM estancias
+                  WHERE dirty = 1 OR sheet_row = 0 OR ymd_in >= 20261111 OR ymd_out >= 20261112
+              )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO estado_sistema (clave, valor, updated_at)
+            VALUES (?, 'OK', ?)
+            ON CONFLICT(clave) DO UPDATE SET valor = 'OK', updated_at = excluded.updated_at
+            """,
+            (marker_key, now_iso),
+        )
+        conn.commit()
+    except Exception as exc:
+        print(f"[SupabaseSync] Aviso limpiando cola histórica: {exc}")
+    finally:
+        conn.close()
+
+
 def _reconciliar_ultimos_dias_una_vez() -> None:
     """
     Asegura por única vez en Laptop 1 y Laptop 2 que cualquier estancia, pago, gasto,
@@ -661,42 +775,51 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
         now_iso = datetime.now().isoformat()
         conn.execute(
             """
-            INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+            INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
             SELECT 'estancias', CAST(estancia_uuid AS TEXT), '', 'UPSERT', ?
             FROM estancias
             WHERE ymd_in >= 20261108 OR ymd_out >= 20261111 OR sheet_row = 0 OR dirty = 1
+            ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET op = excluded.op, updated_at = excluded.updated_at
             """,
             (now_iso,),
         )
         conn.execute(
             """
-            INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+            INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
             SELECT 'pagos', CAST(pago_id AS TEXT), '', 'UPSERT', ?
             FROM (SELECT pago_id FROM pagos ORDER BY rowid DESC LIMIT 80)
+            WHERE TRUE
+            ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET op = excluded.op, updated_at = excluded.updated_at
             """,
             (now_iso,),
         )
         conn.execute(
             """
-            INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+            INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
             SELECT 'gastos', CAST(gasto_uuid AS TEXT), '', 'UPSERT', ?
             FROM (SELECT gasto_uuid FROM gastos ORDER BY rowid DESC LIMIT 60)
+            WHERE TRUE
+            ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET op = excluded.op, updated_at = excluded.updated_at
             """,
             (now_iso,),
         )
         conn.execute(
             """
-            INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+            INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
             SELECT 'ventas_tienda', CAST(venta_uuid AS TEXT), '', 'UPSERT', ?
             FROM (SELECT venta_uuid FROM ventas_tienda ORDER BY rowid DESC LIMIT 60)
+            WHERE TRUE
+            ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET op = excluded.op, updated_at = excluded.updated_at
             """,
             (now_iso,),
         )
         conn.execute(
             """
-            INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+            INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
             SELECT 'habitaciones_colores', CAST(hab AS TEXT), CAST(fecha_dmy AS TEXT), 'UPSERT', ?
             FROM habitaciones_colores
+            WHERE TRUE
+            ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET op = excluded.op, updated_at = excluded.updated_at
             """,
             (now_iso,),
         )
@@ -733,6 +856,7 @@ def sync_with_supabase() -> Dict[str, Any]:
         return {"status": "BUSY", "pushed": 0, "pulled": 0}
     try:
         try:
+            _limpiar_inundacion_outbox_una_vez()
             _reconciliar_ultimos_dias_una_vez()
             boot = _bootstrap_tablas_hostal_si_vacias()
             pushed = push_to_supabase()

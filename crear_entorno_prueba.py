@@ -267,6 +267,13 @@ REGLAS DE ORO
  - Si algo cambio en la operativa mientras probabas, el promotor lo detecta (CONFLICTO) y NO lo pisa.
 """
     (destino / "LEEME_PRUEBA.txt").write_text(txt, encoding="utf-8")
+    cerrar_bat = (
+        "@echo off\r\nchcp 65001 >nul\r\n"
+        f"echo Cerrando servidor de prueba (Ovalo_Mariategui_PRUEBA - puerto {PUERTO_PRUEBA})...\r\n"
+        f'powershell -NoProfile -Command "$p = (Get-NetTCPConnection -LocalPort {PUERTO_PRUEBA} -State Listen -ErrorAction SilentlyContinue).OwningProcess | Sort-Object -Unique; foreach ($i in $p) {{ if ($i -gt 4) {{ Stop-Process -Id $i -Force -ErrorAction SilentlyContinue }} }}"\r\n'
+        "echo Listo. La operativa (puerto 8080) sigue funcionando normal.\r\ntimeout /t 3 >nul\r\n"
+    )
+    (destino / "Cerrar_Prueba.bat").write_text(cerrar_bat, encoding="utf-8")
 
 
 def avisar_supabase(destino: Path, origen: Path) -> None:

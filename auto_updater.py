@@ -609,6 +609,7 @@ def verificar_y_aplicar_actualizacion() -> Dict[str, Any]:
     core_py = {
         "main.py",
         "sync_engine.py",
+        "supabase_sync.py",
         "config.py",
         "database.py",
         "auto_updater.py",
