@@ -2429,12 +2429,12 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                     f"UPDATE {tbl_link} SET hab = ? WHERE estancia_uuid = ? OR (id_estancia != '' AND id_estancia = ?)",
                     (hab_nueva, actual["estancia_uuid"], id_ts_link),
                 )
-            pend_q = conn.execute(
-                "SELECT id, op_type, payload_json FROM sync_queue WHERE status = 'PENDING' AND entidad_uuid = ? AND op_type IN ('CHECKIN', 'CONTINUAR')",
-                (actual["estancia_uuid"],),
-            ).fetchall()
-            for pq in pend_q:
-                try:
+            try:
+                pend_q = conn.execute(
+                    "SELECT queue_id, op_type, payload_json FROM sync_queue WHERE status = 'PENDING' AND entity_uuid = ? AND op_type IN ('CHECKIN', 'CONTINUAR')",
+                    (actual["estancia_uuid"],),
+                ).fetchall()
+                for pq in pend_q:
                     p_obj = json.loads(pq["payload_json"])
                     key_fila = "fila_estancia" if pq["op_type"] == "CHECKIN" else "nueva_fila_estancia"
                     if isinstance(p_obj.get(key_fila), list) and len(p_obj[key_fila]) > 12:
@@ -2446,11 +2446,11 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                                 if isinstance(pr_item, list) and len(pr_item) > 3:
                                     pr_item[3] = hab_nueva
                     conn.execute(
-                        "UPDATE sync_queue SET payload_json = ? WHERE id = ?",
-                        (json.dumps(p_obj, ensure_ascii=False), pq["id"]),
+                        "UPDATE sync_queue SET payload_json = ? WHERE queue_id = ?",
+                        (json.dumps(p_obj, ensure_ascii=False), pq["queue_id"]),
                     )
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
         if dni:
             conn.execute(
