@@ -40,7 +40,12 @@ foreach ($i in @(__IDS__)) {
     if ($i -gt 4) { Stop-Process -Id $i -Force -ErrorAction SilentlyContinue }
 }
 Start-Sleep -Seconds 2
-Start-Process -FilePath "cmd.exe" -ArgumentList '/c ""__BAT__" --no-browser"' -WorkingDirectory '__DIR__' -WindowStyle Hidden
+$si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
+Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+    CommandLine = 'cmd.exe /c ""__BAT__" --no-browser"'
+    CurrentDirectory = '__DIR__'
+    ProcessStartupInformation = $si
+} | Out-Null
 '@
 
 $relevo = $plantilla.Replace('__IDS__', $idList).Replace('__BAT__', $bat).Replace('__DIR__', $dir)
