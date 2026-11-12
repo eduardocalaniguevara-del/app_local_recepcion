@@ -6230,8 +6230,7 @@ def eliminar_pago_bd_admin_local(datos: Dict[str, Any]) -> Dict[str, Any]:
 # ==============================================================================
 # AUTO-INYECCIÓN EN CALIENTE DE RUTAS RPC PARA PROCESOS EN EJECUCIÓN SIN REINICIO
 # ==============================================================================
-def _inyectar_rutas_en_servidor_activo()  # sync_v4
- -> None:
+def _inyectar_rutas_en_servidor_activo() -> None:
     try:
         import domain_logic as _dl_self
         from sunat_wsp_service import consultar_dni_local_o_reniec, consultar_ruc_local_o_sunat

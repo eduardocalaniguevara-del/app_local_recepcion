@@ -655,8 +655,7 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
             """
             INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
             SELECT 'pagos', CAST(pago_id AS TEXT), '', 'UPSERT', ?
-            FROM pagos
-            WHERE ymd_pago >= 20261108 OR sheet_row = 0 OR dirty = 1
+            FROM (SELECT pago_id FROM pagos ORDER BY rowid DESC LIMIT 80)
             """,
             (now_iso,),
         )
@@ -664,8 +663,7 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
             """
             INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
             SELECT 'gastos', CAST(gasto_uuid AS TEXT), '', 'UPSERT', ?
-            FROM gastos
-            WHERE ymd_gasto >= 20261108 OR sheet_row = 0 OR dirty = 1
+            FROM (SELECT gasto_uuid FROM gastos ORDER BY rowid DESC LIMIT 60)
             """,
             (now_iso,),
         )
@@ -673,8 +671,7 @@ def _reconciliar_ultimos_dias_una_vez() -> None:
             """
             INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
             SELECT 'ventas_tienda', CAST(venta_uuid AS TEXT), '', 'UPSERT', ?
-            FROM ventas_tienda
-            WHERE ymd_venta >= 20261108 OR sheet_row = 0 OR dirty = 1
+            FROM (SELECT venta_uuid FROM ventas_tienda ORDER BY rowid DESC LIMIT 60)
             """,
             (now_iso,),
         )
