@@ -1123,6 +1123,11 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
         }
     except Exception as e:
         _reset_client()
+        try:
+            import traceback as _tb
+            print("[SyncEngine] pull_from_sheets fallo:\n" + _tb.format_exc()[-1500:])
+        except Exception:
+            pass
         ahora_iso = datetime.now().isoformat()
         err_msg = str(e)[:250]
         try:
