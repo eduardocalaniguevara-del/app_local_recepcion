@@ -86,6 +86,13 @@ def main() -> None:
     # Abrir el navegador apenas el puerto 8080 responda
     threading.Thread(target=_esperar_y_abrir_navegador, daemon=True).start()
 
+    # Sincronizar última versión de GitHub antes de importar módulos por si hubo un corte previo
+    try:
+        from auto_updater import verificar_y_aplicar_actualizacion
+        verificar_y_aplicar_actualizacion()
+    except Exception:
+        pass
+
     # Iniciar el servidor FastAPI directamente en este proceso silencioso
     import uvicorn
     from main import app

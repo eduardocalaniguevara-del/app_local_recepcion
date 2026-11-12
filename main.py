@@ -94,15 +94,17 @@ def _run_sync_cycle(force_full: bool = False) -> None:
     if not _sync_lock.acquire(blocking=False):
         return
     try:
+        import supabase_sync as _sb_live
+        import sync_engine as _se_live
         # 0. Sincronización ultrarrápida (< 150 ms) con Supabase (Grupo 2: ovalo_sistema.db <-> hostal-ovalo)
-        sync_with_supabase()
+        _sb_live.sync_with_supabase()
         # 1. Subir primero cualquier operación pendiente en la cola local (FIFO idempotente) a Google Sheets
-        process_sync_queue()
+        _se_live.process_sync_queue()
         # 2. Descargar novedades desde Google Sheets (sin pisar filas dirty=1)
         boot_done = _is_bootstrap_completed()
-        pull_from_sheets(full_bootstrap=(force_full or not boot_done))
+        _se_live.pull_from_sheets(full_bootstrap=(force_full or not boot_done))
         # 3. Subir a Supabase cualquier novedad recién traída desde Google Sheets
-        sync_with_supabase()
+        _sb_live.sync_with_supabase()
     except Exception as exc:
         print(f"[SyncWorker] Advertencia en ciclo de sincronización: {exc}")
     finally:

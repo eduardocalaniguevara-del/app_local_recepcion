@@ -6465,11 +6465,19 @@ def _inyectar_rutas_en_servidor_activo() -> None:
 
             try:
                 import importlib as _il
-                for _mod_name in ("database", "supabase_sync", "sync_engine", "auto_updater"):
+                for _mod_name in ("database", "supabase_sync", "sync_engine"):
                     if _mod_name in sys.modules:
                         _il.reload(sys.modules[_mod_name])
+                if "sync_engine" in sys.modules:
+                    _se_mod = sys.modules["sync_engine"]
+                    for _fn_se in ("process_sync_queue", "pull_from_sheets"):
+                        if hasattr(_se_mod, _fn_se):
+                            setattr(m, _fn_se, getattr(_se_mod, _fn_se))
                 if "supabase_sync" in sys.modules:
                     _sb_mod = sys.modules["supabase_sync"]
+                    for _fn_sb in ("sync_with_supabase", "init_supabase_local_triggers"):
+                        if hasattr(_sb_mod, _fn_sb):
+                            setattr(m, _fn_sb, getattr(_sb_mod, _fn_sb))
                     if hasattr(_sb_mod, "init_supabase_local_triggers"):
                         _sb_mod.init_supabase_local_triggers()
                     def _sync_and_hb():
@@ -6487,5 +6495,5 @@ def _inyectar_rutas_en_servidor_activo() -> None:
         pass
 
 
-_inyectar_rutas_en_servidor_activo()  # sync_v5
+_inyectar_rutas_en_servidor_activo()  # sync_v6
 
