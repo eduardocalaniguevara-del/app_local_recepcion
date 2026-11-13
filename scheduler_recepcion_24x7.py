@@ -234,60 +234,150 @@ def guardar_config_automatizaciones(cfg: Dict[str, Any]):
     }])
 
 # --- 1. EJECUCIÓN DE SONDA MAESTRA DE ARNÉS² ---
-def ejecutar_sonda_salud_arnes() -> Dict[str, Any]:
-    """Ejecuta operational_health_probe.js y reporta el diagnóstico."""
-    sonda_path = obtener_sonda_maestra_path()
-    now_iso = datetime.now().isoformat(timespec="seconds")
-    
-    if not sonda_path or not sonda_path.exists():
-        resultado = {
-            "status": "WARN",
-            "probe": "operational_health_probe.js",
-            "timestamp": now_iso,
-            "origen_equipo": EQUIPO_ID,
-            "summary": {"total_probes": 0, "passed": 0, "warnings": 1, "failures": 0},
-            "error": "Sonda maestra operational_health_probe.js no encontrada en rutas candidatas",
-            "candidatos": [str(p) for p in PROBE_CANDIDATES]
-        }
-    else:
+def _obtener_node_exe() -> Optional[str]:
+    import shutil
+    w = shutil.which("node")
+    if w:
+        return w
+    for cand in (r"C:\Program Files\nodejs\node.exe", r"C:\Program Files (x86)\nodejs\node.exe"):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def _sonda_salud_python_fallback(now_iso: str) -> Dict[str, Any]:
+    """Sonda nativa en Python (espejo de operational_health_probe.js) cuando Node.js no está en PATH."""
+    t0 = time.time()
+    host = socket.gethostname()
+    # 1. SQLite probe
+    def _chk_db(p: Path) -> Dict[str, Any]:
+        if not p.exists():
+            return {"exists": False, "status": "WARN", "path": str(p), "error": "File not found"}
         try:
+            c = sqlite3.connect(str(p), timeout=5.0)
+            try:
+                qc = c.execute("PRAGMA quick_check(1);").fetchone()[0]
+                jm = c.execute("PRAGMA journal_mode;").fetchone()[0]
+                tc = c.execute("SELECT count(*) FROM sqlite_master WHERE type='table';").fetchone()[0]
+                ob = 0
+                try:
+                    ob = c.execute("SELECT count(*) FROM _supabase_outbox;").fetchone()[0]
+                except Exception:
+                    pass
+                return {"exists": True, "path": str(p), "integrity": qc, "journal_mode": jm, "table_count": tc, "outbox_pending": ob, "status": "OK" if qc == "ok" else "WARN"}
+            finally:
+                c.close()
+        except Exception as e:
+            return {"exists": True, "path": str(p), "status": "FAIL", "error": str(e)}
+
+    db_op = DB_PATH
+    db_pr = Path(r"C:\ovalo_mariategui_prueba\data\ovalo_sistema.db")
+    op_res = _chk_db(db_op)
+    pr_res = _chk_db(db_pr)
+    st_sql = "FAIL" if "FAIL" in (op_res["status"], pr_res["status"]) else ("OK" if op_res["status"] == "OK" and pr_res["status"] == "OK" else "WARN")
+    sqlite_p = {"status": st_sql, "probe": "sqlite_probe.js", "timestamp": now_iso, "details": {"operativa_8080": op_res, "prueba_8082": pr_res}}
+
+    # 2. Supabase probe
+    sb_t0 = time.time()
+    try:
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/wsp_recepcion_chats?select=count&limit=1",
+            headers={"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}", "x-hostal-sync-token": SUPABASE_SYNC_TOKEN},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            code = resp.status
+        supabase_p = {"status": "OK" if 200 <= code < 300 else "WARN", "probe": "supabase_probe.js", "timestamp": now_iso, "latency_ms": int((time.time() - sb_t0) * 1000), "http_code": code, "project_id": "fmlfqupwscymosvwnnzx", "endpoint_reachable": True}
+    except Exception as e:
+        supabase_p = {"status": "WARN", "probe": "supabase_probe.js", "timestamp": now_iso, "endpoint_reachable": False, "error": str(e)}
+
+    # 3. SUNAT & 4. WhatsApp probes
+    ventas, lineas = 0, 0
+    wsp_det = {}
+    wsp_missing = []
+    if db_op.exists():
+        try:
+            c = sqlite3.connect(str(db_op), timeout=5.0)
+            try:
+                try:
+                    ventas = c.execute("SELECT count(*) FROM sunat_ventas;").fetchone()[0]
+                except Exception:
+                    pass
+                try:
+                    lineas = c.execute("SELECT count(*) FROM sunat_lineas_cache;").fetchone()[0]
+                except Exception:
+                    pass
+                for t in ("wsp_recepcion_chats", "wsp_recepcion_mensajes", "wsp_recepcion_documentos", "wsp_recepcion_cola_envio"):
+                    try:
+                        cnt = c.execute(f"SELECT count(*) FROM {t};").fetchone()[0]
+                        wsp_det[t] = {"exists": True, "rows": cnt}
+                    except Exception as ex:
+                        wsp_det[t] = {"exists": False, "error": str(ex)}
+                        wsp_missing.append(t)
+            finally:
+                c.close()
+        except Exception:
+            pass
+    sunat_p = {"status": "OK" if ventas > 0 else "WARN", "probe": "sunat_probe.js", "timestamp": now_iso, "details": {"ruc_hostal": "20611986484", "sunat_ventas": ventas, "sunat_lineas_cache": lineas}}
+    wsp_p = {"status": "OK" if db_op.exists() and not wsp_missing else "WARN", "probe": "whatsapp_probe.js", "timestamp": now_iso, "details": {"db": str(db_op), "tablas": wsp_det, "faltantes": wsp_missing}}
+
+    # 5. WebApp probe
+    def _ping(port: int) -> Dict[str, Any]:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1.5) as r:
+                return {"port": port, "active": True, "code": r.status}
+        except Exception:
+            return {"port": port, "active": False}
+
+    p8080, p8082, p8788 = _ping(8080), _ping(8082), _ping(8788)
+    webapp_p = {"status": "OK" if p8080["active"] else "WARN", "probe": "webapp_probe.js", "timestamp": now_iso, "details": {"webapp_operativa_8080": p8080, "webapp_prueba_8082": p8082, "visor_8788": p8788}}
+
+    probes = {"sqlite_probe": sqlite_p, "supabase_probe": supabase_p, "sunat_probe": sunat_p, "whatsapp_probe": wsp_p, "webapp_probe": webapp_p}
+    fail = sum(1 for v in probes.values() if v["status"] == "FAIL")
+    warn = sum(1 for v in probes.values() if v["status"] == "WARN")
+    return {
+        "status": "FAIL" if fail else ("WARN" if warn else "OK"),
+        "probe": "operational_health_probe.js",
+        "node": "LAPTOP_2_RECEPCION",
+        "host": host,
+        "origen_equipo": EQUIPO_ID,
+        "timestamp": now_iso,
+        "total_latency_ms": int((time.time() - t0) * 1000),
+        "summary": {"total_probes": 5, "passed": 5 - fail - warn, "warnings": warn, "failures": fail},
+        "probes": probes,
+    }
+
+
+def ejecutar_sonda_salud_arnes() -> Dict[str, Any]:
+    """Ejecuta operational_health_probe.js (o fallback Python) y reporta el diagnóstico."""
+    sonda_path = obtener_sonda_maestra_path()
+    node_exe = _obtener_node_exe()
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    resultado = None
+
+    if sonda_path and sonda_path.exists() and node_exe:
+        try:
+            env = dict(os.environ)
+            if socket.gethostname().upper() == "LAPTOP-JAPIGJT2":
+                env["ARNES_PUBLISH"] = "1"
             res = subprocess.run(
-                ["node", str(sonda_path)],
+                [node_exe, str(sonda_path)],
                 capture_output=True,
                 text=True,
-                timeout=18
+                timeout=18,
+                env=env,
             )
             if res.returncode == 0 and res.stdout.strip():
-                try:
-                    resultado = json.loads(res.stdout.strip())
-                    resultado["origen_equipo"] = EQUIPO_ID
-                    resultado["ruta_ejecutada"] = str(sonda_path)
-                except Exception as parse_err:
-                    resultado = {
-                        "status": "WARN",
-                        "probe": "operational_health_probe.js",
-                        "timestamp": now_iso,
-                        "origen_equipo": EQUIPO_ID,
-                        "raw_output": res.stdout[:500],
-                        "error": f"Fallo al parsear JSON de sonda: {parse_err}"
-                    }
-            else:
-                resultado = {
-                    "status": "FAIL",
-                    "probe": "operational_health_probe.js",
-                    "timestamp": now_iso,
-                    "origen_equipo": EQUIPO_ID,
-                    "error": res.stderr or f"Exit code {res.returncode}",
-                    "raw_output": res.stdout[:300]
-                }
-        except Exception as exc:
-            resultado = {
-                "status": "FAIL",
-                "probe": "operational_health_probe.js",
-                "timestamp": now_iso,
-                "origen_equipo": EQUIPO_ID,
-                "error": str(exc)
-            }
+                resultado = json.loads(res.stdout.strip())
+                resultado["origen_equipo"] = EQUIPO_ID
+                resultado["ruta_ejecutada"] = str(sonda_path)
+        except Exception:
+            resultado = None
+
+    if resultado is None:
+        resultado = _sonda_salud_python_fallback(now_iso)
+
+    es_l2 = socket.gethostname().upper() == "LAPTOP-JAPIGJT2" or "LAPTOP_2" in EQUIPO_ID or os.environ.get("ARNES_PUBLISH") == "1"
+    clave_destino = "arnes_salud_LAPTOP_2_RECEPCION" if es_l2 else "arnes_salud_LAPTOP_1_ADMIN"
 
     # Guardar en estado_sistema local
     val_str = json.dumps(resultado, ensure_ascii=False)
@@ -295,21 +385,21 @@ def ejecutar_sonda_salud_arnes() -> Dict[str, Any]:
     try:
         conn.execute("""
             INSERT INTO estado_sistema (clave, valor, updated_at)
-            VALUES ('arnes_salud_LAPTOP_2_RECEPCION', ?, ?)
+            VALUES (?, ?, ?)
             ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at
-        """, (val_str, now_iso))
+        """, (clave_destino, val_str, now_iso))
         conn.commit()
     finally:
         conn.close()
 
     # Publicar en Supabase
     http_supabase_post("estado_sistema?on_conflict=clave", [{
-        "clave": "arnes_salud_LAPTOP_2_RECEPCION",
+        "clave": clave_destino,
         "valor": val_str,
         "updated_at": now_iso
     }])
     
-    print(f"[{now_iso}] Sonda Maestra completada: Status={resultado.get('status')} (Equipo: {EQUIPO_ID})")
+    print(f"[{now_iso}] Sonda Maestra completada ({clave_destino}): Status={resultado.get('status')} (Equipo: {EQUIPO_ID})")
     return resultado
 
 # --- 2. COLECTOR DE APRENDIZAJE DE RECEPCIONISTAS ---

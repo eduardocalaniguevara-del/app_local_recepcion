@@ -35,6 +35,11 @@
       "id": "INSTALAR_ARNES_Y_PUENTE_PRUEBA_L2_01",
       "target": "ovalo",
       "comando_cmd": "python instalar_arnes_laptop2.py"
+    },
+    {
+      "id": "INSTALAR_ARNES_Y_PUENTE_PRUEBA_L2_02",
+      "target": "todos",
+      "comando_cmd": "call _py.bat instalar_arnes_laptop2.py --auto"
     }
   ]
 }

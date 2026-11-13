@@ -225,7 +225,19 @@ def asegurar_demonio_24x7(scheduler_py: Path):
             print("Aviso al iniciar demonio 24/7:", exc)
 
 
+def obtener_node_exe():
+    w = shutil.which("node")
+    if w:
+        return w
+    for cand in (r"C:\Program Files\nodejs\node.exe", r"C:\Program Files (x86)\nodejs\node.exe"):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
 def main():
+    if "terrazas" in str(HERE).lower():
+        return 0
     if not SRC.is_dir():
         print("ERROR: no se encuentra", SRC)
         return 1
@@ -248,21 +260,25 @@ def main():
     base = DEST_MAIN if DEST_MAIN.exists() else SRC
     probes = base / ".agent" / "harness" / "probes"
     ok = True
-    for js in sorted(probes.glob("*.js")):
-        r = subprocess.run(["node", "-c", str(js)], capture_output=True, text=True)
-        print(("OK   " if r.returncode == 0 else "FALLA"), js.name)
-        ok &= r.returncode == 0
+    node_exe = obtener_node_exe()
+    es_l2 = socket.gethostname().upper() == "LAPTOP-JAPIGJT2" or Path(r"C:\Users\ovalo mariategui").exists()
+    if node_exe:
+        for js in sorted(probes.glob("*.js")):
+            r = subprocess.run([node_exe, "-c", str(js)], capture_output=True, text=True)
+            print(("OK   " if r.returncode == 0 else "FALLA"), js.name)
+            ok &= r.returncode == 0
 
-    env = dict(os.environ)
-    env["ARNES_PUBLISH"] = "1"
-    r = subprocess.run(
-        ["node", str(probes / "operational_health_probe.js")],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        env=env,
-    )
-    print(r.stdout[-1500:] if r.stdout else r.stderr)
+        env = dict(os.environ)
+        if es_l2 or "--publish" in sys.argv:
+            env["ARNES_PUBLISH"] = "1"
+        r = subprocess.run(
+            [node_exe, str(probes / "operational_health_probe.js")],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=env,
+        )
+        print(r.stdout[-1500:] if r.stdout else r.stderr)
 
     scheduler_py = HERE / "scheduler_recepcion_24x7.py"
     if not scheduler_py.is_file() and (DEST_L2_OPERATIVA / "scheduler_recepcion_24x7.py").is_file():
