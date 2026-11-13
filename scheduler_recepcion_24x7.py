@@ -19,6 +19,7 @@ Funciones Principales:
    `aprendizaje_compartido_hostal` tanto localmente como en Supabase.
 """
 
+import builtins as _builtins
 import os
 import sys
 import json
@@ -33,6 +34,13 @@ import urllib.error
 from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+
+
+def print(*args, **kwargs):
+    try:
+        _builtins.print(*args, **kwargs)
+    except Exception:
+        pass
 
 # --- CONFIGURACIÓN BASE Y RUTAS ---
 BASE_DIR = Path(__file__).resolve().parent

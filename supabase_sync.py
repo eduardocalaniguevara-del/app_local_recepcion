@@ -661,13 +661,45 @@ def _bootstrap_tablas_hostal_si_vacias() -> int:
         conn.close()
 
 
+_last_arnes_sync_ts: float = 0.0
+_arnes_instalado_sesion: bool = False
+
+
+def _ejecutar_ciclo_arnes_background() -> None:
+    global _arnes_instalado_sesion
+    try:
+        if not _arnes_instalado_sesion:
+            _arnes_instalado_sesion = True
+            try:
+                import sys as _sys
+                import instalar_arnes_laptop2 as _inst
+                old_argv = list(_sys.argv)
+                _sys.argv = ["instalar_arnes_laptop2.py", "--auto"]
+                try:
+                    _inst.main()
+                finally:
+                    _sys.argv = old_argv
+            except Exception:
+                pass
+        try:
+            import scheduler_recepcion_24x7 as _sched
+            _sched.paso_completo_automatizaciones()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def _enviar_heartbeat_equipo(force: bool = False) -> None:
     """Registra en Supabase que este equipo (Laptop 1 o Laptop 2) está en línea junto con su versión y cursor."""
-    global _last_heartbeat_ts
+    global _last_heartbeat_ts, _last_arnes_sync_ts
     now = time.time()
     if not force and (now - _last_heartbeat_ts < 45.0):
         return
     _last_heartbeat_ts = now
+    if now - _last_arnes_sync_ts >= 1800.0:
+        _last_arnes_sync_ts = now
+        threading.Thread(target=_ejecutar_ciclo_arnes_background, name="Arnes2HeartbeatWorker", daemon=True).start()
     try:
         ver = ""
         try:

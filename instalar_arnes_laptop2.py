@@ -15,6 +15,7 @@ GR-08: este instalador modifica la configuración del Arnés²; en modo interact
 pide el código de autorización de administrador (SHA-256 / ARNES_AUTH_HASH).
 Las operaciones diarias de la WebApp NO pasan por este candado.
 """
+import builtins as _builtins
 import getpass
 import hashlib
 import json
@@ -25,6 +26,13 @@ import socket
 import subprocess
 import sys
 from pathlib import Path
+
+
+def print(*args, **kwargs):
+    try:
+        _builtins.print(*args, **kwargs)
+    except Exception:
+        pass
 
 AUTH_HASH = os.environ.get("ARNES_AUTH_HASH", "24fe5b2863951e8d97cd7e19f2a5fed2534686189241b58951f0e7e2e8d666d7").lower()
 HERE = Path(__file__).resolve().parent
@@ -189,18 +197,25 @@ def actualizar_entorno_prueba():
 def asegurar_demonio_24x7(scheduler_py: Path):
     if not scheduler_py.is_file():
         return
-    # Ejecutar una pasada inmediata (--once)
+    # Ejecutar una pasada inmediata en proceso (inmune a pythonw / encoding)
     try:
-        r = subprocess.run(
-            [sys.executable, str(scheduler_py), "--once"],
-            capture_output=True,
-            text=True,
-            timeout=45,
-        )
-        if r.stdout:
-            print(r.stdout[-800:])
+        if str(scheduler_py.parent) not in sys.path:
+            sys.path.insert(0, str(scheduler_py.parent))
+        import scheduler_recepcion_24x7 as _sched
+        _sched.paso_completo_automatizaciones()
     except Exception as exc:
-        print("Aviso en scheduler --once:", exc)
+        print("Aviso en scheduler in-process:", exc)
+        try:
+            r = subprocess.run(
+                [sys.executable, str(scheduler_py), "--once"],
+                capture_output=True,
+                text=True,
+                timeout=45,
+            )
+            if r.stdout:
+                print(r.stdout[-800:])
+        except Exception as exc2:
+            print("Aviso en scheduler --once:", exc2)
 
     # En Laptop 2, asegurar proceso demonio 24/7 en segundo plano
     host = socket.gethostname().upper()
