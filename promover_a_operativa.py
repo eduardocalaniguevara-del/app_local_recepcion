@@ -64,6 +64,7 @@ def main() -> int:
     ap.add_argument("--si", action="store_true")
     ap.add_argument("--sin-publicar", action="store_true")
     ap.add_argument("-m", "--mensaje", default="")
+    ap.add_argument("--codigo-arnes", default="", help="codigo de autorizacion (o variable ARNES_AUTH_CODE)")
     ap.add_argument("--solo", nargs="*", default=[], help="limitar a estos archivos (ruta relativa)")
     args = ap.parse_args()
 
@@ -120,6 +121,14 @@ def main() -> int:
         return 0
     if not promover:
         return 0
+
+    # Candado de promocion: exige codigo de Arnes (SHA-256). Operaciones diarias de la app operativa NO lo requieren.
+    import hashlib, os
+    from config import ARNES_AUTH_SHA256
+    codigo = (args.codigo_arnes or os.environ.get("ARNES_AUTH_CODE", "")).strip()
+    if hashlib.sha256(codigo.encode("utf-8")).hexdigest() != ARNES_AUTH_SHA256:
+        print("\nBLOQUEADO: promover a la operativa requiere --codigo-arnes <codigo> (o ARNES_AUTH_CODE) valido.")
+        return 3
 
     # 1) Compilar
     for rel, _ in promover:

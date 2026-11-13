@@ -1,0 +1,42 @@
+{
+  "$schema": "harness_memory_v2",
+  "version": "2.0.0",
+  "updated_at": "2026-11-13T18:28:57.224Z",
+  "stores": [
+    {
+      "id": "mem_db_operativa",
+      "type": "relational_operational_db",
+      "path": "C:\\Recepcion_Ovalo_Local\\data\\ovalo_sistema.db",
+      "engine": "sqlite",
+      "description": "Base operativa del Hostal (WebApp 8080)"
+    },
+    {
+      "id": "mem_db_prueba",
+      "type": "relational_sandbox_db",
+      "path": "C:\\ovalo_mariategui_prueba\\data\\ovalo_sistema.db",
+      "engine": "sqlite",
+      "description": "Base de Prueba (WebApp 8082)"
+    },
+    {
+      "id": "mem_aprendizaje_compartido",
+      "type": "shared_learning_table",
+      "path": "aprendizaje_compartido_hostal",
+      "engine": "sqlite/supabase",
+      "description": "Tabla compartida de aprendizajes entre Laptop 1 y Laptop 2"
+    },
+    {
+      "id": "mem_experience",
+      "type": "long_term_knowledge",
+      "path": ".agent/harness/EXPERIENCE.md",
+      "format": "markdown",
+      "description": "Catálogo de experiencias del Arnés² de Recepción"
+    },
+    {
+      "id": "mem_cross_laptop",
+      "type": "cross_laptop_handoff",
+      "path": "C:/Hostal_Sistema/leemeantrigravityrecepcion/leemeantrigravityrecepcion.md",
+      "format": "markdown",
+      "description": "Memoria compartida del Hostal entre ambas laptops"
+    }
+  ]
+}

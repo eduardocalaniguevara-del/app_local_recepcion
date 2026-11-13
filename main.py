@@ -62,7 +62,12 @@ from sunat_wsp_service import (
     obtener_estado_job_sunat,
 )
 from sync_engine import process_sync_queue, pull_from_sheets
-from supabase_sync import init_supabase_local_triggers, sync_with_supabase
+from supabase_sync import (
+    init_supabase_local_triggers,
+    sync_with_supabase,
+    extraer_datos_reales_supabase_readonly,
+    registrar_aprendizaje_compartido,
+)
 from auto_updater import (
     iniciar_hilo_auto_actualizacion,
     obtener_version_actual,
@@ -93,7 +98,12 @@ def _is_bootstrap_completed() -> bool:
 
 def _run_sync_cycle(force_full: bool = False) -> None:
     if MODO_PRUEBA:
-        return  # Sistema de PRUEBA: nunca sincroniza con Supabase ni con Google Sheets
+        # Sistema de PRUEBA: nunca toca Google Sheets ni las tablas reales; solo puente sandbox_change_log
+        try:
+            sync_with_supabase()
+        except Exception as exc:
+            print(f"[SyncWorker][PRUEBA] puente sandbox: {exc}")
+        return
     if not _sync_lock.acquire(blocking=False):
         return
     try:
@@ -181,6 +191,35 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 class RpcPayload(BaseModel):
     args: List[Any] = []
+
+
+class PullRealPayload(BaseModel):
+    tablas: List[str] | None = None
+
+
+class AprendizajePayload(BaseModel):
+    actor: str = "RECEPCIONISTA"
+    categoria: str = "OPERATIVO"
+    pregunta_o_evento: str = ""
+    patron_detectado: str = ""
+    regla_aprendida: str = ""
+
+
+@app.post("/api/sandbox/pull-real-readonly")
+def api_sandbox_pull_real_readonly(payload: PullRealPayload | None = None):
+    """Refresca la base de PRUEBA leyendo (GET) la Supabase real. Nunca escribe en la real."""
+    if not MODO_PRUEBA:
+        raise HTTPException(status_code=403, detail="Solo disponible en el sistema de PRUEBA")
+    return extraer_datos_reales_supabase_readonly(payload.tablas if payload else None)
+
+
+@app.post("/api/aprendizaje/registrar")
+def api_aprendizaje_registrar(payload: AprendizajePayload):
+    """Guarda un aprendizaje/pregunta de recepcionista o agente en aprendizaje_compartido_hostal."""
+    return registrar_aprendizaje_compartido(
+        payload.actor, payload.categoria, payload.pregunta_o_evento,
+        payload.patron_detectado, payload.regla_aprendida,
+    )
 
 
 WRITE_METHODS = {

@@ -198,6 +198,7 @@ def escribir_perfil(origen: Path, destino: Path) -> None:
         "formula_snacks_en_s2": False,
         "app_port": PUERTO_PRUEBA,
         "modo_prueba": True,
+        "conectar_pruebas_supabase": True,
         "carpeta_operativa": str(origen),
         "creado_en": datetime.now().isoformat(timespec="seconds"),
     }

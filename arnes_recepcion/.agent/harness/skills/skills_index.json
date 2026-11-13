@@ -1,0 +1,27 @@
+{
+  "$schema": "harness_skills_v2",
+  "version": "2.0.0",
+  "updated_at": "2026-11-13T18:28:57.224Z",
+  "skills": [
+    {
+      "id": "auditoria_yape",
+      "name": "Auditoría y Conciliación Yape / Plin",
+      "skill_path": ".agent/skills/auditoria_yape/SKILL.md",
+      "category": "banking_reconciliation",
+      "target_script": "HostalAI/auditor_yape.py",
+      "description": "Conciliación bancaria multicapa de comprobantes Yape/Plin, verificación de Registro_Pagos y sincronización con Sheets",
+      "rules_count": 8,
+      "status": "ACTIVE"
+    },
+    {
+      "id": "facturacion_wsp",
+      "name": "Facturación y WhatsApp de Recepción",
+      "skill_path": ".agent/skills/facturacion_wsp/SKILL.md",
+      "category": "reception_pipeline",
+      "target_script": "C:/Hostal_Sistema/pipeline_diario_recepcion.py",
+      "description": "Conciliación bancaria, extracción de comprobantes SUNAT, actualización de SUNAT_OCT y CALZADO_OCT, y despacho de WhatsApp",
+      "rules_count": 6,
+      "status": "ACTIVE"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "harness_subagents_v2",
+  "version": "2.0.0",
+  "updated_at": "2026-11-13T04:55:00Z",
+  "archetypes": [
+    {
+      "role": "orchestrator",
+      "title": "Orchestrator Agent",
+      "model": "Gemini 4 Argon (High)",
+      "purpose": "Estrategia general, descomposición de hitos, supervisión de arquitectura y despacho de tareas",
+      "permissions": "all",
+      "state_folder": ".agents/teamwork/orchestrator"
+    },
+    {
+      "role": "explorer",
+      "title": "Explorer / Survey Agent",
+      "model": "Gemini 4 Carbon / Argon (Medium)",
+      "purpose": "Investigación en modo solo lectura, levantamiento de requerimientos, auditoría de archivos y especificación",
+      "permissions": "read_only",
+      "state_folder": ".agents/teamwork/teamwork_explorer_survey_*"
+    },
+    {
+      "role": "implementer",
+      "title": "Implementer / Builder Agent",
+      "model": "Claude Sonnet 5.5 / Carbon (Medium)",
+      "purpose": "Escritura de código de producción, endpoints REST, refactorización segura y resolución de bugs",
+      "permissions": "write_workspace",
+      "state_folder": ".agents/teamwork/teamwork_worker_*"
+    },
+    {
+      "role": "mechanic",
+      "title": "Mechanic / Rapid Tasks Agent",
+      "model": "Gemini 3.8 Flash (Medium)",
+      "purpose": "Ajustes cosméticos rápidos, estilos CSS, anchos de tabla, clasp push y scripts utilitarios",
+      "permissions": "write_workspace",
+      "state_folder": ".agents/teamwork/teamwork_mechanic_*"
+    },
+    {
+      "role": "auditor_verifier",
+      "title": "Auditor & Quality Assurance Agent",
+      "model": "Claude Opus 5.5 (Medium)",
+      "purpose": "Control de calidad independiente, verificación forense, arbitraje ante fallos y certificación final",
+      "permissions": "audit_and_verify",
+      "state_folder": ".agents/teamwork/teamwork_auditor"
+    }
+  ]
+}

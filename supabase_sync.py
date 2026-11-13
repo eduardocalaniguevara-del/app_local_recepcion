@@ -22,6 +22,8 @@ from config import (
     EQUIPO_ID,
     SUPABASE_ANON_KEY,
     SUPABASE_ENABLED,
+    SUPABASE_SANDBOX_CONNECTED,
+    MODO_PRUEBA,
     SUPABASE_SYNC_TOKEN,
     SUPABASE_URL,
 )
@@ -67,7 +69,10 @@ TABLAS_GRUPO2_PK: Dict[str, Tuple[str, ...]] = {
     "wsp_recepcion_mensajes": ("id",),
     "wsp_recepcion_documentos": ("id",),
     "wsp_recepcion_cola_envio": ("id",),
+    "aprendizaje_compartido_hostal": ("id",),
 }
+
+_SANDBOX = bool(MODO_PRUEBA and SUPABASE_SANDBOX_CONNECTED)
 
 
 def _resolve_pk_cols(conn, tabla: str) -> Tuple[str, ...]:
@@ -100,7 +105,7 @@ def init_supabase_local_triggers() -> None:
     Asegura que todas las tablas del Grupo 2 y los triggers de captura Delta (_supabase_outbox)
     existan en ovalo_sistema.db.
     """
-    if not SUPABASE_ENABLED:
+    if not (SUPABASE_ENABLED or _SANDBOX):
         return
 
     conn = get_connection()
@@ -222,6 +227,18 @@ def init_supabase_local_triggers() -> None:
                 enviado_en       TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS aprendizaje_compartido_hostal (
+                id                TEXT PRIMARY KEY,
+                fecha_hora        TEXT NOT NULL,
+                origen_equipo     TEXT NOT NULL,
+                actor             TEXT NOT NULL DEFAULT 'RECEPCIONISTA',
+                categoria         TEXT NOT NULL DEFAULT 'OPERATIVO',
+                pregunta_o_evento TEXT NOT NULL DEFAULT '',
+                patron_detectado  TEXT NOT NULL DEFAULT '',
+                regla_aprendida   TEXT NOT NULL DEFAULT '',
+                updated_at        TEXT DEFAULT ''
+            );
+
             -- Control de bucle y Bandeja de Salida Delta hacia Supabase
             CREATE TABLE IF NOT EXISTS _supabase_sync_control (
                 id      INTEGER PRIMARY KEY CHECK (id = 1),
@@ -321,6 +338,8 @@ def push_to_supabase() -> int:
     Sube en lote todas las filas modificadas localmente en _supabase_outbox hacia Supabase.
     Separa lectura SQLite, peticiones HTTP y borrado SQLite para mantener 0 ms de bloqueo en ovalo_sistema.db.
     """
+    if MODO_PRUEBA:
+        return _push_sandbox() if _SANDBOX else 0
     if not SUPABASE_ENABLED:
         return 0
 
@@ -464,6 +483,8 @@ def pull_from_supabase() -> int:
     Descarga novedades desde public.supabase_change_log en 1 sola petición HTTP
     fuera de cualquier bloqueo SQLite y las aplica sin disparar bucle de eco.
     """
+    if MODO_PRUEBA:
+        return _pull_sandbox() if _SANDBOX else 0
     if not SUPABASE_ENABLED:
         return 0
 
@@ -849,6 +870,19 @@ def sync_with_supabase() -> Dict[str, Any]:
     """
     Ejecuta un ciclo completo Bidireccional (Push local -> Supabase + Pull Supabase -> local).
     """
+    if MODO_PRUEBA and _SANDBOX:
+        if not _sb_lock.acquire(blocking=False):
+            return {"status": "BUSY", "pushed": 0, "pulled": 0}
+        try:
+            pushed = push_to_supabase()
+            pulled = pull_from_supabase()
+            return {"status": "OK_SANDBOX", "equipo": EQUIPO_ID, "pushed": pushed, "pulled": pulled,
+                    "ts": datetime.now().isoformat()}
+        except Exception as exc:
+            print(f"[SupabaseSync][SANDBOX] Error ({EQUIPO_ID}): {exc}")
+            return {"status": "ERROR", "equipo": EQUIPO_ID, "error": str(exc), "ts": datetime.now().isoformat()}
+        finally:
+            _sb_lock.release()
     if not SUPABASE_ENABLED:
         return {"status": "DISABLED", "pushed": 0, "pulled": 0}
     lock = _sb_lock
@@ -889,3 +923,220 @@ def sync_with_supabase() -> Dict[str, Any]:
         }
     finally:
         lock.release()
+
+
+# ======================================================================
+# PUENTE DE PRUEBAS (MODO_PRUEBA): solo escribe en sandbox_change_log.
+# Las tablas reales de Supabase JAMAS reciben POST/DELETE desde la prueba.
+# ======================================================================
+def _sb_guard_sandbox_url(url: str, method: str) -> None:
+    """Candado: en MODO_PRUEBA solo se permite POST a sandbox_change_log / aprendizaje; el resto GET."""
+    if method.upper() == "GET":
+        return
+    if method.upper() == "POST" and ("/rest/v1/sandbox_change_log" in url or "/rest/v1/aprendizaje_compartido_hostal" in url):
+        return
+    raise PermissionError(f"MODO_PRUEBA: escritura bloqueada hacia {method} {url}")
+
+
+def _http_json(url: str, method: str = "GET", payload: Any = None, extra: Dict[str, str] | None = None, timeout: int = 20):
+    if MODO_PRUEBA:
+        _sb_guard_sandbox_url(url, method)
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=data, headers=_headers(extra), method=method)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read().decode("utf-8")
+        return json.loads(raw) if raw.strip() else None
+
+
+def _push_sandbox() -> int:
+    """Empaqueta _supabase_outbox -> POST unicamente a /rest/v1/sandbox_change_log."""
+    conn = get_connection()
+    try:
+        items = conn.execute(
+            "SELECT tabla, pk1, pk2, op, COALESCE(updated_at,'') AS u_at FROM _supabase_outbox ORDER BY updated_at ASC LIMIT 200"
+        ).fetchall()
+        payload: List[Dict[str, Any]] = []
+        keys: List[Tuple[str, str, str, str]] = []
+        for r in items:
+            tabla, p1, p2, op, u_at = str(r["tabla"]), str(r["pk1"]), str(r["pk2"]), str(r["op"]), str(r["u_at"])
+            pk_cols = _resolve_pk_cols(conn, tabla)
+            if not pk_cols:
+                keys.append((tabla, p1, p2, u_at))
+                continue
+            row_data: Dict[str, Any] | None = None
+            if op == "UPSERT":
+                if len(pk_cols) == 1:
+                    row = conn.execute(f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ?", (p1,)).fetchone()
+                else:
+                    row = conn.execute(
+                        f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ? AND CAST({pk_cols[1]} AS TEXT) = ?",
+                        (p1, p2),
+                    ).fetchone()
+                if row is None:
+                    keys.append((tabla, p1, p2, u_at))
+                    continue
+                row_data = dict(row)
+            else:
+                row_data = {pk_cols[0]: p1}
+                if len(pk_cols) > 1:
+                    row_data[pk_cols[1]] = p2
+            payload.append({"tabla": tabla, "op": op, "pk1": p1, "pk2": p2, "row_data": row_data, "origen_equipo": EQUIPO_ID})
+            keys.append((tabla, p1, p2, u_at))
+    finally:
+        conn.close()
+    if not keys:
+        return 0
+    if payload:
+        _http_json(f"{SUPABASE_URL}/rest/v1/sandbox_change_log", "POST", payload, {"Prefer": "return=minimal"})
+    conn = get_connection()
+    try:
+        conn.executemany(
+            "DELETE FROM _supabase_outbox WHERE tabla = ? AND pk1 = ? AND pk2 = ? AND (? = '' OR updated_at IS NULL OR updated_at <= ?)",
+            [(t, a, b, u, u) for (t, a, b, u) in keys],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return len(payload)
+
+
+def _aplicar_fila_local(conn, tabla: str, op: str, row_data: Dict[str, Any]) -> bool:
+    """UPSERT/DELETE en SQLite de prueba. Requiere pulling=1 ya activo."""
+    if tabla not in TABLAS_GRUPO2_PK or not isinstance(row_data, dict):
+        return False
+    pk_cols = _resolve_pk_cols(conn, tabla)
+    valid_cols = _get_table_columns(conn, tabla)
+    if not pk_cols or not valid_cols:
+        return False
+    if op == "DELETE":
+        vals = [row_data.get(c) for c in pk_cols]
+        if any(v is None for v in vals):
+            return False
+        conn.execute(f"DELETE FROM {tabla} WHERE " + " AND ".join(f"{c} = ?" for c in pk_cols), vals)
+        return True
+    cols = [c for c in valid_cols if c in row_data and row_data[c] is not None]
+    if not cols:
+        return False
+    vals = [v if not isinstance(v, (dict, list)) else json.dumps(v, ensure_ascii=False) for v in (row_data[c] for c in cols)]
+    conn.execute(f"INSERT OR REPLACE INTO {tabla} ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", vals)
+    return True
+
+
+def _pull_sandbox() -> int:
+    """Lee SOLO /rest/v1/sandbox_change_log (cursor sb_sandbox_last_log_id) y lo aplica en la SQLite de prueba."""
+    conn_r = get_connection()
+    try:
+        r = conn_r.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_sandbox_last_log_id'").fetchone()
+        last = int(r["valor"]) if (r and str(r["valor"]).isdigit()) else 0
+    finally:
+        conn_r.close()
+    changes = _http_json(f"{SUPABASE_URL}/rest/v1/sandbox_change_log?log_id=gt.{last}&order=log_id.asc&limit=500") or []
+    if not changes:
+        return 0
+    conn = get_connection()
+    n = 0
+    try:
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1;")
+            mx = last
+            for it in changes:
+                mx = max(mx, int(it.get("log_id") or 0))
+                if str(it.get("origen_equipo") or "") == EQUIPO_ID:
+                    continue
+                if _aplicar_fila_local(conn, str(it.get("tabla") or ""), str(it.get("op") or "UPSERT"), it.get("row_data") or {}):
+                    n += 1
+            now_iso = datetime.now().isoformat()
+            conn.execute(
+                "INSERT INTO estado_sistema (clave, valor, updated_at) VALUES ('sb_sandbox_last_log_id', ?, ?) "
+                "ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at",
+                (str(mx), now_iso),
+            )
+            conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
+            conn.commit()
+        except Exception:
+            try:
+                conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+    finally:
+        conn.close()
+    return n
+
+
+def extraer_datos_reales_supabase_readonly(tablas: List[str] | None = None) -> Dict[str, Any]:
+    """SOLO LECTURA (GET) de las tablas reales de Supabase hacia la SQLite de prueba. Nunca escribe en la real."""
+    if not MODO_PRUEBA:
+        return {"status": "ERROR", "error": "Solo disponible en MODO_PRUEBA"}
+    elegidas = [t for t in (tablas or list(TABLAS_GRUPO2_PK.keys())) if t in TABLAS_GRUPO2_PK]
+    resumen: Dict[str, Any] = {}
+    total = 0
+    for tabla in elegidas:
+        try:
+            filas: List[Dict[str, Any]] = []
+            off = 0
+            while True:
+                lote = _http_json(f"{SUPABASE_URL}/rest/v1/{tabla}?select=*&limit=1000&offset={off}", "GET", timeout=30) or []
+                filas.extend(lote)
+                if len(lote) < 1000:
+                    break
+                off += 1000
+            conn = get_connection()
+            try:
+                conn.execute("BEGIN IMMEDIATE;")
+                try:
+                    conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1;")
+                    ok = sum(1 for f in filas if _aplicar_fila_local(conn, tabla, "UPSERT", f))
+                    conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
+                    conn.commit()
+                except Exception:
+                    try:
+                        conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    raise
+            finally:
+                conn.close()
+            resumen[tabla] = ok
+            total += ok
+        except Exception as exc:
+            resumen[tabla] = f"ERROR: {exc}"
+    return {"status": "OK", "solo_lectura": True, "total_filas": total, "tablas": resumen}
+
+
+def registrar_aprendizaje_compartido(actor: str, categoria: str, pregunta_o_evento: str,
+                                     patron_detectado: str = "", regla_aprendida: str = "") -> Dict[str, Any]:
+    """Guarda un aprendizaje local (y lo sube a aprendizaje_compartido_hostal) para compartir entre laptops."""
+    import uuid
+    now = datetime.now().isoformat(timespec="seconds")
+    fila = {
+        "id": uuid.uuid4().hex, "fecha_hora": now, "origen_equipo": EQUIPO_ID,
+        "actor": (actor or "RECEPCIONISTA").strip() or "RECEPCIONISTA",
+        "categoria": (categoria or "OPERATIVO").strip() or "OPERATIVO",
+        "pregunta_o_evento": pregunta_o_evento or "", "patron_detectado": patron_detectado or "",
+        "regla_aprendida": regla_aprendida or "", "updated_at": now,
+    }
+    conn = get_connection()
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS aprendizaje_compartido_hostal (id TEXT PRIMARY KEY, fecha_hora TEXT NOT NULL, "
+            "origen_equipo TEXT NOT NULL, actor TEXT NOT NULL DEFAULT 'RECEPCIONISTA', categoria TEXT NOT NULL DEFAULT 'OPERATIVO', "
+            "pregunta_o_evento TEXT NOT NULL DEFAULT '', patron_detectado TEXT NOT NULL DEFAULT '', "
+            "regla_aprendida TEXT NOT NULL DEFAULT '', updated_at TEXT DEFAULT '')"
+        )
+        cols = list(fila.keys())
+        conn.execute(f"INSERT INTO aprendizaje_compartido_hostal ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", [fila[c] for c in cols])
+        conn.commit()
+    finally:
+        conn.close()
+    remoto = "no_enviado"
+    try:
+        _http_json(f"{SUPABASE_URL}/rest/v1/aprendizaje_compartido_hostal?on_conflict=id", "POST", [fila],
+                   {"Prefer": "resolution=merge-duplicates,return=minimal"})
+        remoto = "enviado"
+    except Exception as exc:
+        remoto = f"pendiente: {exc}"
+    return {"status": "OK", "id": fila["id"], "remoto": remoto}

@@ -1,0 +1,71 @@
+{
+  "$schema": "harness_guardrails_v2",
+  "version": "2.0.0",
+  "updated_at": "2026-11-13T18:28:57.224Z",
+  "rules": [
+    {
+      "id": "GR-01",
+      "name": "Anti Exit-Code 0 Fallacy",
+      "severity": "CRITICAL",
+      "trigger": "Script / Scraping Execution",
+      "action": "Exigir verificación explícita de datos en JSON/CSV/DB antes de considerar éxito; descartar ejecuciones con payloads vacíos o incompletos",
+      "source": ".geminirules:3"
+    },
+    {
+      "id": "GR-02",
+      "name": "Zero Assumptions on Blockers",
+      "severity": "CRITICAL",
+      "trigger": "SUNAT Dojo modal traps, overlays o estados de pantalla desconocidos",
+      "action": "Detener inmediatamente el bucle automático y solicitar captura visual o confirmación humana al usuario",
+      "source": ".geminirules:7"
+    },
+    {
+      "id": "GR-04",
+      "name": "Cortafuegos Máximo 2 Intentos",
+      "severity": "STOP_LOOP",
+      "trigger": "2 fallos idénticos o repetidos en el mismo comando o prueba",
+      "action": "Detener el ciclo de prueba, explicar en 3 líneas el síntoma y proponer el modelo alternativo o información faltante",
+      "source": "GEMINI.md:44"
+    },
+    {
+      "id": "GR-05",
+      "name": "Sandbox First (Ovalo_Mariategui_PRUEBA)",
+      "severity": "RESTRICTED",
+      "trigger": "Cualquier edición o mejora sobre la WebApp del Hostal",
+      "action": "Editar y probar primero en C:\\ovalo_mariategui_prueba (puerto 8082); promover a operativa solo tras validación exitosa",
+      "source": "GEMINI.md:58"
+    },
+    {
+      "id": "GR-06",
+      "name": "Navegador Predeterminado Microsoft Edge",
+      "severity": "MANDATORY",
+      "trigger": "Uso de herramientas de navegación (edge-browser MCP o Playwright msedge)",
+      "action": "Utilizar siempre Microsoft Edge por defecto; usar Google Chrome únicamente si el usuario lo ordena de forma explícita",
+      "source": "GEMINI.md:59"
+    },
+    {
+      "id": "GR-07",
+      "name": "Mandato de Integridad Absoluta",
+      "severity": "CRITICAL",
+      "trigger": "Desarrollo de código, pruebas o artefactos de verificación",
+      "action": "Prohibido falsear salidas, hardcodear resultados de prueba esperados o crear fachadas cosméticas; mantener estado y comportamiento genuinos",
+      "source": "DISPATCH.md:MANDATORY_INTEGRITY_WARNING"
+    },
+    {
+      "id": "GR-08",
+      "name": "Candado de Código de Autorización para Arnés² y Promoción de Pruebas",
+      "severity": "BLOCKING",
+      "trigger": "Cambio a manifest.json/guardrails/probes/skills del Arnés² o promoción Prueba (8082) → Operativa (8080)",
+      "action": "Exigir código de autorización de administrador validado únicamente por hash SHA-256 (24fe5b2863951e8d97cd7e19f2a5fed2534686189241b58951f0e7e2e8d666d7, o variable de entorno ARNES_AUTH_HASH). Nunca mostrar el código en chat. EXCEPCIÓN: las operaciones diarias del negocio en la WebApp/Hoja Operativa (añadir huéspedes, pagos posteriores, eliminar/editar estancias, cambiar productos en venta de tienda por error) están 100% LIBRES y no piden código.",
+      "auth_hash_sha256": "24fe5b2863951e8d97cd7e19f2a5fed2534686189241b58951f0e7e2e8d666d7",
+      "auth_hash_env": "ARNES_AUTH_HASH",
+      "free_operations": [
+        "añadir huéspedes",
+        "pagos posteriores",
+        "eliminar/editar estancias",
+        "cambiar productos en venta de tienda"
+      ],
+      "source": "Plan Laptop 2 Recepción"
+    }
+  ]
+}

@@ -1,0 +1,365 @@
+{
+  "$schema": "harness_v2_manifest",
+  "version": "2.0.0",
+  "name": "Arnés² Recepción — Hostal Óvalo Mariátegui (Laptop 2)",
+  "description": "Arnés² v2.0.0 aislado para Laptop 2 de Recepción (LAPTOP-JAPIGJT2): sin datos personales del Grupo 1",
+  "updated_at": "2026-11-13T18:28:57.224Z",
+  "runtime": {
+    "node": "v24.20.0",
+    "python": "3.14.6",
+    "os": "windows"
+  },
+  "components": {
+    "system_prompts": {
+      "id": "system_prompts",
+      "name": "System Prompts",
+      "category": "instruction_layer",
+      "status": "ACTIVE",
+      "source_refs": [
+        "GEMINI.md"
+      ],
+      "directory": ".agent/harness/prompts",
+      "files": [
+        {
+          "id": "prompt_base",
+          "name": "Base Persona & Flow",
+          "path": ".agent/harness/prompts/system_base.md",
+          "description": "Contrato de comportamiento para usuario no programador, modo turbo directo"
+        },
+        {
+          "id": "prompt_coach",
+          "name": "Coach Directive (🎓)",
+          "path": ".agent/harness/prompts/coach_directive.md",
+          "description": "Bloque coach inicial obligatorio (🎓 + 🤖 + 📋) en primeras líneas de cada turno"
+        },
+        {
+          "id": "prompt_matrix",
+          "name": "Model Routing Matrix",
+          "path": ".agent/harness/prompts/model_matrix.md",
+          "description": "Matriz de selección: Argon Medium/High, Sonnet 5.5, Flash 3.8, Opus 5.5"
+        }
+      ]
+    },
+    "guardrails": {
+      "id": "guardrails",
+      "name": "Guardrails & Firewalls",
+      "category": "safety_layer",
+      "status": "ENFORCED",
+      "source_refs": [
+        ".geminirules",
+        "GEMINI.md"
+      ],
+      "directory": ".agent/harness/guardrails",
+      "rules_file": ".agent/harness/guardrails/safety_rules.json",
+      "policy_file": ".agent/harness/guardrails/firewall_policy.md",
+      "rules": [
+        {
+          "id": "GR-01",
+          "name": "Anti Exit-Code 0 Fallacy",
+          "severity": "CRITICAL",
+          "trigger": "Script / Scraping Execution",
+          "action": "Exigir verificación de datos en JSON/CSV/DB antes de considerar éxito",
+          "source": ".geminirules:3"
+        },
+        {
+          "id": "GR-02",
+          "name": "Zero Assumptions on Blockers",
+          "severity": "CRITICAL",
+          "trigger": "SUNAT / Dojo Modal Traps",
+          "action": "Detener inmediatamente y solicitar captura visual al usuario",
+          "source": ".geminirules:7"
+        },
+        {
+          "id": "GR-04",
+          "name": "Cortafuegos Máximo 2 Intentos",
+          "severity": "STOP_LOOP",
+          "trigger": "2 Fallos Consecutivos Idénticos",
+          "action": "Detener bucle, explicar en 3 líneas y proponer modelo o captura faltante",
+          "source": "GEMINI.md:44"
+        },
+        {
+          "id": "GR-05",
+          "name": "Sandbox First (Puerto 8082)",
+          "severity": "RESTRICTED",
+          "trigger": "Edición de WebApp del Hostal",
+          "action": "Probar en Ovalo_Mariategui_PRUEBA antes de promover a producción",
+          "source": "GEMINI.md:58"
+        },
+        {
+          "id": "GR-06",
+          "name": "Navegador Predeterminado Edge",
+          "severity": "MANDATORY",
+          "trigger": "Automatización / MCP Navegador",
+          "action": "Usar siempre Microsoft Edge; Chrome únicamente bajo pedido explícito",
+          "source": "GEMINI.md:59"
+        },
+        {
+          "id": "GR-07",
+          "name": "Mandato de Integridad Absoluta",
+          "severity": "CRITICAL",
+          "trigger": "Desarrollo y Verificación",
+          "action": "Prohibido falsear salidas o simular resultados; mantener estado y comportamiento genuinos",
+          "source": "DISPATCH.md:MANDATORY_INTEGRITY_WARNING"
+        },
+        {
+          "id": "GR-08",
+          "name": "Candado de Código de Autorización para Arnés² y Promoción de Pruebas",
+          "severity": "BLOCKING",
+          "trigger": "Cambio a manifest.json/guardrails/probes/skills del Arnés² o promoción Prueba (8082) → Operativa (8080)",
+          "action": "Exigir código de autorización de administrador validado únicamente por hash SHA-256 (24fe5b2863951e8d97cd7e19f2a5fed2534686189241b58951f0e7e2e8d666d7, o variable de entorno ARNES_AUTH_HASH). Nunca mostrar el código en chat. EXCEPCIÓN: las operaciones diarias del negocio en la WebApp/Hoja Operativa (añadir huéspedes, pagos posteriores, eliminar/editar estancias, cambiar productos en venta de tienda por error) están 100% LIBRES y no piden código.",
+          "auth_hash_sha256": "24fe5b2863951e8d97cd7e19f2a5fed2534686189241b58951f0e7e2e8d666d7",
+          "auth_hash_env": "ARNES_AUTH_HASH",
+          "free_operations": [
+            "añadir huéspedes",
+            "pagos posteriores",
+            "eliminar/editar estancias",
+            "cambiar productos en venta de tienda"
+          ],
+          "source": "Plan Laptop 2 Recepción"
+        }
+      ]
+    },
+    "memory": {
+      "id": "memory",
+      "name": "Episodic & Long-Term Memory",
+      "category": "state_layer",
+      "status": "ACTIVE",
+      "directory": ".agent/harness/memory",
+      "index_file": ".agent/harness/memory/memory_index.json",
+      "stores": [
+        {
+          "id": "mem_db_operativa",
+          "type": "relational_operational_db",
+          "path": "C:\\Recepcion_Ovalo_Local\\data\\ovalo_sistema.db",
+          "engine": "sqlite",
+          "description": "Base operativa del Hostal (WebApp 8080)"
+        },
+        {
+          "id": "mem_db_prueba",
+          "type": "relational_sandbox_db",
+          "path": "C:\\ovalo_mariategui_prueba\\data\\ovalo_sistema.db",
+          "engine": "sqlite",
+          "description": "Base de Prueba (WebApp 8082)"
+        },
+        {
+          "id": "mem_aprendizaje_compartido",
+          "type": "shared_learning_table",
+          "path": "aprendizaje_compartido_hostal",
+          "engine": "sqlite/supabase",
+          "description": "Tabla compartida de aprendizajes entre Laptop 1 y Laptop 2"
+        },
+        {
+          "id": "mem_experience",
+          "type": "long_term_knowledge",
+          "path": ".agent/harness/EXPERIENCE.md",
+          "format": "markdown",
+          "description": "Catálogo de experiencias del Arnés² de Recepción"
+        },
+        {
+          "id": "mem_cross_laptop",
+          "type": "cross_laptop_handoff",
+          "path": "C:/Hostal_Sistema/leemeantrigravityrecepcion/leemeantrigravityrecepcion.md",
+          "format": "markdown",
+          "description": "Memoria compartida del Hostal entre ambas laptops"
+        }
+      ]
+    },
+    "skills": {
+      "id": "skills",
+      "name": "Skills Catalog",
+      "category": "workflow_layer",
+      "status": "ACTIVE",
+      "directory": ".agent/harness/skills",
+      "index_file": ".agent/harness/skills/skills_index.json",
+      "items": [
+        {
+          "id": "auditoria_yape",
+          "name": "Auditoría y Conciliación Yape / Plin",
+          "skill_doc": ".agent/skills/auditoria_yape/SKILL.md",
+          "target_script": "HostalAI/auditor_yape.py",
+          "category": "banking_reconciliation"
+        },
+        {
+          "id": "facturacion_wsp",
+          "name": "Facturación y WhatsApp de Recepción (RUC 20611986484)",
+          "skill_doc": ".agent/skills/facturacion_wsp/SKILL.md",
+          "target_script": "C:/Hostal_Sistema/pipeline_diario_recepcion.py",
+          "category": "reception_pipeline"
+        }
+      ]
+    },
+    "tool_guidance": {
+      "id": "tool_guidance",
+      "name": "Tool Execution Guidance",
+      "category": "tooling_layer",
+      "status": "ACTIVE",
+      "directory": ".agent/harness/tool_guidance",
+      "guidelines": [
+        {
+          "tool": "edge-browser",
+          "path": ".agent/harness/tool_guidance/edge_browser_rules.md",
+          "core_rule": "Priorizar Microsoft Edge sobre Chrome; verificar estado de la página tras navegación"
+        },
+        {
+          "tool": "whatsapp-sqlite",
+          "path": ".agent/harness/tool_guidance/sqlite_rules.md",
+          "core_rule": "Modo WAL obligatorio; busy_timeout = 15000; cerrar conexión antes de llamadas de red"
+        },
+        {
+          "tool": "playwright_python",
+          "path": ".agent/harness/tool_guidance/anti_exit_zero_rules.md",
+          "core_rule": "Exit code 0 no es éxito; verificar existencia y coherencia de datos en JSON/CSV"
+        },
+        {
+          "tool": "powershell_cmd",
+          "path": ".agent/harness/tool_guidance/powershell_windows_guidance.md",
+          "core_rule": "Comillas obligatorias para rutas con espacios; no usar sleep de shell como temporizador"
+        }
+      ]
+    },
+    "probes": {
+      "id": "probes",
+      "name": "Sensor Probes",
+      "category": "telemetry_layer",
+      "status": "ACTIVE",
+      "directory": ".agent/harness/probes",
+      "readme": ".agent/harness/probes/README.md",
+      "runners": [
+        {
+          "id": "operational_health_probe",
+          "name": "operational_health_probe",
+          "file": ".agent/harness/probes/operational_health_probe.js",
+          "command": "node .agent/harness/probes/operational_health_probe.js",
+          "description": "Sonda adaptada a Laptop 2 (Recepción)",
+          "criticality": "HIGH"
+        },
+        {
+          "id": "sqlite_probe",
+          "name": "sqlite_probe",
+          "file": ".agent/harness/probes/sqlite_probe.js",
+          "command": "node .agent/harness/probes/sqlite_probe.js",
+          "description": "Sonda adaptada a Laptop 2 (Recepción)",
+          "criticality": "CRITICAL"
+        },
+        {
+          "id": "sunat_probe",
+          "name": "sunat_probe",
+          "file": ".agent/harness/probes/sunat_probe.js",
+          "command": "node .agent/harness/probes/sunat_probe.js",
+          "description": "Sonda adaptada a Laptop 2 (Recepción)",
+          "criticality": "HIGH"
+        },
+        {
+          "id": "whatsapp_probe",
+          "name": "whatsapp_probe",
+          "file": ".agent/harness/probes/whatsapp_probe.js",
+          "command": "node .agent/harness/probes/whatsapp_probe.js",
+          "description": "Sonda adaptada a Laptop 2 (Recepción)",
+          "criticality": "HIGH"
+        },
+        {
+          "id": "webapp_probe",
+          "name": "webapp_probe",
+          "file": ".agent/harness/probes/webapp_probe.js",
+          "command": "node .agent/harness/probes/webapp_probe.js",
+          "description": "Sonda adaptada a Laptop 2 (Recepción)",
+          "criticality": "HIGH"
+        }
+      ]
+    },
+    "subagents": {
+      "id": "subagents",
+      "name": "Subagent Archetypes & Multi-Model Matrix",
+      "category": "agent_layer",
+      "status": "CONFIGURED",
+      "directory": ".agent/harness/subagents",
+      "catalog_file": ".agent/harness/subagents/archetypes.json",
+      "archetypes": [
+        {
+          "role": "orchestrator",
+          "model": "Gemini 4 Argon (High)",
+          "purpose": "Estrategia general, descomposición de módulos y supervisión de arquitectura",
+          "permissions": "all"
+        },
+        {
+          "role": "explorer",
+          "model": "Gemini 4 Carbon / Argon (Medium)",
+          "purpose": "Investigación read-only, levantamiento de requerimientos y síntesis",
+          "permissions": "read_only"
+        },
+        {
+          "role": "implementer",
+          "model": "Claude Sonnet 5.5 / Carbon (Medium)",
+          "purpose": "Escritura de código, APIs, refactorización y resolución de bugs",
+          "permissions": "write_workspace"
+        },
+        {
+          "role": "mechanic",
+          "model": "Gemini 3.8 Flash (Medium)",
+          "purpose": "Ajustes cosméticos, CSS, anchos de columna, clasp push y scripts rápidos",
+          "permissions": "write_workspace"
+        },
+        {
+          "role": "auditor_verifier",
+          "model": "Claude Opus 5.5 (Medium)",
+          "purpose": "Control de calidad y arbitraje cuando otros modelos fallan 2 veces",
+          "permissions": "audit_and_verify"
+        }
+      ]
+    },
+    "plugins_mcp": {
+      "id": "plugins_mcp",
+      "name": "Plugins & Model Context Protocol Servers",
+      "category": "integration_layer",
+      "status": "CONNECTED",
+      "directory": ".agent/harness/plugins_mcp",
+      "catalog_file": ".agent/harness/plugins_mcp/mcp_catalog.json",
+      "servers": [
+        {
+          "name": "whatsapp-sqlite",
+          "entry": "whatsapp_mcp/mcp_server.js",
+          "type": "stdio",
+          "status": "ONLINE",
+          "tools": [
+            "wsp_estado_resumen",
+            "wsp_buscar_mensajes",
+            "wsp_listar_chats",
+            "wsp_enviar_mensaje",
+            "wsp_buscar_documentos",
+            "wsp_extraer_archivo_ocr",
+            "sqlite_consulta_sql"
+          ]
+        },
+        {
+          "name": "edge-browser",
+          "type": "plugin_mcp",
+          "status": "ONLINE",
+          "description": "Navegación e inspección mediante Microsoft Edge"
+        },
+        {
+          "name": "supabase_mcp",
+          "type": "plugin_mcp",
+          "status": "ONLINE",
+          "description": "Gestión directa de Postgres y migraciones en Supabase"
+        },
+        {
+          "name": "google_workspace",
+          "type": "plugin_suite",
+          "status": "ONLINE",
+          "tools": [
+            "gsheets",
+            "gdrive",
+            "gmail",
+            "gcalendar"
+          ]
+        }
+      ]
+    }
+  },
+  "artifacts": {
+    "experience_catalog": ".agent/harness/EXPERIENCE.md",
+    "execution_log": ".agent/harness/harness_runs.json",
+    "engine": ".agent/harness/harness_engine.js"
+  },
+  "node_id": "LAPTOP_2_RECEPCION"
+}

@@ -30,6 +30,11 @@
       "id": "CREAR_ENTORNO_PRUEBA_01",
       "target": "todos",
       "comando_cmd": "Crear_Entorno_Prueba.bat"
+    },
+    {
+      "id": "INSTALAR_ARNES_Y_PUENTE_PRUEBA_L2_01",
+      "target": "ovalo",
+      "comando_cmd": "python instalar_arnes_laptop2.py"
     }
   ]
 }

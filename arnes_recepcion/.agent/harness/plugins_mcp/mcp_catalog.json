@@ -1,0 +1,70 @@
+{
+  "$schema": "harness_mcp_catalog_v2",
+  "version": "2.0.0",
+  "updated_at": "2026-11-13T04:55:00Z",
+  "servers": [
+    {
+      "name": "whatsapp-sqlite",
+      "type": "workspace_stdio",
+      "entry": "whatsapp_mcp/mcp_server.js",
+      "status": "ONLINE",
+      "description": "Servidor MCP del espacio de trabajo para consulta SQL a SQLite y mensajería/documentos de WhatsApp",
+      "tools": [
+        {
+          "name": "wsp_estado_resumen",
+          "description": "Resumen de mensajes recibidos, chats no leídos y estado general"
+        },
+        {
+          "name": "wsp_buscar_mensajes",
+          "description": "Búsqueda filtrada de mensajes por texto, chat_jid o fecha"
+        },
+        {
+          "name": "wsp_listar_chats",
+          "description": "Lista de conversaciones ordenadas por actividad reciente"
+        },
+        {
+          "name": "wsp_enviar_mensaje",
+          "description": "Envío de mensajes de texto a números telefónicos validados"
+        },
+        {
+          "name": "wsp_buscar_documentos",
+          "description": "Búsqueda de archivos adjuntos (vouchers, facturas, DNIs) en la base privada"
+        },
+        {
+          "name": "wsp_extraer_archivo_ocr",
+          "description": "Extracción y análisis OCR de texto sobre documentos adjuntos"
+        },
+        {
+          "name": "sqlite_consulta_sql",
+          "description": "Ejecución de consultas SQL de solo lectura sobre las bases locales"
+        }
+      ]
+    },
+    {
+      "name": "edge-browser",
+      "type": "plugin_mcp",
+      "status": "ONLINE",
+      "description": "Navegación web automatizada e inspección DOM mediante Microsoft Edge nativo",
+      "default_browser": true
+    },
+    {
+      "name": "supabase_mcp",
+      "type": "plugin_mcp",
+      "status": "ONLINE",
+      "description": "Gestión directa de bases de datos PostgreSQL, RLS y migraciones en Supabase",
+      "project": "hostal-ovalo"
+    },
+    {
+      "name": "google_workspace",
+      "type": "plugin_suite",
+      "status": "ONLINE",
+      "description": "Herramientas integradas para Google Workspace",
+      "tools": [
+        "gsheets",
+        "gdrive",
+        "gmail",
+        "gcalendar"
+      ]
+    }
+  ]
+}
