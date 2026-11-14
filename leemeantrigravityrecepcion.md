@@ -134,6 +134,46 @@ Porque en nuestra WebApp Local (`estancias` y `huespedes_padron`) tenemos la cas
 
 ### E. Guardrail `GR-08: Candado de Código para Arnés² y Promoción de Pruebas`:
 - **100% LIBRE para Operaciones Diarias del Negocio:** En la WebApp y Hoja operativa de recepción, el personal puede realizar check-in, registrar o pagar consumos posteriores, cambiar de habitación, cambiar productos en tienda por error de digitación y eliminar estancias libres de cualquier código o contraseña restrictiva.
-- **CÓDIGO OBLIGATORIO para Configuración y Promoción:** Exige estrictamente el código de administrador ([código de autorización de administrador], validado contra el hash SHA-256 `24fe5b2863951e8d97cd7e19f2a5fed2534686189241b58951f0e7e2e8d666d7` / `ARNES_AUTH_HASH`) únicamente al:
+- **CÓDIGO OBLIGATORIO para Configuración y Promoción:** Exige estrictamente el código de administrador (`7991`, validado contra el hash SHA-256 `c2f593c98b648395cc08947d97a7d4829db29ffa5c924c44ae1bc2eeac30b05c` / `ARNES_AUTH_HASH`) únicamente al:
   1. Modificar manifiesto, guardrails, sondas o skills del sistema de seguridad Arnés².
   2. Ejecutar la promoción del sistema de pruebas a la base operativa mediante `promover_a_operativa.py --aplicar --codigo-arnes <codigo>`.
+
+### F. Promoción a Operativa Completada (`2026-11-14` - Commit `8f16801`):
+- **Archivos promovidos desde `C:\ovalo_mariategui_prueba` a `app_local_recepcion` (`8080`) y GitHub:**
+  - `config.py`, `database.py`, `domain_logic.py`, `instalar_arnes_laptop2.py`, `sync_engine.py`, `yape_manager.py`
+  - `static/CheckInRapido.html`, `static/PagosPosteriores.html`, `static/PanelDisponibilidad.html`, `static/VentaTienda.html`, `static/js/yape_vivo.js`
+- **Respaldo previo creado en:** `C:\Hostal_Sistema\respaldos_promocion\20261114_081935` (tag git `respaldo-previo-20261114_081935`).
+- **Estado verificado en `http://127.0.0.1:8080`:**
+  - 2 casillas de Yape (Monto + Hora 12h AM/PM) operativas en todas las vistas.
+  - Extractor Maelen BCP (49 movimientos históricos, 23 del mes), Vigilante WhatsApp +5m y Agente Revisor 08:30 AM con regla Cero Omisiones activos.
+  - Vitrina Tienda con 36 turnos históricos (`h1..h36`), encabezados completos (N° conteo, responsable, fecha y hora) y columnas fijas de `145px` sin letras cortadas.
+
+---
+
+## 🤖 7. PLAN PENDIENTE DE EJECUCIÓN EN LAPTOP 2: ASISTENTE DE RECEPCIÓN ("COPILOTO ÓVALO") + CONTROL ARNÉS² `GR-09` [2026-11-14]
+
+> **Archivo detallado del Plan:** `PLAN_ASISTENTE_RECEPCION.md` (ubicado en esta misma carpeta `leemeantrigravityrecepcion` y en `Downloads\PLAN_ASISTENTE_RECEPCION.md`).
+
+### A. Qué debe hacer el Asistente en `Ovalo_Mariategui_PRUEBA` (`puerto 8082`):
+1. **Consultor Operativo Instantáneo (4 Frentes):**
+   - **Deudas de Habitación y Yapes del Día:** Desglose exacto de cuentas (`estancias`, `pagos`, `ventas_tienda`, `servicios_detalle`) y Yapes recibidos hoy (`yape_conciliacion_hostal` + `cache_correo_maelen_bcp.json`).
+   - **WhatsApp de Recepción (Comprobantes Pendientes):** Responde qué facturas o boletas pedidas por WhatsApp (`wsp_recepcion_mensajes`, `wsp_recepcion_documentos`) o en estancias (`solicita_comp = 'Sí'`, `estado_comp != 'Emitido'`) están pendientes de emitir o enviar (`wsp_recepcion_cola_envio`).
+   - **Vitrina y Faltantes (`vitrina_local` `h1..h36`):** Responde qué productos faltan hoy, **por qué faltan** (cruzando stock previo vs. `ventas_tienda` y `almacen_movimientos`) y **desde qué turno/conteo, fecha/hora y con qué responsable empezaron a faltar** (`vitrina_h1_header..vitrina_h36_header`).
+   - **Caja Diaria del Turno Actual:** Solo informa el cuadre del día actual para entrega de turno.
+2. **Doble Modalidad Práctica (Cero texto largo que confunda y Cero "Acción Guiada" que abra modales solos):**
+   - **Modalidad 1 — Guía Visual con Fotos Reales (`📸 Muéstrame con fotos`):** Muestra tarjetas paso a paso con capturas reales de la aplicación (`/static/img/guia_asistente/*.png`) con flechas y numeración (`①`, `②`, `③`) indicando dónde hacer clic.
+   - **Modalidad 2 — Ejecución Directa por el Asistente (`⚡ Hazlo tú por mí`) + Extracto para el Dueño:** El recepcionista le pide hacer el movimiento (ej. cambio de habitación, venta de tienda, pago posterior, continuar estancia), confirma con 1 clic en el mismo chat (`✅ Confirmar`), el asistente ejecuta la función oficial de `domain_logic.py` y **guarda obligatoriamente el registro Antes/Después en `asistente_movimientos_log` para el Extracto del Dueño**.
+
+### B. Cortafuegos Arnés² `GR-09` (Confidencialidad Financiera, Gastos y Credenciales):
+- **PROHIBIDO dar claves o accesos:** Claves SOL de SUNAT, contraseñas en general, tokens, código de Arnés² o correos personales/externos.
+- **PROHIBIDO dar ingresos semanales, mensuales o totales:** Nunca revelar cuánto generó el hotel en la semana, en el mes ni acumulados totales (solo se permite el monto diario del turno actual).
+- **PROHIBIDO hablar o analizar Gastos (`gastos` / `compras_tienda_lotes`):** La tabla `gastos` está 100% bloqueada para el asistente porque son gastos personales/internos de la empresa.
+- **PROHIBIDO usar "Acción Guiada" intrusiva:** No abrir ventanas emergentes solas para no asustar al recepcionista.
+- **Bitácora de Intentos Bloqueados:** Cualquier pregunta bloqueada por `GR-09` queda registrada como `INTENTO_BLOQUEADO_GR09` en `asistente_movimientos_log` para el Extracto del Dueño.
+
+### C. Archivos a Crear / Modificar en `C:\ovalo_mariategui_prueba`:
+1. `database.py` y `supabase_sync.py`: Crear tabla `asistente_movimientos_log` y añadirla a `TABLAS_GRUPO2_PK` y triggers Delta.
+2. `asistente_recepcion.py` **[NUEVO]**: Motor con filtro `GR-09`, consultas de Habitación/Yape/WSP/Vitrina `h1..h36`, guías con fotos, ejecutor directo auditado y generador del Extracto del Dueño.
+3. `arnes_recepcion/.agent/harness/guardrails/safety_rules.json`: Añadir regla `GR-09`.
+4. `static/PanelDisponibilidad.html`, `domain_logic.py` y `main.py`: Burbuja flotante `🤖 Copiloto Óvalo`, visor de fotos guía, confirmación en chat, botón de **Extracto del Dueño** y endpoints RPC (`consultarAsistenteRecepcion`, `confirmarMovimientoAsistente`, `obtenerExtractoDuenoAsistente`).
+
