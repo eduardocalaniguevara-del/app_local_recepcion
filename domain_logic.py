@@ -3971,16 +3971,73 @@ def obtener_registro_pagos_local(filtros: Optional[Dict[str, Any]] = None) -> Di
 
 # ==============================================================================
 
+def _parse_header_vitrina_obj(raw_hdr: str, idx_h: int) -> Dict[str, Any]:
+    raw = str(raw_hdr or "").strip()
+    def_titulo = f"#{idx_h} (Último)" if idx_h == 1 else f"#{idx_h}"
+    if not raw:
+        return {
+            "idx": idx_h,
+            "titulo": def_titulo,
+            "responsable": "",
+            "fecha": "",
+            "hora": "",
+            "label": def_titulo,
+            "raw": "",
+        }
+    lineas = [ln.strip() for ln in raw.replace("\r\n", "\n").split("\n") if ln.strip()]
+    resp = ""
+    fecha_hora = ""
+    if len(lineas) >= 3:
+        resp = lineas[1]
+        fecha_hora = lineas[2]
+    elif len(lineas) == 2:
+        if lineas[0].lower().startswith("conteo"):
+            resp = lineas[1]
+        else:
+            resp = lineas[0]
+            fecha_hora = lineas[1]
+    elif len(lineas) == 1:
+        if "·" in lineas[0]:
+            parts = lineas[0].split("·", 1)
+            resp = parts[0].strip()
+            fecha_hora = parts[1].strip()
+        else:
+            resp = lineas[0]
+
+    fecha = ""
+    hora = ""
+    if fecha_hora:
+        fh_parts = fecha_hora.split(" ")
+        if len(fh_parts) >= 2:
+            fecha = fh_parts[0].strip()
+            hora = " ".join(fh_parts[1:]).strip()
+        else:
+            fecha = fecha_hora.strip()
+
+    label_parts = []
+    if resp:
+        label_parts.append(resp)
+    if fecha_hora:
+        label_parts.append(fecha_hora)
+    label = " · ".join(label_parts) if label_parts else def_titulo
+
+    return {
+        "idx": idx_h,
+        "titulo": def_titulo,
+        "responsable": resp,
+        "fecha": fecha,
+        "hora": hora,
+        "label": label,
+        "raw": raw,
+    }
+
+
 def _limpiar_header_vitrina(raw_hdr: str, fallback: str) -> str:
     s = str(raw_hdr or "").strip()
     if not s:
         return fallback
-    lineas = [ln.strip() for ln in s.replace("\r\n", "\n").split("\n") if ln.strip()]
-    if len(lineas) >= 3:
-        return f"{lineas[1]} · {lineas[2]}"
-    if len(lineas) == 2:
-        return f"{lineas[0]} · {lineas[1]}"
-    return s
+    parsed = _parse_header_vitrina_obj(raw_hdr, 1)
+    return parsed.get("label") or fallback
 
 
 CLAVE_GESTION_TIENDA = "eleiza"
@@ -4070,15 +4127,26 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
 
         stock_alm_map, delta_vit_pend_map = _calcular_stocks_almacen_y_deltas_conn(conn)
 
-        # Asegurar columnas h4..h8 en caliente
+        # Asegurar columnas h1..h36 en caliente (12 días / 1.5 semanas)
         cols_vit_chk = [r[1] for r in conn.execute("PRAGMA table_info(vitrina_local)").fetchall()]
-        if "h8_est" not in cols_vit_chk:
-            for idx_h in range(4, 9):
+        if "h36_est" not in cols_vit_chk:
+            for idx_h in range(1, 37):
                 for suf in ("cant", "est"):
                     col_vh = f"h{idx_h}_{suf}"
                     if col_vh not in cols_vit_chk:
                         conn.execute(f"ALTER TABLE vitrina_local ADD COLUMN {col_vh} TEXT NOT NULL DEFAULT ''")
             conn.commit()
+
+        # Metadatos E2, E3 y encabezados H1..H36 (36 conteos / 12 días)
+        meta_rows = conn.execute(
+            "SELECT clave, valor FROM estado_sistema WHERE clave LIKE 'vitrina_%'"
+        ).fetchall()
+        meta = {r["clave"]: str(r["valor"] or "") for r in meta_rows}
+        headers_meta: List[Dict[str, Any]] = [
+            _parse_header_vitrina_obj(meta.get(f"vitrina_h{idx_h}_header", ""), idx_h)
+            for idx_h in range(1, 37)
+        ]
+        headers_hist: List[str] = [hm["label"] for hm in headers_meta]
 
         # 2. Leer productos de vitrina_local (o disparar pull inmediato si aún está vacía tras actualización)
         filas_vit = conn.execute("SELECT * FROM vitrina_local ORDER BY orden ASC").fetchall()
@@ -4107,17 +4175,41 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
                 st_actual = st_sheets - vend_local + delta_alm_vit
                 st_alm = stock_alm_map.get(prod_nom, 0.0)
                 r_keys = r.keys()
-                item_d = {
+                est_act = str(r["estado_actual"] or "")
+                item_d: Dict[str, Any] = {
                     "orden": int(r["orden"] or 0),
                     "producto": prod_nom,
                     "precioVenta": precios_map.get(prod_nom, 0.0),
                     "stockAlmacen": _fmt_num_stock(st_alm),
                     "stockVitrina": _fmt_num_stock(st_actual),
-                    "estadoActual": str(r["estado_actual"] or ""),
+                    "estadoActual": est_act,
                 }
-                for idx_h in range(1, 9):
-                    item_d[f"h{idx_h}Cant"] = str(r[f"h{idx_h}_cant"] or "") if f"h{idx_h}_cant" in r_keys else ""
-                    item_d[f"h{idx_h}Est"] = str(r[f"h{idx_h}_est"] or "") if f"h{idx_h}_est" in r_keys else ""
+                historicos_list: List[Dict[str, Any]] = []
+                for idx_h in range(1, 37):
+                    c_val = str(r[f"h{idx_h}_cant"] or "") if f"h{idx_h}_cant" in r_keys else ""
+                    e_val = str(r[f"h{idx_h}_est"] or "") if f"h{idx_h}_est" in r_keys else ""
+                    item_d[f"h{idx_h}Cant"] = c_val
+                    item_d[f"h{idx_h}Est"] = e_val
+                    historicos_list.append({"idx": idx_h, "cant": c_val, "est": e_val})
+                item_d["historicos"] = historicos_list
+
+                # Calcular desde qué turno/fecha viene faltando el producto si actualmente está en FALTA
+                falta_desde = ""
+                if est_act.strip().upper().startswith("FALTA"):
+                    earliest_idx = 0
+                    for idx_h in range(1, 37):
+                        e_h = str(item_d.get(f"h{idx_h}Est") or "").strip().upper()
+                        if not e_h:
+                            continue
+                        if e_h.startswith("FALTA"):
+                            earliest_idx = idx_h
+                        else:
+                            break
+                    if earliest_idx > 0:
+                        falta_desde = headers_hist[earliest_idx - 1]
+                    elif meta.get("vitrina_fecha_e3"):
+                        falta_desde = meta.get("vitrina_fecha_e3", "")
+                item_d["faltaDesde"] = falta_desde
                 productos_out.append(item_d)
         else:
             for idx_p, rc in enumerate(
@@ -4135,18 +4227,15 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
                     "stockAlmacen": _fmt_num_stock(st_alm),
                     "stockVitrina": _fmt_num_stock(delta_alm_vit),
                     "estadoActual": "",
+                    "faltaDesde": "",
+                    "historicos": [{"idx": idx_h, "cant": "", "est": ""} for idx_h in range(1, 37)],
                 }
-                for idx_h in range(1, 9):
+                for idx_h in range(1, 37):
                     item_d[f"h{idx_h}Cant"] = ""
                     item_d[f"h{idx_h}Est"] = ""
                 productos_out.append(item_d)
 
-        # 3. Metadatos E2, E3 y encabezados H4..V4 (8 conteos)
-        meta_rows = conn.execute(
-            "SELECT clave, valor FROM estado_sistema WHERE clave LIKE 'vitrina_%'"
-        ).fetchall()
-        meta = {r["clave"]: str(r["valor"] or "") for r in meta_rows}
-
+        # 3. Personal, métodos de gasto y tipos de comprobante
         personal = [
             str(r["clave"]).strip()
             for r in conn.execute("SELECT clave FROM catalogos_local WHERE categoria = 'PERSONAL' ORDER BY orden").fetchall()
@@ -4209,17 +4298,11 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
                 "synced": int(mv["synced"] or 0),
             })
 
-        return {
+        ret_vitrina: Dict[str, Any] = {
             "responsableE2": resp_e2,
             "fechaUltimoE3": meta.get("vitrina_fecha_e3", ""),
-            "h1Header": _limpiar_header_vitrina(meta.get("vitrina_h1_header", ""), "Conteo 1 (Último)"),
-            "h2Header": _limpiar_header_vitrina(meta.get("vitrina_h2_header", ""), "Conteo 2"),
-            "h3Header": _limpiar_header_vitrina(meta.get("vitrina_h3_header", ""), "Conteo 3"),
-            "h4Header": _limpiar_header_vitrina(meta.get("vitrina_h4_header", ""), "Conteo 4"),
-            "h5Header": _limpiar_header_vitrina(meta.get("vitrina_h5_header", ""), "Conteo 5"),
-            "h6Header": _limpiar_header_vitrina(meta.get("vitrina_h6_header", ""), "Conteo 6"),
-            "h7Header": _limpiar_header_vitrina(meta.get("vitrina_h7_header", ""), "Conteo 7"),
-            "h8Header": _limpiar_header_vitrina(meta.get("vitrina_h8_header", ""), "Conteo 8"),
+            "headersHist": headers_hist,
+            "headersMeta": headers_meta,
             "listaPersonal": personal,
             "productos": productos_out,
             "gestionTienda": {
@@ -4230,6 +4313,10 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
                 "ultimosMovimientos": ultimos_movs,
             },
         }
+        for idx_h in range(1, 37):
+            ret_vitrina[f"h{idx_h}Header"] = headers_hist[idx_h - 1]
+            ret_vitrina[f"h{idx_h}Meta"] = headers_meta[idx_h - 1]
+        return ret_vitrina
     finally:
         conn.close()
 
@@ -4297,9 +4384,9 @@ def guardar_conteo_vitrina_local(datos: Dict[str, Any]) -> Dict[str, Any]:
     nuevo_h1_hdr = f"Conteo:\n{responsable}\n{fecha_hora_dmy}"
 
     with db_transaction() as conn:
-        # Desplazar encabezados H1 -> H2 -> ... -> H8
+        # Desplazar encabezados H1 -> H2 -> ... -> H36
         old_hdrs = {}
-        for idx_h in range(1, 8):
+        for idx_h in range(1, 36):
             r_h = conn.execute("SELECT valor FROM estado_sistema WHERE clave = ?", (f"vitrina_h{idx_h}_header",)).fetchone()
             old_hdrs[idx_h] = str(r_h["valor"] or "") if r_h else ""
 
@@ -4315,42 +4402,39 @@ def guardar_conteo_vitrina_local(datos: Dict[str, Any]) -> Dict[str, Any]:
 
         _set_est("vitrina_responsable_e2", responsable)
         _set_est("vitrina_fecha_e3", fecha_hora_dmy)
-        for idx_h in range(8, 1, -1):
+        for idx_h in range(36, 1, -1):
             _set_est(f"vitrina_h{idx_h}_header", old_hdrs.get(idx_h - 1, ""))
         _set_est("vitrina_h1_header", nuevo_h1_hdr)
 
-        # Desplazar columnas en vitrina_local (h7 -> h8, ..., h1 -> h2, nuevo -> h1)
-        for p in prods_list:
-            nom_p = p["producto"]
-            it = items_map.get(nom_p) or {"cant": "", "estado": ""}
-            conn.execute(
-                """
+        # Desplazar columnas en vitrina_local dinámicamente (h35 -> h36, ..., h1 -> h2, nuevo -> h1)
+        cols_h_sql = ", ".join(f"h{i}_cant, h{i}_est" for i in range(1, 37))
+        placeholders_sql = ", ".join(["?"] * (4 + 72 + 1))
+        update_shift_sql = ",\n                    ".join(
+            f"h{i}_cant = vitrina_local.h{i - 1}_cant,\n                    h{i}_est  = vitrina_local.h{i - 1}_est"
+            for i in range(36, 1, -1)
+        )
+        upsert_vit_sql = f"""
                 INSERT INTO vitrina_local (
                     producto, orden, stock_sheets, estado_actual,
-                    h1_cant, h1_est, h2_cant, h2_est, h3_cant, h3_est,
-                    h4_cant, h4_est, h5_cant, h5_est, h6_cant, h6_est,
-                    h7_cant, h7_est, h8_cant, h8_est, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    {cols_h_sql}, updated_at
+                ) VALUES ({placeholders_sql})
                 ON CONFLICT(producto) DO UPDATE SET
-                    h8_cant = vitrina_local.h7_cant,
-                    h8_est  = vitrina_local.h7_est,
-                    h7_cant = vitrina_local.h6_cant,
-                    h7_est  = vitrina_local.h6_est,
-                    h6_cant = vitrina_local.h5_cant,
-                    h6_est  = vitrina_local.h5_est,
-                    h5_cant = vitrina_local.h4_cant,
-                    h5_est  = vitrina_local.h4_est,
-                    h4_cant = vitrina_local.h3_cant,
-                    h4_est  = vitrina_local.h3_est,
-                    h3_cant = vitrina_local.h2_cant,
-                    h3_est  = vitrina_local.h2_est,
-                    h2_cant = vitrina_local.h1_cant,
-                    h2_est  = vitrina_local.h1_est,
+                    {update_shift_sql},
                     h1_cant = excluded.h1_cant,
                     h1_est  = excluded.h1_est,
                     estado_actual = CASE WHEN excluded.estado_actual != '' THEN excluded.estado_actual ELSE vitrina_local.estado_actual END,
                     updated_at = excluded.updated_at
-                """,
+        """
+
+        for p in prods_list:
+            nom_p = p["producto"]
+            it = items_map.get(nom_p) or {"cant": "", "estado": ""}
+            hist_vals: List[str] = []
+            for idx_h in range(1, 36):
+                hist_vals.append(str(p.get(f"h{idx_h}Cant") or ""))
+                hist_vals.append(str(p.get(f"h{idx_h}Est") or ""))
+            conn.execute(
+                upsert_vit_sql,
                 (
                     nom_p,
                     int(p.get("orden") or 0),
@@ -4358,20 +4442,7 @@ def guardar_conteo_vitrina_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                     it["estado"],
                     it["cant"],
                     it["estado"],
-                    p.get("h1Cant") or "",
-                    p.get("h1Est") or "",
-                    p.get("h2Cant") or "",
-                    p.get("h2Est") or "",
-                    p.get("h3Cant") or "",
-                    p.get("h3Est") or "",
-                    p.get("h4Cant") or "",
-                    p.get("h4Est") or "",
-                    p.get("h5Cant") or "",
-                    p.get("h5Est") or "",
-                    p.get("h6Cant") or "",
-                    p.get("h6Est") or "",
-                    p.get("h7Cant") or "",
-                    p.get("h7Est") or "",
+                    *hist_vals,
                     ahora_iso,
                 ),
             )

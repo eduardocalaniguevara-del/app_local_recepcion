@@ -388,7 +388,7 @@ def init_db() -> None:
 
                 CREATE INDEX IF NOT EXISTS idx_tienda_hab_fecha ON ventas_tienda (hab, fecha_dmy);
 
-                -- 6b. Vitrina_Tienda (Inventario y últimos 8 conteos H:W)
+                -- 6b. Vitrina_Tienda (Inventario y últimos 36 conteos / 12 días H:W)
                 CREATE TABLE IF NOT EXISTS vitrina_local (
                     producto      TEXT PRIMARY KEY,
                     orden         INTEGER NOT NULL DEFAULT 0,
@@ -410,6 +410,62 @@ def init_db() -> None:
                     h7_est        TEXT NOT NULL DEFAULT '',
                     h8_cant       TEXT NOT NULL DEFAULT '',
                     h8_est        TEXT NOT NULL DEFAULT '',
+                    h9_cant       TEXT NOT NULL DEFAULT '',
+                    h9_est        TEXT NOT NULL DEFAULT '',
+                    h10_cant      TEXT NOT NULL DEFAULT '',
+                    h10_est       TEXT NOT NULL DEFAULT '',
+                    h11_cant      TEXT NOT NULL DEFAULT '',
+                    h11_est       TEXT NOT NULL DEFAULT '',
+                    h12_cant      TEXT NOT NULL DEFAULT '',
+                    h12_est       TEXT NOT NULL DEFAULT '',
+                    h13_cant      TEXT NOT NULL DEFAULT '',
+                    h13_est       TEXT NOT NULL DEFAULT '',
+                    h14_cant      TEXT NOT NULL DEFAULT '',
+                    h14_est       TEXT NOT NULL DEFAULT '',
+                    h15_cant      TEXT NOT NULL DEFAULT '',
+                    h15_est       TEXT NOT NULL DEFAULT '',
+                    h16_cant      TEXT NOT NULL DEFAULT '',
+                    h16_est       TEXT NOT NULL DEFAULT '',
+                    h17_cant      TEXT NOT NULL DEFAULT '',
+                    h17_est       TEXT NOT NULL DEFAULT '',
+                    h18_cant      TEXT NOT NULL DEFAULT '',
+                    h18_est       TEXT NOT NULL DEFAULT '',
+                    h19_cant      TEXT NOT NULL DEFAULT '',
+                    h19_est       TEXT NOT NULL DEFAULT '',
+                    h20_cant      TEXT NOT NULL DEFAULT '',
+                    h20_est       TEXT NOT NULL DEFAULT '',
+                    h21_cant      TEXT NOT NULL DEFAULT '',
+                    h21_est       TEXT NOT NULL DEFAULT '',
+                    h22_cant      TEXT NOT NULL DEFAULT '',
+                    h22_est       TEXT NOT NULL DEFAULT '',
+                    h23_cant      TEXT NOT NULL DEFAULT '',
+                    h23_est       TEXT NOT NULL DEFAULT '',
+                    h24_cant      TEXT NOT NULL DEFAULT '',
+                    h24_est       TEXT NOT NULL DEFAULT '',
+                    h25_cant      TEXT NOT NULL DEFAULT '',
+                    h25_est       TEXT NOT NULL DEFAULT '',
+                    h26_cant      TEXT NOT NULL DEFAULT '',
+                    h26_est       TEXT NOT NULL DEFAULT '',
+                    h27_cant      TEXT NOT NULL DEFAULT '',
+                    h27_est       TEXT NOT NULL DEFAULT '',
+                    h28_cant      TEXT NOT NULL DEFAULT '',
+                    h28_est       TEXT NOT NULL DEFAULT '',
+                    h29_cant      TEXT NOT NULL DEFAULT '',
+                    h29_est       TEXT NOT NULL DEFAULT '',
+                    h30_cant      TEXT NOT NULL DEFAULT '',
+                    h30_est       TEXT NOT NULL DEFAULT '',
+                    h31_cant      TEXT NOT NULL DEFAULT '',
+                    h31_est       TEXT NOT NULL DEFAULT '',
+                    h32_cant      TEXT NOT NULL DEFAULT '',
+                    h32_est       TEXT NOT NULL DEFAULT '',
+                    h33_cant      TEXT NOT NULL DEFAULT '',
+                    h33_est       TEXT NOT NULL DEFAULT '',
+                    h34_cant      TEXT NOT NULL DEFAULT '',
+                    h34_est       TEXT NOT NULL DEFAULT '',
+                    h35_cant      TEXT NOT NULL DEFAULT '',
+                    h35_est       TEXT NOT NULL DEFAULT '',
+                    h36_cant      TEXT NOT NULL DEFAULT '',
+                    h36_est       TEXT NOT NULL DEFAULT '',
                     updated_at    TEXT NOT NULL DEFAULT ''
                 );
 
@@ -667,9 +723,9 @@ def init_db() -> None:
             if "personal" not in cols_gas:
                 conn.execute("ALTER TABLE gastos ADD COLUMN personal TEXT NOT NULL DEFAULT ''")
             # Migración: pago por Acumulado Efectivo (A. Efec) en liquidaciones
-            # Migración: ampliar historial de Vitrina_Tienda a 8 conteos hacia atrás (h4..h8)
+            # Migración: ampliar historial de Vitrina_Tienda a 36 conteos hacia atrás (12 días / 1.5 semanas, h1..h36)
             cols_vit = [r[1] for r in conn.execute("PRAGMA table_info(vitrina_local)").fetchall()]
-            for idx_h in range(4, 9):
+            for idx_h in range(1, 37):
                 for suf in ("cant", "est"):
                     col_vh = f"h{idx_h}_{suf}"
                     if col_vh not in cols_vit:

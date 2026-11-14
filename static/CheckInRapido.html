@@ -496,11 +496,11 @@
       font-weight: 800 !important;
     }
 
-    /* Yape Mandatory Box */
+    /* Yape Mandatory Box & Structured Inputs */
     .yape-box {
       display: none;
       margin-top: 8px;
-      padding: 8px 10px;
+      padding: 10px 12px;
       background: #fdf4ff;
       border: 1.5px solid #c026d3;
       border-radius: 8px;
@@ -510,6 +510,77 @@
     }
     .yape-box label {
       color: #86198f;
+      font-weight: 700;
+      font-size: 11.5px;
+    }
+    .yape-grid-row {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 8px;
+      align-items: flex-end;
+      margin-top: 6px;
+    }
+    .yape-time-wrap {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+    .yape-time-wrap input {
+      flex: 1;
+      min-width: 0;
+    }
+    .yape-period-select {
+      width: 62px;
+      padding: 6px 4px;
+      font-weight: 700;
+      color: #701a75;
+      background: #fae8ff;
+      border: 1.5px solid #d946ef;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: center;
+    }
+    .yape-period-select:focus {
+      outline: none;
+      border-color: #a21caf;
+    }
+    .yape-live-badge {
+      margin-top: 7px;
+      padding: 5px 8px;
+      background: #f5d0fe;
+      border: 1px dashed #c026d3;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #701a75;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .yape-live-badge strong {
+      font-family: monospace, Consolas, sans-serif;
+      font-size: 12px;
+      color: #4a044e;
+    }
+    .btn-toggle-2do-yape {
+      background: transparent;
+      border: 1px dashed #a21caf;
+      color: #86198f;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 6px;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-toggle-2do-yape:hover {
+      background: #fae8ff;
+      border-color: #701a75;
+      color: #581c87;
     }
 
     /* Collapsible Details */
@@ -845,11 +916,58 @@
         </div>
 
         <div id="yapeBox" class="yape-box">
-          <label for="nroOpYape">📱 N° de Operación Yape / Hora <span class="req">* (OBLIGATORIO CON YAPE)</span></label>
-          <input type="text" id="nroOpYape" name="nroOpYape"
-                 autocorrect="off" autocapitalize="off" spellcheck="false"
-                 placeholder="Ej. 145892 / 14:35">
-          <span class="error-hint">El N° de operación es obligatorio con Yape.</span>
+          <label style="display:block; margin-bottom:4px;">📱 Datos de Operación Yape <span class="req">* (OBLIGATORIO CON YAPE)</span></label>
+          
+          <!-- Fila Yape 1 -->
+          <div class="yape-grid-row" id="yapeRow1">
+            <div class="field" style="margin-bottom:0;">
+              <label for="yapeMonto1">💰 Monto Yape 1 (S/)</label>
+              <input type="number" id="yapeMonto1" step="0.01" min="0.1" placeholder="Ej: 70">
+            </div>
+            <div class="field" style="margin-bottom:0;">
+              <label for="yapeHora1">🕒 Hora (12h)</label>
+              <div class="yape-time-wrap">
+                <input type="text" id="yapeHora1" inputmode="numeric" placeholder="Ej: 1:45" maxlength="5">
+                <select id="yapePeriodo1" class="yape-period-select">
+                  <option value="am">AM</option>
+                  <option value="pm">PM</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fila Yape 2 (Opcional) -->
+          <div class="yape-grid-row" id="yapeRow2" style="display:none; margin-top:8px; padding-top:6px; border-top:1px dashed #e879f9;">
+            <div class="field" style="margin-bottom:0;">
+              <label for="yapeMonto2">💰 Monto Yape 2 (S/)</label>
+              <input type="number" id="yapeMonto2" step="0.01" min="0.1" placeholder="Ej: 70">
+            </div>
+            <div class="field" style="margin-bottom:0;">
+              <label for="yapeHora2">🕒 Hora (12h)</label>
+              <div class="yape-time-wrap">
+                <input type="text" id="yapeHora2" inputmode="numeric" placeholder="Ej: 2:15" maxlength="5">
+                <select id="yapePeriodo2" class="yape-period-select">
+                  <option value="am">AM</option>
+                  <option value="pm">PM</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+            <button type="button" id="btnToggle2doYape" class="btn-toggle-2do-yape">➕ + 2do Yape</button>
+          </div>
+
+          <!-- Live Badge & Output canónico sincronizado -->
+          <div class="yape-live-badge">
+            <span>Código generado:</span>
+            <strong id="yapeLivePreview">Sin datos</strong>
+          </div>
+
+          <input type="text" id="nroOpYape" name="nroOpYape" readonly
+                 style="position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0;"
+                 tabindex="-1">
+          <span class="error-hint" id="yapeErrorHint">Completa el monto y la hora válida (12h AM/PM) del Yape.</span>
         </div>
 
         <div class="calc-bar">
@@ -2025,7 +2143,174 @@
       }
     });
 
-    pElecInput.addEventListener('input', actualizarEstadoYapeCheckIn);
+    // Elementos estructurados de Yape
+    const yapeMonto1Input = document.getElementById('yapeMonto1');
+    const yapeHora1Input = document.getElementById('yapeHora1');
+    const yapePeriodo1Select = document.getElementById('yapePeriodo1');
+    const yapeRow2 = document.getElementById('yapeRow2');
+    const yapeMonto2Input = document.getElementById('yapeMonto2');
+    const yapeHora2Input = document.getElementById('yapeHora2');
+    const yapePeriodo2Select = document.getElementById('yapePeriodo2');
+    const btnToggle2doYape = document.getElementById('btnToggle2doYape');
+    const yapeLivePreview = document.getElementById('yapeLivePreview');
+    const yapeErrorHint = document.getElementById('yapeErrorHint');
+
+    let yapeMonto1EditadoManualmente = false;
+
+    function pad2(n) { return n < 10 ? '0' + n : String(n); }
+
+    function obtenerHoraActual12() {
+      const d = new Date();
+      let h = d.getHours();
+      const m = d.getMinutes();
+      const ampm = h >= 12 ? 'pm' : 'am';
+      h = h % 12;
+      if (h === 0) h = 12;
+      return { hora: h + ':' + pad2(m), periodo: ampm };
+    }
+
+    function normalizarHoraInput(val) {
+      let s = String(val || '').trim().replace(/[;.]/g, ':');
+      if (/^\d{3,4}$/.test(s)) {
+        if (s.length === 3) s = s.slice(0, 1) + ':' + s.slice(1);
+        else s = s.slice(0, 2) + ':' + s.slice(2);
+      }
+      return s;
+    }
+
+    function formatearHoraAlSalir(inputEl, selectEl) {
+      let val = normalizarHoraInput(inputEl.value);
+      if (!val) return;
+      const partes = val.split(':');
+      if (partes.length === 2) {
+        let h = parseInt(partes[0], 10);
+        let mStr = partes[1].trim();
+        if (!isNaN(h) && mStr !== '') {
+          if (h >= 13 && h <= 23) {
+            h = h - 12;
+            if (selectEl) selectEl.value = 'pm';
+          } else if (h === 0) {
+            h = 12;
+            if (selectEl) selectEl.value = 'am';
+          }
+          let m = parseInt(mStr, 10);
+          if (!isNaN(m) && m >= 0 && m <= 59) {
+            inputEl.value = h + ':' + pad2(m);
+          }
+        }
+      }
+    }
+
+    function parseHoraValida(horaStr, periodo) {
+      let s = normalizarHoraInput(horaStr);
+      const m = s.match(/^(\d{1,2}):(\d{1,2})$/);
+      if (!m) return null;
+      let h = parseInt(m[1], 10);
+      let min = parseInt(m[2], 10);
+      if (isNaN(h) || isNaN(min) || min < 0 || min > 59) return null;
+      let p = (periodo || 'am').toLowerCase();
+      if (h >= 13 && h <= 23) {
+        h = h - 12;
+        p = 'pm';
+      } else if (h === 0) {
+        h = 12;
+        p = 'am';
+      } else if (h < 1 || h > 12) {
+        return null;
+      }
+      return { h: h, min: pad2(min), periodo: p, canonical: h + ':' + pad2(min) + p };
+    }
+
+    function formatearMontoYape(val) {
+      const n = parseFloat(val);
+      if (isNaN(n) || n <= 0) return '';
+      return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+    }
+
+    function calcularCodigoYapeFila(montoVal, horaVal, periodoVal) {
+      const montoLimpio = formatearMontoYape(montoVal);
+      const horaParsed = parseHoraValida(horaVal, periodoVal);
+      if (!montoLimpio || !horaParsed) return null;
+      return montoLimpio + ' ' + horaParsed.canonical;
+    }
+
+    function sincronizarYapeCheckIn() {
+      const cod1 = calcularCodigoYapeFila(yapeMonto1Input.value, yapeHora1Input.value, yapePeriodo1Select.value);
+      let codFinal = '';
+      const fila2Visible = yapeRow2.style.display !== 'none';
+
+      if (fila2Visible) {
+        const cod2 = calcularCodigoYapeFila(yapeMonto2Input.value, yapeHora2Input.value, yapePeriodo2Select.value);
+        if (cod1 && cod2) {
+          codFinal = cod1 + ' / ' + cod2;
+        } else {
+          codFinal = '';
+        }
+      } else {
+        codFinal = cod1 || '';
+      }
+
+      nroOpYapeInput.value = codFinal;
+      if (codFinal) {
+        yapeLivePreview.textContent = codFinal;
+        yapeLivePreview.style.color = '#15803d';
+        yapeMonto1Input.classList.remove('campo-invalido');
+        yapeHora1Input.classList.remove('campo-invalido');
+        yapeMonto2Input.classList.remove('campo-invalido');
+        yapeHora2Input.classList.remove('campo-invalido');
+        nroOpYapeInput.classList.remove('campo-invalido');
+        if (yapeErrorHint) yapeErrorHint.style.display = 'none';
+      } else {
+        yapeLivePreview.textContent = 'Incompleto (Monto + Hora)';
+        yapeLivePreview.style.color = '#b91c1c';
+      }
+    }
+
+    yapeMonto1Input.addEventListener('input', () => {
+      yapeMonto1EditadoManualmente = true;
+      sincronizarYapeCheckIn();
+    });
+    yapeHora1Input.addEventListener('input', sincronizarYapeCheckIn);
+    yapeHora1Input.addEventListener('blur', () => {
+      formatearHoraAlSalir(yapeHora1Input, yapePeriodo1Select);
+      sincronizarYapeCheckIn();
+    });
+    yapePeriodo1Select.addEventListener('change', sincronizarYapeCheckIn);
+
+    yapeMonto2Input.addEventListener('input', sincronizarYapeCheckIn);
+    yapeHora2Input.addEventListener('input', sincronizarYapeCheckIn);
+    yapeHora2Input.addEventListener('blur', () => {
+      formatearHoraAlSalir(yapeHora2Input, yapePeriodo2Select);
+      sincronizarYapeCheckIn();
+    });
+    yapePeriodo2Select.addEventListener('change', sincronizarYapeCheckIn);
+
+    btnToggle2doYape.addEventListener('click', () => {
+      const estaOculto = yapeRow2.style.display === 'none';
+      if (estaOculto) {
+        yapeRow2.style.display = 'grid';
+        btnToggle2doYape.textContent = '➖ Quitar 2do Yape';
+        if (!yapeHora2Input.value) {
+          const act = obtenerHoraActual12();
+          yapeHora2Input.value = act.hora;
+          yapePeriodo2Select.value = act.periodo;
+        }
+      } else {
+        yapeRow2.style.display = 'none';
+        btnToggle2doYape.textContent = '➕ + 2do Yape';
+        yapeMonto2Input.value = '';
+        yapeHora2Input.value = '';
+      }
+      sincronizarYapeCheckIn();
+    });
+
+    pElecInput.addEventListener('input', () => {
+      if (!yapeMonto1EditadoManualmente) {
+        const m = parseFloat(pElecInput.value) || 0;
+        yapeMonto1Input.value = m > 0 ? m : '';
+      }
+      actualizarEstadoYapeCheckIn();
+    });
     servAdicMontoInput.addEventListener('input', () => {
       actualizarEstadoYapeCheckIn();
       calcularTotalesCheckIn();
@@ -2039,14 +2324,26 @@
       const montoYape = parseFloat(pElecInput.value) || 0;
       const montoServ = parseFloat(servAdicMontoInput.value) || 0;
       const servEsYape = servAdicMetodoSelect.value === 'Yape' && montoServ > 0;
+      const totalEsperadoYape = montoYape + (servEsYape ? montoServ : 0);
 
-      if (montoYape > 0 || servEsYape) {
+      if (totalEsperadoYape > 0) {
         yapeBox.classList.add('visible');
         nroOpYapeInput.setAttribute('required', 'required');
+        if (!yapeMonto1EditadoManualmente && totalEsperadoYape > 0) {
+          yapeMonto1Input.value = totalEsperadoYape;
+        }
+        if (!yapeHora1Input.value) {
+          const act = obtenerHoraActual12();
+          yapeHora1Input.value = act.hora;
+          yapePeriodo1Select.value = act.periodo;
+        }
+        sincronizarYapeCheckIn();
       } else {
         yapeBox.classList.remove('visible');
         nroOpYapeInput.removeAttribute('required');
         nroOpYapeInput.classList.remove('campo-invalido');
+        yapeMonto1Input.classList.remove('campo-invalido');
+        yapeHora1Input.classList.remove('campo-invalido');
       }
       calcularTotalesCheckIn();
     }
@@ -2111,6 +2408,19 @@
       if (FECHA_HOY) fechaInInput.value = FECHA_HOY;
       if (FECHA_MANANA) fechaOutInput.value = FECHA_MANANA;
       prevStayHint.classList.remove('visible');
+
+      // Limpiar campos estructurados de Yape
+      yapeMonto1EditadoManualmente = false;
+      yapeMonto1Input.value = '';
+      yapeHora1Input.value = '';
+      yapeRow2.style.display = 'none';
+      btnToggle2doYape.textContent = '➕ + 2do Yape';
+      yapeMonto2Input.value = '';
+      yapeHora2Input.value = '';
+      nroOpYapeInput.value = '';
+      yapeLivePreview.textContent = 'Sin datos';
+      yapeLivePreview.style.color = '#701a75';
+
       actualizarEstadoYapeCheckIn();
       limpiarErroresVisuales(checkInForm);
       calcularTotalesCheckIn();
@@ -2121,6 +2431,34 @@
 
     checkInForm.addEventListener('submit', (e) => {
       e.preventDefault();
+
+      // Validación previa de campos estructurados de Yape si Yape está activo
+      const montoYapeCheck = parseFloat(pElecInput.value) || 0;
+      const servEsYapeCheck = servAdicMetodoSelect.value === 'Yape' && (parseFloat(servAdicMontoInput.value) || 0) > 0;
+      if (montoYapeCheck > 0 || servEsYapeCheck) {
+        sincronizarYapeCheckIn();
+        if (!nroOpYapeInput.value.trim()) {
+          if (!yapeMonto1Input.value || parseFloat(yapeMonto1Input.value) <= 0) {
+            yapeMonto1Input.classList.add('campo-invalido');
+            yapeMonto1Input.focus();
+          } else if (!parseHoraValida(yapeHora1Input.value, yapePeriodo1Select.value)) {
+            yapeHora1Input.classList.add('campo-invalido');
+            yapeHora1Input.focus();
+          } else if (yapeRow2.style.display !== 'none') {
+            if (!yapeMonto2Input.value || parseFloat(yapeMonto2Input.value) <= 0) {
+              yapeMonto2Input.classList.add('campo-invalido');
+              yapeMonto2Input.focus();
+            } else {
+              yapeHora2Input.classList.add('campo-invalido');
+              yapeHora2Input.focus();
+            }
+          }
+          if (yapeErrorHint) yapeErrorHint.style.display = 'block';
+          mostrarBanner('error', '⚠️ Completa el monto y la hora válida (12h AM/PM) del Yape.');
+          return;
+        }
+      }
+
       if (!validarCamposRequeridos(checkInForm)) return;
 
       const sexoChecked = document.querySelector('input[name="sexo"]:checked');

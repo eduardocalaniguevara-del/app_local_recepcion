@@ -220,7 +220,7 @@
     .yape-box {
       display: none;
       margin-top: 8px;
-      padding: 8px 10px;
+      padding: 10px 12px;
       background: #fdf4ff;
       border: 1.5px solid #c026d3;
       border-radius: 8px;
@@ -230,6 +230,77 @@
     }
     .yape-box label {
       color: #86198f;
+      font-weight: 700;
+      font-size: 11.5px;
+    }
+    .yape-grid-row {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 8px;
+      align-items: flex-end;
+      margin-top: 6px;
+    }
+    .yape-time-wrap {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+    .yape-time-wrap input {
+      flex: 1;
+      min-width: 0;
+    }
+    .yape-period-select {
+      width: 62px;
+      padding: 6px 4px;
+      font-weight: 700;
+      color: #701a75;
+      background: #fae8ff;
+      border: 1.5px solid #d946ef;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: center;
+    }
+    .yape-period-select:focus {
+      outline: none;
+      border-color: #a21caf;
+    }
+    .yape-live-badge {
+      margin-top: 7px;
+      padding: 5px 8px;
+      background: #f5d0fe;
+      border: 1px dashed #c026d3;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #701a75;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .yape-live-badge strong {
+      font-family: monospace, Consolas, sans-serif;
+      font-size: 12px;
+      color: #4a044e;
+    }
+    .btn-toggle-2do-yape {
+      background: transparent;
+      border: 1px dashed #a21caf;
+      color: #86198f;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 6px;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-toggle-2do-yape:hover {
+      background: #fae8ff;
+      border-color: #701a75;
+      color: #581c87;
     }
 
     .actions {
@@ -345,11 +416,58 @@
       </div>
 
       <div id="yapeBoxTienda" class="yape-box">
-        <label for="nroOpYapeTienda">📱 N° de Operación Yape / Hora <span class="req">* (OBLIGATORIO CON YAPE)</span></label>
-        <input type="text" id="nroOpYapeTienda"
-               autocorrect="off" autocapitalize="off" spellcheck="false"
-               placeholder="Ej. 854219 / 18:20">
-        <span class="error-hint">Ingresa el N° de operación Yape.</span>
+        <label style="display:block; margin-bottom:4px;">📱 Datos de Operación Yape <span class="req">* (OBLIGATORIO CON YAPE)</span></label>
+        
+        <!-- Fila Yape 1 -->
+        <div class="yape-grid-row" id="yapeRow1Tienda">
+          <div class="field" style="margin-bottom:0;">
+            <label for="yapeMonto1Tienda">💰 Monto Yape 1 (S/)</label>
+            <input type="number" id="yapeMonto1Tienda" step="0.01" min="0.1" placeholder="Ej: 10">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="yapeHora1Tienda">🕒 Hora (12h)</label>
+            <div class="yape-time-wrap">
+              <input type="text" id="yapeHora1Tienda" inputmode="numeric" placeholder="Ej: 1:45" maxlength="5">
+              <select id="yapePeriodo1Tienda" class="yape-period-select">
+                <option value="am">AM</option>
+                <option value="pm">PM</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fila Yape 2 (Opcional) -->
+        <div class="yape-grid-row" id="yapeRow2Tienda" style="display:none; margin-top:8px; padding-top:6px; border-top:1px dashed #e879f9;">
+          <div class="field" style="margin-bottom:0;">
+            <label for="yapeMonto2Tienda">💰 Monto Yape 2 (S/)</label>
+            <input type="number" id="yapeMonto2Tienda" step="0.01" min="0.1" placeholder="Ej: 10">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="yapeHora2Tienda">🕒 Hora (12h)</label>
+            <div class="yape-time-wrap">
+              <input type="text" id="yapeHora2Tienda" inputmode="numeric" placeholder="Ej: 2:15" maxlength="5">
+              <select id="yapePeriodo2Tienda" class="yape-period-select">
+                <option value="am">AM</option>
+                <option value="pm">PM</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+          <button type="button" id="btnToggle2doYapeTienda" class="btn-toggle-2do-yape">➕ + 2do Yape</button>
+        </div>
+
+        <!-- Live Badge & Output canónico sincronizado -->
+        <div class="yape-live-badge">
+          <span>Código generado:</span>
+          <strong id="yapeLivePreviewTienda">Sin datos</strong>
+        </div>
+
+        <input type="text" id="nroOpYapeTienda" name="nroOpYapeTienda" readonly
+               style="position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0;"
+               tabindex="-1">
+        <span class="error-hint" id="yapeErrorHintTienda">Completa el monto y la hora válida (12h AM/PM) del Yape.</span>
       </div>
 
       <div id="bloqueHabTienda" class="grid-2" style="margin-top: 8px;">
@@ -624,8 +742,181 @@
       });
     }
 
-    prodSelects.forEach((sel) => sel.addEventListener('change', calcularTotalTienda));
-    cantInputs.forEach((inp) => inp.addEventListener('input', calcularTotalTienda));
+    // Elementos estructurados de Yape
+    const yapeMonto1TiendaInput = document.getElementById('yapeMonto1Tienda');
+    const yapeHora1TiendaInput = document.getElementById('yapeHora1Tienda');
+    const yapePeriodo1TiendaSelect = document.getElementById('yapePeriodo1Tienda');
+    const yapeRow2Tienda = document.getElementById('yapeRow2Tienda');
+    const yapeMonto2TiendaInput = document.getElementById('yapeMonto2Tienda');
+    const yapeHora2TiendaInput = document.getElementById('yapeHora2Tienda');
+    const yapePeriodo2TiendaSelect = document.getElementById('yapePeriodo2Tienda');
+    const btnToggle2doYapeTienda = document.getElementById('btnToggle2doYapeTienda');
+    const yapeLivePreviewTienda = document.getElementById('yapeLivePreviewTienda');
+    const yapeErrorHintTienda = document.getElementById('yapeErrorHintTienda');
+
+    let yapeMonto1TiendaEditadoManualmente = false;
+
+    function pad2Tienda(n) { return n < 10 ? '0' + n : String(n); }
+
+    function obtenerHoraActual12Tienda() {
+      const d = new Date();
+      let h = d.getHours();
+      const m = d.getMinutes();
+      const ampm = h >= 12 ? 'pm' : 'am';
+      h = h % 12;
+      if (h === 0) h = 12;
+      return { hora: h + ':' + pad2Tienda(m), periodo: ampm };
+    }
+
+    function normalizarHoraInputTienda(val) {
+      let s = String(val || '').trim().replace(/[;.]/g, ':');
+      if (/^\d{3,4}$/.test(s)) {
+        if (s.length === 3) s = s.slice(0, 1) + ':' + s.slice(1);
+        else s = s.slice(0, 2) + ':' + s.slice(2);
+      }
+      return s;
+    }
+
+    function formatearHoraAlSalirTienda(inputEl, selectEl) {
+      let val = normalizarHoraInputTienda(inputEl.value);
+      if (!val) return;
+      const partes = val.split(':');
+      if (partes.length === 2) {
+        let h = parseInt(partes[0], 10);
+        let mStr = partes[1].trim();
+        if (!isNaN(h) && mStr !== '') {
+          if (h >= 13 && h <= 23) {
+            h = h - 12;
+            if (selectEl) selectEl.value = 'pm';
+          } else if (h === 0) {
+            h = 12;
+            if (selectEl) selectEl.value = 'am';
+          }
+          let m = parseInt(mStr, 10);
+          if (!isNaN(m) && m >= 0 && m <= 59) {
+            inputEl.value = h + ':' + pad2Tienda(m);
+          }
+        }
+      }
+    }
+
+    function parseHoraValidaTienda(horaStr, periodo) {
+      let s = normalizarHoraInputTienda(horaStr);
+      const m = s.match(/^(\d{1,2}):(\d{1,2})$/);
+      if (!m) return null;
+      let h = parseInt(m[1], 10);
+      let min = parseInt(m[2], 10);
+      if (isNaN(h) || isNaN(min) || min < 0 || min > 59) return null;
+      let p = (periodo || 'am').toLowerCase();
+      if (h >= 13 && h <= 23) {
+        h = h - 12;
+        p = 'pm';
+      } else if (h === 0) {
+        h = 12;
+        p = 'am';
+      } else if (h < 1 || h > 12) {
+        return null;
+      }
+      return { h: h, min: pad2Tienda(min), periodo: p, canonical: h + ':' + pad2Tienda(min) + p };
+    }
+
+    function formatearMontoYapeTienda(val) {
+      const n = parseFloat(val);
+      if (isNaN(n) || n <= 0) return '';
+      return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+    }
+
+    function calcularCodigoYapeFilaTienda(montoVal, horaVal, periodoVal) {
+      const montoLimpio = formatearMontoYapeTienda(montoVal);
+      const horaParsed = parseHoraValidaTienda(horaVal, periodoVal);
+      if (!montoLimpio || !horaParsed) return null;
+      return montoLimpio + ' ' + horaParsed.canonical;
+    }
+
+    function sincronizarYapeTienda() {
+      const cod1 = calcularCodigoYapeFilaTienda(yapeMonto1TiendaInput.value, yapeHora1TiendaInput.value, yapePeriodo1TiendaSelect.value);
+      let codFinal = '';
+      const fila2Visible = yapeRow2Tienda.style.display !== 'none';
+
+      if (fila2Visible) {
+        const cod2 = calcularCodigoYapeFilaTienda(yapeMonto2TiendaInput.value, yapeHora2TiendaInput.value, yapePeriodo2TiendaSelect.value);
+        if (cod1 && cod2) {
+          codFinal = cod1 + ' / ' + cod2;
+        } else {
+          codFinal = '';
+        }
+      } else {
+        codFinal = cod1 || '';
+      }
+
+      nroOpYapeTienda.value = codFinal;
+      if (codFinal) {
+        yapeLivePreviewTienda.textContent = codFinal;
+        yapeLivePreviewTienda.style.color = '#15803d';
+        yapeMonto1TiendaInput.classList.remove('campo-invalido');
+        yapeHora1TiendaInput.classList.remove('campo-invalido');
+        yapeMonto2TiendaInput.classList.remove('campo-invalido');
+        yapeHora2TiendaInput.classList.remove('campo-invalido');
+        nroOpYapeTienda.classList.remove('campo-invalido');
+        if (yapeErrorHintTienda) yapeErrorHintTienda.style.display = 'none';
+      } else {
+        yapeLivePreviewTienda.textContent = 'Incompleto (Monto + Hora)';
+        yapeLivePreviewTienda.style.color = '#b91c1c';
+      }
+    }
+
+    yapeMonto1TiendaInput.addEventListener('input', () => {
+      yapeMonto1TiendaEditadoManualmente = true;
+      sincronizarYapeTienda();
+    });
+    yapeHora1TiendaInput.addEventListener('input', sincronizarYapeTienda);
+    yapeHora1TiendaInput.addEventListener('blur', () => {
+      formatearHoraAlSalirTienda(yapeHora1TiendaInput, yapePeriodo1TiendaSelect);
+      sincronizarYapeTienda();
+    });
+    yapePeriodo1TiendaSelect.addEventListener('change', sincronizarYapeTienda);
+
+    yapeMonto2TiendaInput.addEventListener('input', sincronizarYapeTienda);
+    yapeHora2TiendaInput.addEventListener('input', sincronizarYapeTienda);
+    yapeHora2TiendaInput.addEventListener('blur', () => {
+      formatearHoraAlSalirTienda(yapeHora2TiendaInput, yapePeriodo2TiendaSelect);
+      sincronizarYapeTienda();
+    });
+    yapePeriodo2TiendaSelect.addEventListener('change', sincronizarYapeTienda);
+
+    btnToggle2doYapeTienda.addEventListener('click', () => {
+      const estaOculto = yapeRow2Tienda.style.display === 'none';
+      if (estaOculto) {
+        yapeRow2Tienda.style.display = 'grid';
+        btnToggle2doYapeTienda.textContent = '➖ Quitar 2do Yape';
+        if (!yapeHora2TiendaInput.value) {
+          const act = obtenerHoraActual12Tienda();
+          yapeHora2TiendaInput.value = act.hora;
+          yapePeriodo2TiendaSelect.value = act.periodo;
+        }
+      } else {
+        yapeRow2Tienda.style.display = 'none';
+        btnToggle2doYapeTienda.textContent = '➕ + 2do Yape';
+        yapeMonto2TiendaInput.value = '';
+        yapeHora2TiendaInput.value = '';
+      }
+      sincronizarYapeTienda();
+    });
+
+    prodSelects.forEach((sel) => sel.addEventListener('change', () => {
+      const tot = calcularTotalTienda();
+      if (metodoTienda.value === 'Yape' && !yapeMonto1TiendaEditadoManualmente) {
+        yapeMonto1TiendaInput.value = tot > 0 ? tot : '';
+        sincronizarYapeTienda();
+      }
+    }));
+    cantInputs.forEach((inp) => inp.addEventListener('input', () => {
+      const tot = calcularTotalTienda();
+      if (metodoTienda.value === 'Yape' && !yapeMonto1TiendaEditadoManualmente) {
+        yapeMonto1TiendaInput.value = tot > 0 ? tot : '';
+        sincronizarYapeTienda();
+      }
+    }));
 
     function calcularTotalTienda() {
       let total = 0;
@@ -660,10 +951,22 @@
       if (met === 'Yape') {
         yapeBoxTienda.classList.add('visible');
         nroOpYapeTienda.setAttribute('required', 'required');
+        const tot = calcularTotalTienda();
+        if (!yapeMonto1TiendaEditadoManualmente) {
+          if (tot > 0) yapeMonto1TiendaInput.value = tot;
+        }
+        if (!yapeHora1TiendaInput.value) {
+          const act = obtenerHoraActual12Tienda();
+          yapeHora1TiendaInput.value = act.hora;
+          yapePeriodo1TiendaSelect.value = act.periodo;
+        }
+        sincronizarYapeTienda();
       } else {
         yapeBoxTienda.classList.remove('visible');
         nroOpYapeTienda.removeAttribute('required');
         nroOpYapeTienda.classList.remove('campo-invalido');
+        yapeMonto1TiendaInput.classList.remove('campo-invalido');
+        yapeHora1TiendaInput.classList.remove('campo-invalido');
       }
       if (met === 'Cargar a la Cuenta') {
         habTienda.removeAttribute('required');
@@ -714,7 +1017,21 @@
       nroOpYapeTienda.value = '';
       personalTienda.value = '';
       metodoTienda.value = 'Efectivo';
+
+      // Limpiar estructurados Yape
+      yapeMonto1TiendaEditadoManualmente = false;
+      yapeMonto1TiendaInput.value = '';
+      yapeHora1TiendaInput.value = '';
+      yapeRow2Tienda.style.display = 'none';
+      btnToggle2doYapeTienda.textContent = '➕ + 2do Yape';
+      yapeMonto2TiendaInput.value = '';
+      yapeHora2TiendaInput.value = '';
+      yapeLivePreviewTienda.textContent = 'Sin datos';
+      yapeLivePreviewTienda.style.color = '#701a75';
+
       aplicarContextoTienda(contextoTienda);
+      actualizarReglasTienda();
+      limpiarErroresVisuales();
       calcularTotalTienda();
       prodSelects[0].focus();
     }
@@ -725,6 +1042,30 @@
       e.preventDefault();
       actualizarReglasTienda();
       limpiarErroresVisuales();
+
+      if (metodoTienda.value === 'Yape') {
+        sincronizarYapeTienda();
+        if (nroOpYapeTienda.value.trim() === '') {
+          if (!yapeMonto1TiendaInput.value || parseFloat(yapeMonto1TiendaInput.value) <= 0) {
+            yapeMonto1TiendaInput.classList.add('campo-invalido');
+            yapeMonto1TiendaInput.focus();
+          } else if (!parseHoraValidaTienda(yapeHora1TiendaInput.value, yapePeriodo1TiendaSelect.value)) {
+            yapeHora1TiendaInput.classList.add('campo-invalido');
+            yapeHora1TiendaInput.focus();
+          } else if (yapeRow2Tienda.style.display !== 'none') {
+            if (!yapeMonto2TiendaInput.value || parseFloat(yapeMonto2TiendaInput.value) <= 0) {
+              yapeMonto2TiendaInput.classList.add('campo-invalido');
+              yapeMonto2TiendaInput.focus();
+            } else {
+              yapeHora2TiendaInput.classList.add('campo-invalido');
+              yapeHora2TiendaInput.focus();
+            }
+          }
+          if (yapeErrorHintTienda) yapeErrorHintTienda.style.display = 'block';
+          mostrarBanner('error', '⚠️ Completa el monto y la hora válida (12h AM/PM) del Yape.');
+          return;
+        }
+      }
 
       const requeridos = tiendaForm.querySelectorAll('input[required], select[required]');
       let invalido = null;

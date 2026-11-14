@@ -174,7 +174,7 @@ SUPABASE_URL = "https://fmlfqupwscymosvwnnzx.supabase.co"
 # Puente de pruebas: en MODO_PRUEBA solo escribe en sandbox_change_log (jamas en las tablas reales).
 SUPABASE_SANDBOX_CONNECTED = bool(PERFIL_HOTEL.get("conectar_pruebas_supabase", True)) and MODO_PRUEBA
 # SHA-256 del codigo de autorizacion para promover a operativa / tocar Arnes2 (codigo: ver al titular).
-ARNES_AUTH_SHA256 = "24fe5b2863951e8d97cd7e19f2a5fed2534686189241b58951f0e7e2e8d666d7"
+ARNES_AUTH_SHA256 = "c2f593c98b648395cc08947d97a7d4829db29ffa5c924c44ae1bc2eeac30b05c"
 SUPABASE_ANON_KEY = (
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
     "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZtbGZxdXB3c2N5bW9zdndubnp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0MjYzNzUsImV4cCI6MjExMDAwMjM3NX0."

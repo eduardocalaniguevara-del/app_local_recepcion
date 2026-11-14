@@ -721,6 +721,22 @@
 
         <input type="text" id="vitrinaBuscar" oninput="filtrarTablaVitrina()" placeholder="🔍 Filtrar producto..."
                class="px-2.5 py-1 rounded-md border border-[#D8C7B8] text-xs bg-white w-40 focus:outline-hidden focus:ring-1 focus:ring-purple-600">
+
+        <div class="flex items-center gap-1 bg-white px-2 py-0.5 rounded-md border border-[#D8C7B8] text-[10.5px]">
+          <span class="font-black text-slate-600 mr-0.5">📅 Historial:</span>
+          <button type="button" id="btnVitrinaRango9" onclick="cambiarRangoVitrinaUI(9)"
+                  class="px-2 py-0.5 rounded font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer transition-colors">
+            3 Días (9 turnos)
+          </button>
+          <button type="button" id="btnVitrinaRango36" onclick="cambiarRangoVitrinaUI(36)"
+                  class="px-2 py-0.5 rounded font-extrabold bg-purple-700 text-white cursor-pointer transition-colors">
+            Semana y media (12 Días / 36 turnos)
+          </button>
+          <button type="button" id="btnVitrinaSoloFaltantes" onclick="toggleSoloFaltantesVitrinaUI()"
+                  class="px-2 py-0.5 rounded font-bold bg-red-50 hover:bg-red-100 text-red-800 border border-red-200 cursor-pointer transition-colors ml-0.5">
+            ⚠️ Solo Faltantes
+          </button>
+        </div>
       </div>
 
       <div class="flex flex-wrap items-center gap-1.5">
@@ -758,24 +774,17 @@
       <div id="panelVitrinaIzq" tabindex="0" role="region" aria-label="Inventario y conteo físico de Vitrina Tienda"
            class="flex-1 min-w-0 min-h-0 overflow-x-auto overflow-y-auto rounded-lg shadow-xs border"
            style="background-color: #FAF6F3; border-color: #DFD2C5;">
-        <table class="w-full text-left text-[11px] select-none border-collapse">
+        <table class="min-w-max w-max text-left text-[11px] select-none border-collapse">
           <thead class="sticky top-0 bg-slate-800 text-white font-bold uppercase tracking-tight z-10" style="background-color: #2D2623;">
-            <tr class="h-8">
-              <th class="px-1.5 w-[30px] text-center border-r border-[#433A36]">#</th>
-              <th class="px-2.5 border-r border-[#433A36]">Producto <span class="text-[9px] font-normal opacity-75">(A6)</span></th>
-              <th class="px-1.5 w-[62px] text-center border-r border-[#433A36] bg-amber-950/50" title="Stock disponible en Almacén interno">Almacén</th>
-              <th class="px-1.5 w-[66px] text-center border-r border-[#433A36]" title="Stock teórico en Vitrina: Inv. Inicial + Traspasos - Ventas - Mermas">Vitrina <span class="text-[9px] font-normal opacity-75">(B6)</span></th>
-              <th class="px-1.5 w-[108px] text-center border-r border-[#433A36] bg-purple-950/60">Conteo Físico</th>
-              <th class="px-1.5 w-[60px] text-center border-r border-[#433A36]">Dif.</th>
-              <th class="px-1.5 w-[98px] text-center border-r border-[#433A36]">Estado</th>
-              <th id="thVitrinaH1" class="px-1.5 min-w-[125px] text-center border-r border-[#433A36] bg-black/50 text-[10px] leading-tight">Conteo 1 (Último)</th>
-              <th id="thVitrinaH2" class="col-hist-extra px-1.5 min-w-[125px] text-center border-r border-[#433A36] bg-black/40 text-[10px] leading-tight">Conteo 2</th>
-              <th id="thVitrinaH3" class="col-hist-extra px-1.5 min-w-[125px] text-center border-r border-[#433A36] bg-black/30 text-[10px] leading-tight">Conteo 3</th>
-              <th id="thVitrinaH4" class="col-hist-extra px-1.5 min-w-[125px] text-center border-r border-[#433A36] bg-black/25 text-[10px] leading-tight">Conteo 4</th>
-              <th id="thVitrinaH5" class="col-hist-extra px-1.5 min-w-[125px] text-center border-r border-[#433A36] bg-black/20 text-[10px] leading-tight">Conteo 5</th>
-              <th id="thVitrinaH6" class="col-hist-extra px-1.5 min-w-[125px] text-center border-r border-[#433A36] bg-black/15 text-[10px] leading-tight">Conteo 6</th>
-              <th id="thVitrinaH7" class="col-hist-extra px-1.5 min-w-[125px] text-center border-r border-[#433A36] bg-black/10 text-[10px] leading-tight">Conteo 7</th>
-              <th id="thVitrinaH8" class="col-hist-extra px-1.5 min-w-[125px] text-center bg-black/10 text-[10px] leading-tight">Conteo 8</th>
+            <tr id="vitrinaTheadRow" class="min-h-[58px] bg-[#2D2623]">
+              <th class="sticky left-0 z-20 bg-[#2D2623] px-1.5 w-[34px] min-w-[34px] max-w-[34px] text-center border-r border-[#433A36] py-2">#</th>
+              <th class="sticky left-[34px] z-20 bg-[#2D2623] px-2.5 border-r border-[#433A36] w-[165px] min-w-[165px] max-w-[165px] py-2">Producto <span class="text-[9px] font-normal opacity-75">(A6)</span></th>
+              <th class="px-1.5 w-[65px] min-w-[65px] max-w-[65px] text-center border-r border-[#433A36] bg-amber-950/50 py-2" title="Stock disponible en Almacén interno">Almacén</th>
+              <th class="px-1.5 w-[68px] min-w-[68px] max-w-[68px] text-center border-r border-[#433A36] py-2" title="Stock teórico en Vitrina: Inv. Inicial + Traspasos - Ventas - Mermas">Vitrina <span class="text-[9px] font-normal opacity-75">(B6)</span></th>
+              <th class="px-1.5 w-[110px] min-w-[110px] max-w-[110px] text-center border-r border-[#433A36] bg-purple-950/60 py-2">Conteo Físico</th>
+              <th class="px-1.5 w-[60px] min-w-[60px] max-w-[60px] text-center border-r border-[#433A36] py-2">Dif.</th>
+              <th class="px-1.5 w-[130px] min-w-[130px] max-w-[130px] text-center border-r border-[#433A36] py-2">Estado</th>
+              <th id="thVitrinaH1" class="w-[145px] min-w-[145px] max-w-[145px] px-1.5 py-2 text-center border-r border-[#433A36] bg-black/50 text-[10px] leading-tight">#1 (Último)</th>
             </tr>
           </thead>
           <tbody id="vitrinaBody" class="divide-y divide-[#E6DCD2]"></tbody>
@@ -1585,8 +1594,19 @@
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
             <div>
-              <label class="block text-[10px] font-bold text-slate-600">Código Yape (Monto y Hora)</label>
-              <input type="text" id="mod_nroOpYape" placeholder="Ej: 50 14:20pm" class="w-full px-2 py-1 rounded border border-slate-300 font-mono font-bold bg-white">
+              <label class="block text-[10px] font-bold text-slate-600">Código Yape (Monto + Hora 12h + AM/PM)</label>
+              <div class="flex items-center gap-1 mb-1">
+                <input type="number" step="0.01" id="mod_yapeMonto" oninput="sincronizarModYapeDesdeCajas()" placeholder="Monto S/"
+                       class="w-24 px-2 py-1 rounded border border-purple-300 font-bold text-xs bg-purple-50/40 focus:outline-hidden focus:ring-1 focus:ring-purple-500">
+                <input type="text" id="mod_yapeHora" maxlength="5" oninput="sincronizarModYapeDesdeCajas(false)" onblur="sincronizarModYapeDesdeCajas(true)" placeholder="Hora 12h (ej: 2:20)"
+                       class="w-28 px-2 py-1 rounded border border-purple-300 font-mono font-bold text-xs bg-purple-50/40 focus:outline-hidden focus:ring-1 focus:ring-purple-500">
+                <select id="mod_yapeAmPm" onchange="sincronizarModYapeDesdeCajas(true)"
+                        class="px-1.5 py-1 rounded border border-purple-300 font-bold text-xs bg-purple-50/40 focus:outline-hidden focus:ring-1 focus:ring-purple-500">
+                  <option value="am">am</option>
+                  <option value="pm">pm</option>
+                </select>
+              </div>
+              <input type="text" id="mod_nroOpYape" placeholder="Ej: 50 2:20pm" class="w-full px-2 py-1 rounded border border-slate-300 font-mono font-bold bg-white text-xs">
             </div>
             <div>
               <label class="block text-[10px] font-bold text-slate-600">Observaciones</label>
@@ -2735,6 +2755,103 @@
       });
     }
 
+    function modYapeNormalizarHora12h(raw, ampmActual) {
+      var s = String(raw || "").trim().replace(/[;.]/g, ":").replace(/[^0-9:]/g, "");
+      var ampm = String(ampmActual || "pm").toLowerCase() === "am" ? "am" : "pm";
+      if (!s) return { hora: "", ampm: ampm };
+      if (s.indexOf(":") === -1 && /^\d{3,4}$/.test(s)) {
+        s = s.slice(0, -2) + ":" + s.slice(-2);
+      }
+      var m = s.match(/^(\d{1,2}):(\d{1,2})$/);
+      if (m) {
+        var hh = parseInt(m[1], 10);
+        var mm = parseInt(m[2], 10);
+        if (isNaN(mm) || mm > 59) mm = 0;
+        if (hh === 0) {
+          hh = 12;
+          ampm = "am";
+        } else if (hh === 12) {
+          ampm = "pm";
+        } else if (hh >= 13 && hh <= 23) {
+          hh = hh - 12;
+          ampm = "pm";
+        } else if (hh > 23) {
+          hh = 12;
+        }
+        var mmStr = mm < 10 ? ("0" + mm) : String(mm);
+        return { hora: hh + ":" + mmStr, ampm: ampm };
+      }
+      return { hora: s, ampm: ampm };
+    }
+
+    function sincronizarModYapeDesdeCajas(normalizarHora) {
+      var inpM = document.getElementById("mod_yapeMonto");
+      var inpH = document.getElementById("mod_yapeHora");
+      var selA = document.getElementById("mod_yapeAmPm");
+      var inpOut = document.getElementById("mod_nroOpYape");
+      if (!inpM || !inpH || !selA || !inpOut) return;
+
+      var rawH = String(inpH.value || "").replace(/[;.]/g, ":");
+      if (rawH !== inpH.value) inpH.value = rawH;
+
+      var monto = String(inpM.value || "").trim().replace(/\.00$/, "");
+      var hora = rawH.trim();
+      var ampm = selA.value || "pm";
+
+      if (normalizarHora && hora) {
+        var norm = modYapeNormalizarHora12h(hora, ampm);
+        hora = norm.hora;
+        ampm = norm.ampm;
+        inpH.value = hora;
+        selA.value = ampm;
+      } else if (hora) {
+        var m24 = hora.match(/^(\d{1,2}):(\d{2})$/);
+        if (m24) {
+          var h24 = parseInt(m24[1], 10);
+          if (h24 >= 13 && h24 <= 23) {
+            hora = (h24 - 12) + ":" + m24[2];
+            ampm = "pm";
+            inpH.value = hora;
+            selA.value = ampm;
+          } else if (h24 === 0) {
+            hora = "12:" + m24[2];
+            ampm = "am";
+            inpH.value = hora;
+            selA.value = ampm;
+          }
+        }
+      }
+
+      if (monto && hora) {
+        inpOut.value = monto + " " + hora + ampm;
+      } else if (monto) {
+        inpOut.value = monto;
+      } else if (hora) {
+        inpOut.value = hora + ampm;
+      } else if (normalizarHora) {
+        inpOut.value = "";
+      }
+    }
+
+    function poblarModYapeCajasDesdeTexto(txt) {
+      var inpM = document.getElementById("mod_yapeMonto");
+      var inpH = document.getElementById("mod_yapeHora");
+      var selA = document.getElementById("mod_yapeAmPm");
+      if (!inpM || !inpH || !selA) return;
+      var s = String(txt || "").trim();
+      var m = s.match(/^(\d+(?:[.,]\d{1,2})?)\s+(\d{1,2}[:.;]\d{1,2})\s*(am|pm)?$/i);
+      if (m) {
+        inpM.value = m[1].replace(",", ".");
+        var norm = modYapeNormalizarHora12h(m[2], (m[3] || "pm").toLowerCase());
+        inpH.value = norm.hora;
+        selA.value = norm.ampm;
+      } else {
+        inpM.value = "";
+        inpH.value = "";
+        selA.value = "pm";
+      }
+    }
+
     function abrirModalModificarEstancia(e, hab, filaDirecta, idDirecto) {
       if (e) e.stopPropagation();
       const habObjMod = (habitacionesData || []).find(x => String(x.hab) === String(hab));
@@ -2793,6 +2910,7 @@
             document.getElementById("mod_pVisa").value = est.pVisa !== undefined ? est.pVisa : 0;
             document.getElementById("mod_adicComp").value = est.adicComp !== undefined ? est.adicComp : 0;
             document.getElementById("mod_nroOpYape").value = est.nroOpYape || "";
+            if (typeof poblarModYapeCajasDesdeTexto === "function") poblarModYapeCajasDesdeTexto(est.nroOpYape || "");
             document.getElementById("mod_observaciones").value = est.observaciones || "";
             document.getElementById("mod_sexo").value = (est.sexo || "M").toString().toUpperCase().startsWith("F") ? "F" : "M";
             document.getElementById("mod_nac").value = est.nac || "";
@@ -5451,8 +5569,144 @@
       (pendCount > 0 ? '<span class="px-2 py-0.5 rounded bg-amber-200 text-amber-950 border border-amber-400" title="Compras pendientes de terminar de desglosar en Gestión Tienda">📌 Desglose pend.: ' + pendCount + '</span>' : '');
   }
 
+  var vitrinaHistRango = 36;
+  var vitrinaSoloFaltantes = false;
+  var vitrinaHeadersCache = [];
+  var vitrinaHeadersMeta = [];
+
+  function parseHeaderVitrinaClient(raw, iH) {
+    var defTitulo = (iH === 1) ? '#1 (Último)' : ('#' + iH);
+    if (!raw) return { titulo: defTitulo, responsable: '', fecha: '', hora: '', raw: '' };
+    var s = String(raw).trim();
+    var lines = s.split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+    var resp = '', fechaHora = '';
+    if (lines.length >= 3) {
+      resp = lines[1];
+      fechaHora = lines[2];
+    } else if (lines.length === 2) {
+      if (lines[0].toLowerCase().indexOf('conteo') === 0) {
+        resp = lines[1];
+      } else {
+        resp = lines[0];
+        fechaHora = lines[1];
+      }
+    } else if (lines.length === 1) {
+      if (lines[0].indexOf('·') !== -1) {
+        var p = lines[0].split('·');
+        resp = p[0].trim();
+        fechaHora = p[1].trim();
+      } else {
+        resp = lines[0];
+      }
+    }
+    var fecha = '', hora = '';
+    if (fechaHora) {
+      var fh = fechaHora.split(' ');
+      if (fh.length >= 2) {
+        fecha = fh[0].trim();
+        hora = fh.slice(1).join(' ').trim();
+      } else {
+        fecha = fechaHora.trim();
+      }
+    }
+    return {
+      titulo: defTitulo,
+      responsable: resp,
+      fecha: fecha,
+      hora: hora,
+      raw: s
+    };
+  }
+
+  function actualizarBotonesRangoVitrina() {
+    var b9 = document.getElementById('btnVitrinaRango9');
+    var b36 = document.getElementById('btnVitrinaRango36');
+    var bFalt = document.getElementById('btnVitrinaSoloFaltantes');
+    if (b9) {
+      b9.className = vitrinaHistRango === 9
+        ? 'px-2 py-0.5 rounded font-extrabold bg-purple-700 text-white cursor-pointer transition-colors'
+        : 'px-2 py-0.5 rounded font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer transition-colors';
+    }
+    if (b36) {
+      b36.className = vitrinaHistRango === 36
+        ? 'px-2 py-0.5 rounded font-extrabold bg-purple-700 text-white cursor-pointer transition-colors'
+        : 'px-2 py-0.5 rounded font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer transition-colors';
+    }
+    if (bFalt) {
+      bFalt.className = vitrinaSoloFaltantes
+        ? 'px-2 py-0.5 rounded font-extrabold bg-red-600 text-white border border-red-700 cursor-pointer transition-colors ml-0.5'
+        : 'px-2 py-0.5 rounded font-bold bg-red-50 hover:bg-red-100 text-red-800 border border-red-200 cursor-pointer transition-colors ml-0.5';
+    }
+  }
+
+  function renderHeadersVitrina() {
+    var tr = document.getElementById('vitrinaTheadRow');
+    if (!tr) return;
+    tr.className = 'min-h-[58px] bg-[#2D2623]';
+    var baseHtml =
+      '<th class="sticky left-0 z-20 bg-[#2D2623] px-1.5 w-[34px] min-w-[34px] max-w-[34px] text-center border-r border-[#433A36] py-2">#</th>' +
+      '<th class="sticky left-[34px] z-20 bg-[#2D2623] px-2.5 border-r border-[#433A36] w-[165px] min-w-[165px] max-w-[165px] py-2">Producto <span class="text-[9px] font-normal opacity-75">(A6)</span></th>' +
+      '<th class="px-1.5 w-[65px] min-w-[65px] max-w-[65px] text-center border-r border-[#433A36] bg-amber-950/50 py-2" title="Stock disponible en Almacén interno">Almacén</th>' +
+      '<th class="px-1.5 w-[68px] min-w-[68px] max-w-[68px] text-center border-r border-[#433A36] py-2" title="Stock teórico en Vitrina: Inv. Inicial + Traspasos - Ventas - Mermas">Vitrina <span class="text-[9px] font-normal opacity-75">(B6)</span></th>' +
+      '<th class="px-1.5 w-[110px] min-w-[110px] max-w-[110px] text-center border-r border-[#433A36] bg-purple-950/60 py-2">Conteo Físico</th>' +
+      '<th class="px-1.5 w-[60px] min-w-[60px] max-w-[60px] text-center border-r border-[#433A36] py-2">Dif.</th>' +
+      '<th class="px-1.5 w-[130px] min-w-[130px] max-w-[130px] text-center border-r border-[#433A36] py-2">Estado</th>';
+    var colsHtml = '';
+    for (var iH = 1; iH <= vitrinaHistRango; iH++) {
+      var hMeta = (vitrinaHeadersMeta && vitrinaHeadersMeta[iH - 1]) ||
+                  parseHeaderVitrinaClient(vitrinaHeadersCache[iH - 1] || ('Conteo ' + iH), iH);
+      var tit = hMeta.titulo || ((iH === 1) ? '#1 (Último)' : ('#' + iH));
+      var resp = hMeta.responsable || '';
+      var fecha = hMeta.fecha || '';
+      var hora = hMeta.hora || '';
+      var clsExtra = iH === 1 ? 'bg-black/60' : ('col-hist-extra ' + (iH % 2 === 0 ? 'bg-black/40' : 'bg-black/25'));
+      var borderCls = iH < vitrinaHistRango ? 'border-r border-[#433A36] ' : '';
+      var rawTip = esc((hMeta.raw || (resp + ' ' + fecha + ' ' + hora)).replace(/\n/g, ' • '));
+
+      colsHtml +=
+        '<th id="thVitrinaH' + iH + '" class="w-[145px] min-w-[145px] max-w-[145px] px-1.5 py-1.5 text-center ' + borderCls + clsExtra + ' align-top select-text" title="' + rawTip + '">' +
+          '<div class="flex flex-col items-center justify-between h-full min-h-[50px] gap-0.5">' +
+            '<div class="flex items-center justify-center gap-1 w-full">' +
+              '<span class="text-[9px] font-black uppercase tracking-wider text-amber-300">' + esc(tit) + '</span>' +
+            '</div>' +
+            '<div class="w-full flex items-center justify-center">' +
+              (resp ? '<span class="inline-block w-full max-w-[135px] truncate px-1.5 py-0.5 rounded text-[10.5px] font-black text-white bg-slate-700/90 border border-slate-600/80 shadow-2xs" title="Responsable: ' + esc(resp) + '">👤 ' + esc(resp) + '</span>'
+                    : '<span class="text-slate-400 text-[10px]">—</span>') +
+            '</div>' +
+            '<div class="text-[9.5px] font-bold text-amber-100/95 whitespace-nowrap flex items-center justify-center gap-1 leading-tight">' +
+              (fecha ? '<span>📅 ' + esc(fecha) + '</span>' : '') +
+              (hora ? '<span class="text-amber-300 font-extrabold">🕒 ' + esc(hora) + '</span>' : '') +
+              (!fecha && !hora ? '<span class="text-slate-500">—</span>' : '') +
+            '</div>' +
+          '</div>' +
+        '</th>';
+    }
+    tr.innerHTML = baseHtml + colsHtml;
+  }
+
+  window.cambiarRangoVitrinaUI = function (rango) {
+    vitrinaHistRango = (rango === 9) ? 9 : 36;
+    actualizarBotonesRangoVitrina();
+    renderHeadersVitrina();
+    renderTablaFilasVitrina();
+  };
+
+  window.toggleSoloFaltantesVitrinaUI = function () {
+    vitrinaSoloFaltantes = !vitrinaSoloFaltantes;
+    actualizarBotonesRangoVitrina();
+    renderTablaFilasVitrina();
+  };
+
   function renderVistaVitrina(res) {
     vitrinaDatosCache = res.productos || [];
+    vitrinaHeadersCache = res.headersHist || [];
+    vitrinaHeadersMeta = res.headersMeta || [];
+    for (var iH = 1; iH <= 36; iH++) {
+      var defLbl = iH === 1 ? 'Conteo 1 (Último)' : ('Conteo ' + iH);
+      if (!vitrinaHeadersCache[iH - 1]) {
+        vitrinaHeadersCache.push(res['h' + iH + 'Header'] || defLbl);
+      }
+    }
     if (res.gestionTienda) {
       gestionTiendaMeta = res.gestionTienda;
       sincronizarControlesMetaGT();
@@ -5471,14 +5725,9 @@
     if (lblUlt) {
       lblUlt.textContent = (res.fechaUltimoE3 ? res.fechaUltimoE3 : '—') + (res.responsableE2 ? ' (' + res.responsableE2 + ')' : '');
     }
-    for (var iH = 1; iH <= 8; iH++) {
-      var thEl = document.getElementById('thVitrinaH' + iH);
-      if (thEl) {
-        var defLbl = iH === 1 ? 'Conteo 1 (Último)' : ('Conteo ' + iH);
-        thEl.textContent = res['h' + iH + 'Header'] || defLbl;
-      }
-    }
 
+    actualizarBotonesRangoVitrina();
+    renderHeadersVitrina();
     renderTablaFilasVitrina();
     actualizarResumenPillsVitrina();
     if (gestionTiendaAbierto) {
@@ -5489,7 +5738,15 @@
   function obtenerProductosFiltradosVitrina() {
     var q = String((document.getElementById('vitrinaBuscar') && document.getElementById('vitrinaBuscar').value) || '').trim().toLowerCase();
     return vitrinaDatosCache.filter(function (p) {
-      return !q || String(p.producto || '').toLowerCase().indexOf(q) !== -1;
+      if (q && String(p.producto || '').toLowerCase().indexOf(q) === -1) return false;
+      if (vitrinaSoloFaltantes) {
+        var valBorr = vitrinaConteosBorrador[p.producto];
+        if (valBorr !== undefined && String(valBorr).trim() !== '' && !isNaN(Number(valBorr))) {
+          return Number(valBorr) < (Number(p.stockVitrina) || 0);
+        }
+        return String(p.estadoActual || '').trim().toUpperCase().indexOf('FALTA') === 0;
+      }
+      return true;
     });
   }
 
@@ -5497,8 +5754,9 @@
     var body = document.getElementById('vitrinaBody');
     if (!body) return;
     var lista = obtenerProductosFiltradosVitrina();
+    var totalCols = 7 + vitrinaHistRango;
     if (!lista.length) {
-      body.innerHTML = '<tr><td colspan="15" class="px-4 py-6 text-center text-slate-400 font-bold">No se encontraron productos en Vitrina_Tienda.</td></tr>';
+      body.innerHTML = '<tr><td colspan="' + totalCols + '" class="px-4 py-6 text-center text-slate-400 font-bold">No se encontraron productos en Vitrina_Tienda.</td></tr>';
       return;
     }
     body.innerHTML = lista.map(function (p, idx) {
@@ -5508,42 +5766,51 @@
       var valBorr = vitrinaConteosBorrador[nom] !== undefined ? vitrinaConteosBorrador[nom] : '';
       var diffHtml = '<span class="text-slate-400">—</span>';
       var estHtml = badgeEstadoVitrinaHTML(p.estadoActual);
+      var esFaltaActual = String(p.estadoActual || '').trim().toUpperCase().indexOf('FALTA') === 0;
 
       if (valBorr !== '' && !isNaN(Number(valBorr))) {
         var diff = Math.round((Number(valBorr) - stock) * 100) / 100;
         if (diff === 0) {
           diffHtml = '<span class="font-black text-emerald-700">0</span>';
           estHtml = badgeEstadoVitrinaHTML('OK');
+          esFaltaActual = false;
         } else if (diff < 0) {
           diffHtml = '<span class="font-black text-red-700">' + diff + '</span>';
           estHtml = badgeEstadoVitrinaHTML('FALTA ' + Math.abs(diff));
+          esFaltaActual = true;
         } else {
           diffHtml = '<span class="font-black text-blue-700">+' + diff + '</span>';
           estHtml = badgeEstadoVitrinaHTML('SOBRA ' + diff);
+          esFaltaActual = false;
         }
       }
 
-      return '<tr class="hover:bg-amber-50/70 transition-colors h-8" data-prod="' + esc(nom) + '">' +
-        '<td class="px-1.5 text-center font-bold text-slate-400 border-r border-[#E6DCD2]">' + (p.orden || (idx + 1)) + '</td>' +
-        '<td class="px-2.5 font-black text-slate-900 border-r border-[#E6DCD2]">' + esc(nom) + '</td>' +
-        '<td class="px-1.5 text-center border-r border-[#E6DCD2] bg-amber-50/20">' + badgeStockAlmacenHTML(alm) + '</td>' +
-        '<td class="px-1.5 text-center font-black text-slate-800 bg-amber-50/50 border-r border-[#E6DCD2]">' + stock + '</td>' +
-        '<td class="px-1.5 text-center border-r border-[#E6DCD2] bg-purple-50/30">' +
+      var faltaDesdeHtml = '';
+      if (esFaltaActual && p.faltaDesde) {
+        faltaDesdeHtml = '<div class="mt-0.5 text-[9px] font-extrabold text-red-800 bg-red-50 border border-red-200 rounded px-1 py-0.2 leading-tight whitespace-nowrap" title="Turno/fecha desde el que falta este producto">🚨 Falta desde: ' + esc(p.faltaDesde) + '</div>';
+      }
+
+      var histCellsHtml = '';
+      for (var iH = 1; iH <= vitrinaHistRango; iH++) {
+        var clsExtra = iH === 1 ? 'bg-white/70' : ('col-hist-extra ' + (iH % 3 === 2 ? 'bg-slate-50/60' : (iH % 3 === 0 ? 'bg-slate-100/50' : 'bg-white/70')));
+        var borderCls = iH < vitrinaHistRango ? 'border-r border-[#E6DCD2] ' : '';
+        histCellsHtml += '<td class="' + clsExtra + ' px-1.5 py-1.5 text-center ' + borderCls + ' w-[145px] min-w-[145px] max-w-[145px]">' + celdaHistorialVitrinaHTML(p['h' + iH + 'Cant'], p['h' + iH + 'Est']) + '</td>';
+      }
+
+      return '<tr class="hover:bg-amber-50/70 transition-colors min-h-[38px]" data-prod="' + esc(nom) + '">' +
+        '<td class="sticky left-0 z-10 bg-[#FAF6F3] px-1.5 w-[34px] min-w-[34px] max-w-[34px] text-center font-bold text-slate-400 border-r border-[#E6DCD2] py-1.5">' + (p.orden || (idx + 1)) + '</td>' +
+        '<td class="sticky left-[34px] z-10 bg-[#FAF6F3] px-2.5 w-[165px] min-w-[165px] max-w-[165px] font-black text-slate-900 border-r border-[#E6DCD2] truncate shadow-[2px_0_4px_-1px_rgba(0,0,0,0.08)] py-1.5" title="' + esc(nom) + '">' + esc(nom) + '</td>' +
+        '<td class="px-1.5 w-[65px] min-w-[65px] max-w-[65px] text-center border-r border-[#E6DCD2] bg-amber-50/20 py-1.5">' + badgeStockAlmacenHTML(alm) + '</td>' +
+        '<td class="px-1.5 w-[68px] min-w-[68px] max-w-[68px] text-center font-black text-slate-800 bg-amber-50/50 border-r border-[#E6DCD2] py-1.5">' + stock + '</td>' +
+        '<td class="px-1.5 w-[110px] min-w-[110px] max-w-[110px] text-center border-r border-[#E6DCD2] bg-purple-50/30 py-1.5">' +
           '<input type="number" step="any" data-prod="' + esc(nom) + '" data-stock="' + stock + '" value="' + esc(valBorr) + '" ' +
                  'oninput="alEscribirConteoVitrina(this)" onkeydown="alTeclaConteoVitrina(event, this)" ' +
                  'placeholder="Contar..." ' +
                  'class="inp-conteo-vitrina w-20 px-1.5 py-0.5 text-center font-black text-slate-900 bg-white rounded border border-purple-300 focus:outline-hidden focus:ring-2 focus:ring-purple-600 text-xs">' +
         '</td>' +
-        '<td class="celda-diff-vitrina px-1.5 text-center border-r border-[#E6DCD2]">' + diffHtml + '</td>' +
-        '<td class="celda-est-vitrina px-1.5 text-center border-r border-[#E6DCD2]">' + estHtml + '</td>' +
-        '<td class="px-1.5 text-center border-r border-[#E6DCD2] bg-white/60">' + celdaHistorialVitrinaHTML(p.h1Cant, p.h1Est) + '</td>' +
-        '<td class="col-hist-extra px-1.5 text-center border-r border-[#E6DCD2] bg-slate-50/50">' + celdaHistorialVitrinaHTML(p.h2Cant, p.h2Est) + '</td>' +
-        '<td class="col-hist-extra px-1.5 text-center border-r border-[#E6DCD2] bg-slate-100/40">' + celdaHistorialVitrinaHTML(p.h3Cant, p.h3Est) + '</td>' +
-        '<td class="col-hist-extra px-1.5 text-center border-r border-[#E6DCD2] bg-white/60">' + celdaHistorialVitrinaHTML(p.h4Cant, p.h4Est) + '</td>' +
-        '<td class="col-hist-extra px-1.5 text-center border-r border-[#E6DCD2] bg-slate-50/50">' + celdaHistorialVitrinaHTML(p.h5Cant, p.h5Est) + '</td>' +
-        '<td class="col-hist-extra px-1.5 text-center border-r border-[#E6DCD2] bg-slate-100/40">' + celdaHistorialVitrinaHTML(p.h6Cant, p.h6Est) + '</td>' +
-        '<td class="col-hist-extra px-1.5 text-center border-r border-[#E6DCD2] bg-white/60">' + celdaHistorialVitrinaHTML(p.h7Cant, p.h7Est) + '</td>' +
-        '<td class="col-hist-extra px-1.5 text-center bg-slate-50/50">' + celdaHistorialVitrinaHTML(p.h8Cant, p.h8Est) + '</td>' +
+        '<td class="celda-diff-vitrina px-1.5 w-[60px] min-w-[60px] max-w-[60px] text-center border-r border-[#E6DCD2] py-1.5">' + diffHtml + '</td>' +
+        '<td class="celda-est-vitrina px-1.5 w-[130px] min-w-[130px] max-w-[130px] text-center border-r border-[#E6DCD2] py-1.5">' + estHtml + faltaDesdeHtml + '</td>' +
+        histCellsHtml +
       '</tr>';
     }).join('');
   }

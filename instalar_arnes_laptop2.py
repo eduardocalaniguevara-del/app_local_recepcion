@@ -34,7 +34,7 @@ def print(*args, **kwargs):
     except Exception:
         pass
 
-AUTH_HASH = os.environ.get("ARNES_AUTH_HASH", "24fe5b2863951e8d97cd7e19f2a5fed2534686189241b58951f0e7e2e8d666d7").lower()
+AUTH_HASH = os.environ.get("ARNES_AUTH_HASH", "c2f593c98b648395cc08947d97a7d4829db29ffa5c924c44ae1bc2eeac30b05c").lower()
 HERE = Path(__file__).resolve().parent
 SRC = HERE / "arnes_recepcion"
 DEST_MAIN = Path(r"C:\Hostal_Sistema\leemeantrigravityrecepcion\arnes_recepcion")

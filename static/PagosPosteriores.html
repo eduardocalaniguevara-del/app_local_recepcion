@@ -386,7 +386,7 @@
     .yape-box {
       display: none;
       margin-top: 6px;
-      padding: 6px 8px;
+      padding: 10px 12px;
       background: #fdf4ff;
       border: 1.5px solid #c026d3;
       border-radius: 7px;
@@ -396,6 +396,77 @@
     }
     .yape-box label {
       color: #86198f;
+      font-weight: 700;
+      font-size: 11.5px;
+    }
+    .yape-grid-row {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 8px;
+      align-items: flex-end;
+      margin-top: 6px;
+    }
+    .yape-time-wrap {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+    .yape-time-wrap input {
+      flex: 1;
+      min-width: 0;
+    }
+    .yape-period-select {
+      width: 62px;
+      padding: 6px 4px;
+      font-weight: 700;
+      color: #701a75;
+      background: #fae8ff;
+      border: 1.5px solid #d946ef;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: center;
+    }
+    .yape-period-select:focus {
+      outline: none;
+      border-color: #a21caf;
+    }
+    .yape-live-badge {
+      margin-top: 7px;
+      padding: 5px 8px;
+      background: #f5d0fe;
+      border: 1px dashed #c026d3;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #701a75;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .yape-live-badge strong {
+      font-family: monospace, Consolas, sans-serif;
+      font-size: 12px;
+      color: #4a044e;
+    }
+    .btn-toggle-2do-yape {
+      background: transparent;
+      border: 1px dashed #a21caf;
+      color: #86198f;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 6px;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-toggle-2do-yape:hover {
+      background: #fae8ff;
+      border-color: #701a75;
+      color: #581c87;
     }
 
     details {
@@ -579,11 +650,58 @@
       </div>
 
       <div id="yapeBoxPago" class="yape-box">
-        <label for="nroOpYapePago">📱 N° de Operación Yape / Hora <span class="req">* (OBLIGATORIO CON YAPE)</span></label>
-        <input type="text" id="nroOpYapePago"
-               autocorrect="off" autocapitalize="off" spellcheck="false"
-               placeholder="Ej. 654981 / 19:10">
-        <span class="error-hint">Ingresa el N° de operación Yape.</span>
+        <label style="display:block; margin-bottom:4px;">📱 Datos de Operación Yape <span class="req">* (OBLIGATORIO CON YAPE)</span></label>
+        
+        <!-- Fila Yape 1 -->
+        <div class="yape-grid-row" id="yapeRow1Pago">
+          <div class="field" style="margin-bottom:0;">
+            <label for="yapeMonto1Pago">💰 Monto Yape 1 (S/)</label>
+            <input type="number" id="yapeMonto1Pago" step="0.01" min="0.1" placeholder="Ej: 70">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="yapeHora1Pago">🕒 Hora (12h)</label>
+            <div class="yape-time-wrap">
+              <input type="text" id="yapeHora1Pago" inputmode="numeric" placeholder="Ej: 1:45" maxlength="5">
+              <select id="yapePeriodo1Pago" class="yape-period-select">
+                <option value="am">AM</option>
+                <option value="pm">PM</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fila Yape 2 (Opcional) -->
+        <div class="yape-grid-row" id="yapeRow2Pago" style="display:none; margin-top:8px; padding-top:6px; border-top:1px dashed #e879f9;">
+          <div class="field" style="margin-bottom:0;">
+            <label for="yapeMonto2Pago">💰 Monto Yape 2 (S/)</label>
+            <input type="number" id="yapeMonto2Pago" step="0.01" min="0.1" placeholder="Ej: 70">
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="yapeHora2Pago">🕒 Hora (12h)</label>
+            <div class="yape-time-wrap">
+              <input type="text" id="yapeHora2Pago" inputmode="numeric" placeholder="Ej: 2:15" maxlength="5">
+              <select id="yapePeriodo2Pago" class="yape-period-select">
+                <option value="am">AM</option>
+                <option value="pm">PM</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+          <button type="button" id="btnToggle2doYapePago" class="btn-toggle-2do-yape">➕ + 2do Yape</button>
+        </div>
+
+        <!-- Live Badge & Output canónico sincronizado -->
+        <div class="yape-live-badge">
+          <span>Código generado:</span>
+          <strong id="yapeLivePreviewPago">Sin datos</strong>
+        </div>
+
+        <input type="text" id="nroOpYapePago" name="nroOpYapePago" readonly
+               style="position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0;"
+               tabindex="-1">
+        <span class="error-hint" id="yapeErrorHintPago">Completa el monto y la hora válida (12h AM/PM) del Yape.</span>
       </div>
 
       <div id="tipoAdicionalBox" class="field" style="display:none;">
@@ -972,13 +1090,194 @@
       document.getElementById('tipoAdicionalBox').style.display = (conceptoPago.value === 'Servicio Adicional') ? '' : 'none';
       document.getElementById('bancoBoxPago').style.display = (metodoPago.value === 'Transferencia') ? '' : 'none';
     }
+    // Elementos estructurados de Yape
+    const yapeMonto1PagoInput = document.getElementById('yapeMonto1Pago');
+    const yapeHora1PagoInput = document.getElementById('yapeHora1Pago');
+    const yapePeriodo1PagoSelect = document.getElementById('yapePeriodo1Pago');
+    const yapeRow2Pago = document.getElementById('yapeRow2Pago');
+    const yapeMonto2PagoInput = document.getElementById('yapeMonto2Pago');
+    const yapeHora2PagoInput = document.getElementById('yapeHora2Pago');
+    const yapePeriodo2PagoSelect = document.getElementById('yapePeriodo2Pago');
+    const btnToggle2doYapePago = document.getElementById('btnToggle2doYapePago');
+    const yapeLivePreviewPago = document.getElementById('yapeLivePreviewPago');
+    const yapeErrorHintPago = document.getElementById('yapeErrorHintPago');
+
+    let yapeMonto1PagoEditadoManualmente = false;
+
+    function pad2Pago(n) { return n < 10 ? '0' + n : String(n); }
+
+    function obtenerHoraActual12Pago() {
+      const d = new Date();
+      let h = d.getHours();
+      const m = d.getMinutes();
+      const ampm = h >= 12 ? 'pm' : 'am';
+      h = h % 12;
+      if (h === 0) h = 12;
+      return { hora: h + ':' + pad2Pago(m), periodo: ampm };
+    }
+
+    function normalizarHoraInputPago(val) {
+      let s = String(val || '').trim().replace(/[;.]/g, ':');
+      if (/^\d{3,4}$/.test(s)) {
+        if (s.length === 3) s = s.slice(0, 1) + ':' + s.slice(1);
+        else s = s.slice(0, 2) + ':' + s.slice(2);
+      }
+      return s;
+    }
+
+    function formatearHoraAlSalirPago(inputEl, selectEl) {
+      let val = normalizarHoraInputPago(inputEl.value);
+      if (!val) return;
+      const partes = val.split(':');
+      if (partes.length === 2) {
+        let h = parseInt(partes[0], 10);
+        let mStr = partes[1].trim();
+        if (!isNaN(h) && mStr !== '') {
+          if (h >= 13 && h <= 23) {
+            h = h - 12;
+            if (selectEl) selectEl.value = 'pm';
+          } else if (h === 0) {
+            h = 12;
+            if (selectEl) selectEl.value = 'am';
+          }
+          let m = parseInt(mStr, 10);
+          if (!isNaN(m) && m >= 0 && m <= 59) {
+            inputEl.value = h + ':' + pad2Pago(m);
+          }
+        }
+      }
+    }
+
+    function parseHoraValidaPago(horaStr, periodo) {
+      let s = normalizarHoraInputPago(horaStr);
+      const m = s.match(/^(\d{1,2}):(\d{1,2})$/);
+      if (!m) return null;
+      let h = parseInt(m[1], 10);
+      let min = parseInt(m[2], 10);
+      if (isNaN(h) || isNaN(min) || min < 0 || min > 59) return null;
+      let p = (periodo || 'am').toLowerCase();
+      if (h >= 13 && h <= 23) {
+        h = h - 12;
+        p = 'pm';
+      } else if (h === 0) {
+        h = 12;
+        p = 'am';
+      } else if (h < 1 || h > 12) {
+        return null;
+      }
+      return { h: h, min: pad2Pago(min), periodo: p, canonical: h + ':' + pad2Pago(min) + p };
+    }
+
+    function formatearMontoYapePago(val) {
+      const n = parseFloat(val);
+      if (isNaN(n) || n <= 0) return '';
+      return Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+    }
+
+    function calcularCodigoYapeFilaPago(montoVal, horaVal, periodoVal) {
+      const montoLimpio = formatearMontoYapePago(montoVal);
+      const horaParsed = parseHoraValidaPago(horaVal, periodoVal);
+      if (!montoLimpio || !horaParsed) return null;
+      return montoLimpio + ' ' + horaParsed.canonical;
+    }
+
+    function sincronizarYapePago() {
+      const cod1 = calcularCodigoYapeFilaPago(yapeMonto1PagoInput.value, yapeHora1PagoInput.value, yapePeriodo1PagoSelect.value);
+      let codFinal = '';
+      const fila2Visible = yapeRow2Pago.style.display !== 'none';
+
+      if (fila2Visible) {
+        const cod2 = calcularCodigoYapeFilaPago(yapeMonto2PagoInput.value, yapeHora2PagoInput.value, yapePeriodo2PagoSelect.value);
+        if (cod1 && cod2) {
+          codFinal = cod1 + ' / ' + cod2;
+        } else {
+          codFinal = '';
+        }
+      } else {
+        codFinal = cod1 || '';
+      }
+
+      nroOpYapePago.value = codFinal;
+      if (codFinal) {
+        yapeLivePreviewPago.textContent = codFinal;
+        yapeLivePreviewPago.style.color = '#15803d';
+        yapeMonto1PagoInput.classList.remove('campo-invalido');
+        yapeHora1PagoInput.classList.remove('campo-invalido');
+        yapeMonto2PagoInput.classList.remove('campo-invalido');
+        yapeHora2PagoInput.classList.remove('campo-invalido');
+        nroOpYapePago.classList.remove('campo-invalido');
+        if (yapeErrorHintPago) yapeErrorHintPago.style.display = 'none';
+      } else {
+        yapeLivePreviewPago.textContent = 'Incompleto (Monto + Hora)';
+        yapeLivePreviewPago.style.color = '#b91c1c';
+      }
+    }
+
+    yapeMonto1PagoInput.addEventListener('input', () => {
+      yapeMonto1PagoEditadoManualmente = true;
+      sincronizarYapePago();
+    });
+    yapeHora1PagoInput.addEventListener('input', sincronizarYapePago);
+    yapeHora1PagoInput.addEventListener('blur', () => {
+      formatearHoraAlSalirPago(yapeHora1PagoInput, yapePeriodo1PagoSelect);
+      sincronizarYapePago();
+    });
+    yapePeriodo1PagoSelect.addEventListener('change', sincronizarYapePago);
+
+    yapeMonto2PagoInput.addEventListener('input', sincronizarYapePago);
+    yapeHora2PagoInput.addEventListener('input', sincronizarYapePago);
+    yapeHora2PagoInput.addEventListener('blur', () => {
+      formatearHoraAlSalirPago(yapeHora2PagoInput, yapePeriodo2PagoSelect);
+      sincronizarYapePago();
+    });
+    yapePeriodo2PagoSelect.addEventListener('change', sincronizarYapePago);
+
+    btnToggle2doYapePago.addEventListener('click', () => {
+      const estaOculto = yapeRow2Pago.style.display === 'none';
+      if (estaOculto) {
+        yapeRow2Pago.style.display = 'grid';
+        btnToggle2doYapePago.textContent = '➖ Quitar 2do Yape';
+        if (!yapeHora2PagoInput.value) {
+          const act = obtenerHoraActual12Pago();
+          yapeHora2PagoInput.value = act.hora;
+          yapePeriodo2PagoSelect.value = act.periodo;
+        }
+      } else {
+        yapeRow2Pago.style.display = 'none';
+        btnToggle2doYapePago.textContent = '➕ + 2do Yape';
+        yapeMonto2PagoInput.value = '';
+        yapeHora2PagoInput.value = '';
+      }
+      sincronizarYapePago();
+    });
+
+    montoPago.addEventListener('input', () => {
+      if (metodoPago.value === 'Yape' && !yapeMonto1PagoEditadoManualmente) {
+        const m = parseFloat(montoPago.value) || 0;
+        yapeMonto1PagoInput.value = m > 0 ? m : '';
+        sincronizarYapePago();
+      }
+    });
+
     metodoPago.addEventListener('change', actualizarEstadoYape);
     function actualizarEstadoYape() {
       if (metodoPago.value === 'Yape') {
         yapeBoxPago.classList.add('visible');
+        if (!yapeMonto1PagoEditadoManualmente) {
+          const m = parseFloat(montoPago.value) || 0;
+          if (m > 0) yapeMonto1PagoInput.value = m;
+        }
+        if (!yapeHora1PagoInput.value) {
+          const act = obtenerHoraActual12Pago();
+          yapeHora1PagoInput.value = act.hora;
+          yapePeriodo1PagoSelect.value = act.periodo;
+        }
+        sincronizarYapePago();
       } else {
         yapeBoxPago.classList.remove('visible');
         nroOpYapePago.classList.remove('campo-invalido');
+        yapeMonto1PagoInput.classList.remove('campo-invalido');
+        yapeHora1PagoInput.classList.remove('campo-invalido');
       }
     }
 
@@ -993,6 +1292,18 @@
       estadoComp.value = '';
       montoComp.value = '';
       document.getElementById('compDetails').open = false;
+
+      // Limpiar estructurados Yape
+      yapeMonto1PagoEditadoManualmente = false;
+      yapeMonto1PagoInput.value = '';
+      yapeHora1PagoInput.value = '';
+      yapeRow2Pago.style.display = 'none';
+      btnToggle2doYapePago.textContent = '➕ + 2do Yape';
+      yapeMonto2PagoInput.value = '';
+      yapeHora2PagoInput.value = '';
+      yapeLivePreviewPago.textContent = 'Sin datos';
+      yapeLivePreviewPago.style.color = '#701a75';
+
       actualizarEstadoYape();
       limpiarErroresVisuales();
     }
@@ -1029,10 +1340,28 @@
         return;
       }
 
-      if (montoVal > 0 && metodoPago.value === 'Yape' && nroOpYapePago.value.trim() === '') {
-        nroOpYapePago.classList.add('campo-invalido');
-        nroOpYapePago.focus();
-        return;
+      if (montoVal > 0 && metodoPago.value === 'Yape') {
+        sincronizarYapePago();
+        if (nroOpYapePago.value.trim() === '') {
+          if (!yapeMonto1PagoInput.value || parseFloat(yapeMonto1PagoInput.value) <= 0) {
+            yapeMonto1PagoInput.classList.add('campo-invalido');
+            yapeMonto1PagoInput.focus();
+          } else if (!parseHoraValidaPago(yapeHora1PagoInput.value, yapePeriodo1PagoSelect.value)) {
+            yapeHora1PagoInput.classList.add('campo-invalido');
+            yapeHora1PagoInput.focus();
+          } else if (yapeRow2Pago.style.display !== 'none') {
+            if (!yapeMonto2PagoInput.value || parseFloat(yapeMonto2PagoInput.value) <= 0) {
+              yapeMonto2PagoInput.classList.add('campo-invalido');
+              yapeMonto2PagoInput.focus();
+            } else {
+              yapeHora2PagoInput.classList.add('campo-invalido');
+              yapeHora2PagoInput.focus();
+            }
+          }
+          if (yapeErrorHintPago) yapeErrorHintPago.style.display = 'block';
+          mostrarBanner('error', '⚠️ Completa el monto y la hora válida (12h AM/PM) del Yape.');
+          return;
+        }
       }
 
       if (montoVal > 0 && metodoPago.value === 'Transferencia' && document.getElementById('nroOpBancoPago').value.trim() === '') {

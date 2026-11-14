@@ -164,7 +164,7 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
             ranges_step1.append("'CALZADO_OCT'!A2:V800")
             keys_step1.append("calzado")
         if "Vitrina_Tienda" in tabs:
-            ranges_step1.append("'Vitrina_Tienda'!A2:M45")
+            ranges_step1.append("'Vitrina_Tienda'!A2:DZ45")
             keys_step1.append("vitrina")
         if "import_Almacen" in tabs:
             ranges_step1.append("'import_Almacen'!A2:J3000")
@@ -897,33 +897,35 @@ def pull_from_sheets(full_bootstrap: bool = False) -> Dict[str, Any]:
                     resp_e2 = _gv(vitrina_rows[0], 4) if len(vitrina_rows) > 0 else ""
                     fecha_e3 = _gv(vitrina_rows[1], 4) if len(vitrina_rows) > 1 else ""
                     row4 = vitrina_rows[2] if len(vitrina_rows) > 2 else []
-                    h1_hdr = _gv(row4, 7)
-                    h2_hdr = _gv(row4, 9)
-                    h3_hdr = _gv(row4, 11)
                     _set_estado_sistema(conn, "vitrina_responsable_e2", resp_e2)
                     _set_estado_sistema(conn, "vitrina_fecha_e3", fecha_e3)
-                    _set_estado_sistema(conn, "vitrina_h1_header", h1_hdr)
-                    _set_estado_sistema(conn, "vitrina_h2_header", h2_hdr)
-                    _set_estado_sistema(conn, "vitrina_h3_header", h3_hdr)
+                    for idx_h in range(1, 37):
+                        col_idx_c = 7 + (idx_h - 1) * 2
+                        hdr_val = _gv(row4, col_idx_c)
+                        _set_estado_sistema(conn, f"vitrina_h{idx_h}_header", hdr_val)
 
                     conn.execute("DELETE FROM vitrina_local")
+                    cols_h = []
+                    for idx_h in range(1, 37):
+                        cols_h.extend([f"h{idx_h}_cant", f"h{idx_h}_est"])
+                    cols_sql = ", ".join(["producto", "orden", "stock_sheets", "estado_actual", "updated_at"] + cols_h)
+                    placeholders = ", ".join(["?"] * (5 + len(cols_h)))
+
                     for idx_vp, r_vp in enumerate(vitrina_rows[4:]):
                         prod_vp = _gv(r_vp, 0)
                         if not prod_vp:
                             continue
                         stock_vp = parse_moneda(_gv(r_vp, 1))
                         est_act = _gv(r_vp, 6)
-                        h1_c, h1_e = _gv(r_vp, 7), _gv(r_vp, 8)
-                        h2_c, h2_e = _gv(r_vp, 9), _gv(r_vp, 10)
-                        h3_c, h3_e = _gv(r_vp, 11), _gv(r_vp, 12)
+                        row_vals = [prod_vp, idx_vp + 1, stock_vp, est_act, ahora_iso]
+                        for idx_h in range(1, 37):
+                            col_c = 7 + (idx_h - 1) * 2
+                            col_e = 8 + (idx_h - 1) * 2
+                            row_vals.append(_gv(r_vp, col_c))
+                            row_vals.append(_gv(r_vp, col_e))
                         conn.execute(
-                            """
-                            INSERT OR REPLACE INTO vitrina_local (
-                                producto, orden, stock_sheets, estado_actual,
-                                h1_cant, h1_est, h2_cant, h2_est, h3_cant, h3_est, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """,
-                            (prod_vp, idx_vp + 1, stock_vp, est_act, h1_c, h1_e, h2_c, h2_e, h3_c, h3_e, ahora_iso),
+                            f"INSERT OR REPLACE INTO vitrina_local ({cols_sql}) VALUES ({placeholders})",
+                            row_vals,
                         )
                 else:
                     # Solo actualizar stock_sheets sin pisar el conteo local pendiente
