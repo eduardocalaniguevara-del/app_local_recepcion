@@ -30,18 +30,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from config import DB_PATH as SANDBOX_DB, DATA_DIR
+
 # === Rutas Dinámicas de la Aplicación (compatible con Prueba :8082 y Operativa :8080) ===
 SANDBOX_DIR = Path(__file__).resolve().parent
-SANDBOX_DB = SANDBOX_DIR / "data" / "ovalo_sistema.db"
 SUNAT_SHARED_DIR = Path(r"C:\Hostal_Sistema\datos_sunat")
-PLAN_JSON_PATH = SANDBOX_DIR / "data" / "plan_emparejamiento_noviembre_2026.json"
-CORR_JSON_PATH = SANDBOX_DIR / "data" / "corroboracion_ingresos_bcp_nov2026.json"
+PLAN_JSON_PATH = DATA_DIR / "plan_emparejamiento_noviembre_2026.json"
+CORR_JSON_PATH = DATA_DIR / "corroboracion_ingresos_bcp_nov2026.json"
 
 
 def _asegurar_jsons_base_contabilidad() -> None:
-    """Si aún no existen los JSON base en data/ (ej. primer arranque en Operativa), hidrata desde C:\\Hostal_Sistema\\datos_sunat."""
+    """Si aún no existen los JSON base en data/ o faltan los 108 CPEs de Nov 2026 en sunat_ventas, hidrata desde C:\\Hostal_Sistema\\datos_sunat."""
     import shutil
-    (SANDBOX_DIR / "data").mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     for local_p in (CORR_JSON_PATH, PLAN_JSON_PATH):
         if not local_p.exists():
             shared_p = SUNAT_SHARED_DIR / local_p.name
@@ -50,6 +51,19 @@ def _asegurar_jsons_base_contabilidad() -> None:
                     shutil.copy2(shared_p, local_p)
                 except Exception:
                     pass
+    try:
+        conn = _get_db_connection()
+        try:
+            cnt_nov = conn.execute("SELECT COUNT(*) FROM sunat_ventas WHERE periodo_mes = '2026-11'").fetchone()[0]
+        except Exception:
+            cnt_nov = 0
+        finally:
+            conn.close()
+        if cnt_nov < 100 and (SUNAT_SHARED_DIR / "sunat_facturas_noviembre_raw.json").exists():
+            import auditor_calzado_bcp_sunat as aud
+            aud.sincronizar_sunat_nov_sqlite(SANDBOX_DB)
+    except Exception:
+        pass
 
 FACTOR_IGV = 1.105  # Ley 31556 / IGV hotelero 10.5%
 

@@ -23,11 +23,12 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from config import DB_PATH as SANDBOX_DB, DATA_DIR
+
 # === Rutas Dinámicas (compatible con Prueba :8082 y Operativa :8080) ===
 SANDBOX_DIR = Path(__file__).resolve().parent
-SANDBOX_DB = SANDBOX_DIR / "data" / "ovalo_sistema.db"
-CORR_JSON = SANDBOX_DIR / "data" / "corroboracion_ingresos_bcp_nov2026.json"
-OUT_PLAN_JSON = SANDBOX_DIR / "data" / "plan_emparejamiento_noviembre_2026.json"
+CORR_JSON = DATA_DIR / "corroboracion_ingresos_bcp_nov2026.json"
+OUT_PLAN_JSON = DATA_DIR / "plan_emparejamiento_noviembre_2026.json"
 
 SUNAT_DIR = Path(r"C:\Hostal_Sistema\datos_sunat")
 if not CORR_JSON.exists() and (SUNAT_DIR / CORR_JSON.name).exists():

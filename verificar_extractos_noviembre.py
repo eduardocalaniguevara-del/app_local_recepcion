@@ -40,10 +40,10 @@ try:
 except Exception:
     pass
 
+from config import DB_PATH, DATA_DIR
+
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH = DATA_DIR / "ovalo_sistema.db"
 OUTPUT_JSON_PATH = DATA_DIR / "corroboracion_ingresos_bcp_nov2026.json"
 
 CREDENTIALS_PATHS = [
