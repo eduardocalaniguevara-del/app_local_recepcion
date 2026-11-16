@@ -238,6 +238,109 @@
     _renderizarTablasItems();
   };
 
+  // Seleccionar un Yape diario específico (Regla: 1 Boleta por cada Yape diario)
+  window.seleccionarPagoYapeDiaModal = function (hab, fechaPago, montoPago) {
+    const m = Number(montoPago) || 0;
+    if (m <= 0) return;
+    _habActivaModal = String(hab || _habActivaModal || "");
+    const fechaTxt = _formatearFechaAlojamientoTexto(fechaPago);
+    const inpMonto = document.getElementById("modalFact_monto");
+    if (inpMonto) inpMonto.value = m.toFixed(2);
+    _itemsActuales = [
+      {
+        cant: 1,
+        desc: `DIA DE ALOJAMIENTO DEL ${fechaTxt}, HAB N ${_habActivaModal}`.toUpperCase(),
+        precioUnit: Number(m.toFixed(2)),
+      },
+    ];
+    _focusedItemIdx = 0;
+    _renderizarTablasItems();
+  };
+
+  // Agregar ítem "+ Horas Extras" (para completar monto solicitado o absorber Yapes chicos de tienda)
+  window.agregarItemHorasExtrasModal = function (hab) {
+    _sincronizarDesdeInputsActivos();
+    const hNum = String(hab || _habActivaModal || "");
+    const inpMonto = document.getElementById("modalFact_monto");
+    const objetivo = inpMonto ? (parseFloat(inpMonto.value) || 0) : 0;
+    let sumaItems = 0;
+    _itemsActuales.forEach((it) => {
+      sumaItems += Math.max(1, parseInt(it.cant, 10) || 1) * (Number(it.precioUnit) || 0);
+    });
+    const diferencia = Number((objetivo - sumaItems).toFixed(2));
+    const montoExtra = diferencia > 0.05 ? diferencia : 30;
+    _itemsActuales.push({
+      cant: 1,
+      desc: `ADICIONAL POR HORAS EXTRAS HAB N ${hNum}`.toUpperCase(),
+      precioUnit: montoExtra,
+    });
+    _focusedItemIdx = _itemsActuales.length - 1;
+    _renderizarTablasItems();
+    const nuevaSuma = Number((sumaItems + montoExtra).toFixed(2));
+    if (inpMonto && nuevaSuma > objetivo) {
+      inpMonto.value = nuevaSuma.toFixed(2);
+    }
+  };
+
+  // Aplicar una sugerencia de unificación (Opciones B, T, C, A) al borrador del modal
+  window.aplicarSugerenciaUnificacionModal = function (opcion) {
+    if (!opcion) return;
+    const items = opcion.items || opcion.items_preview || [];
+    if (Array.isArray(items) && items.length > 0) {
+      _itemsActuales = items.map((it) => {
+        const c = Math.max(1, parseInt(it.cant, 10) || 1);
+        let d = String(it.desc || it.descripcion || "").trim().toUpperCase();
+        if (opcion.receptora_hab && !d.includes("HAB") && !d.includes("TIENDA")) {
+          d += `, HAB N ${opcion.receptora_hab}`;
+        }
+        const p = Number(it.precioUnit || it.precio || it.monto || 0);
+        return {
+          cant: c,
+          desc: d,
+          precioUnit: Number(p.toFixed(2)),
+        };
+      });
+    }
+    const total = Number(opcion.total || opcion.monto_total || opcion.montoTotal || 0);
+    const inpMonto = document.getElementById("modalFact_monto");
+    if (inpMonto && total > 0) {
+      inpMonto.value = total.toFixed(2);
+    }
+    const inpAdic = document.getElementById("modalFact_adicComp");
+    if (inpAdic && (opcion.codigo === "B" || opcion.codigo === "T")) {
+      const extras = items.length > 1 ? Number(items[1].precioUnit || items[1].precio || items[1].monto || 0) : 0;
+      if (extras > 0) inpAdic.value = extras.toFixed(2);
+    }
+    _focusedItemIdx = 0;
+    _renderizarTablasItems();
+    _pintarTotalesGlobales(total > 0 ? total : undefined, false);
+
+    window._decisionUnificacionSeleccionada = opcion;
+
+    if (window.google && window.google.script && window.google.script.run) {
+      const activeEstancia = window._estanciaFacturacionActiva || {};
+      const estanciaUuid = String(activeEstancia.estancia_uuid || activeEstancia.uuid || opcion.estancia_uuid || "").trim();
+      if (estanciaUuid && opcion.codigo) {
+        window.google.script.run
+          .withSuccessHandler(function (res) {
+            console.log("Decisión de unificación aplicada en backend:", res);
+          })
+          .withFailureHandler(function (err) {
+            console.warn("No se pudo persistir decisión de unificación:", err);
+          })
+          .aplicarDecisionUnificacion({
+            estancia_uuid: estanciaUuid,
+            opcion: opcion.codigo,
+            receptora_uuid: opcion.receptora_uuid || "",
+            tienda_uuids: opcion.tienda_uuids || [],
+            colchon: Number(opcion.colchon || 0),
+            escenario: window._sugerenciaEscenario || "",
+            usuario: "Recepcionista",
+          });
+      }
+    }
+  };
+
   window.eliminarFilaItemSunatIdx = function (idx) {
     _sincronizarDesdeInputsActivos();
     if (_itemsActuales.length <= 1) {

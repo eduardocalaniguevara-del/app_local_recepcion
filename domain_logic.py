@@ -476,7 +476,23 @@ def resolver_facturacion_estancia(stay: Dict[str, Any], idx_fact: Dict[str, Any]
             monto_facturado = monto_fact_bd if monto_fact_bd > 0 else 0.0
 
     monto_acordado_total = round(subtotal_aloj + adic_comp + snacks + servicios, 2)
-    if monto_fact_bd > 0:
+    cel_estancia = str(stay.get("celular") or "").strip()
+    tiene_celular_envio = len(re.sub(r"\D", "", cel_estancia)) >= 7
+    prioridad_naranja = bool(es_factura or tiene_celular_envio)
+
+    # Regla Yape por Día: si ya hubo emisión parcial previa (ej. Día 13 Boleta S/ 110)
+    # y entró un nuevo Yape el Día 14 (ej. +S/ 100 -> pago_yape=210 > emitido=110) con estado_comp='Pendiente',
+    # la estancia vuelve a figurar Pendiente por el nuevo Yape pendiente del día (S/ 100).
+    suma_emitida_previa = suma_lineas_sunat if suma_lineas_sunat > 0 else (monto_fact_bd if nro_comp_bd else 0.0)
+    if (
+        estado_comp_lower == "pendiente"
+        and suma_emitida_previa > 0
+        and pago_yape > suma_emitida_previa + 0.05
+    ):
+        estado_fact = "Pendiente"
+        monto_facturado = round(suma_emitida_previa, 2)
+        monto_por_facturar = round(pago_yape - suma_emitida_previa, 2)
+    elif monto_fact_bd > 0 and (estado_fact != "Pendiente" or not nro_comp_bd):
         monto_por_facturar = monto_fact_bd
     elif calzado:
         monto_por_facturar = (
@@ -500,10 +516,13 @@ def resolver_facturacion_estancia(stay: Dict[str, Any], idx_fact: Dict[str, Any]
         "estanciaUuid": stay.get("estanciaUuid") or "",
         "estado": estado_fact,
         "esFactura": es_factura,
+        "tieneCelularEnvio": tiene_celular_envio,
+        "prioridadNaranja": prioridad_naranja,
         "tipoComp": tipo_comp_resuelto,
         "montoFacturado": round(float(monto_facturado or 0), 2),
-        "montoSolicitadoFact": round(monto_fact_bd, 2),
+        "montoSolicitadoFact": round(monto_por_facturar if (estado_fact == "Pendiente" and nro_comp_bd and pago_yape > suma_emitida_previa + 0.05) else monto_fact_bd, 2),
         "montoPorFacturar": round(float(monto_por_facturar or 0), 2),
+        "pagosYapePorDia": stay.get("pagosYapePorDia") or [],
         "adicComprobante": round(adic_comp, 2),
         "tarifaNoche": round(tarifa_noche, 2),
         "noches": noches,
@@ -817,6 +836,33 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
             if r_ep and n_ep:
                 mapa_emp_por_ruc[r_ep] = n_ep
 
+        # Leer pagos Yape/Plin recientes por estancia para mostrar desglose por día (ej. Día 13 S/ 110 + Día 14 S/ 100)
+        mapa_pagos_yape_uuid: Dict[str, List[Dict[str, Any]]] = {}
+        mapa_pagos_yape_idts: Dict[str, List[Dict[str, Any]]] = {}
+        for pg in conn.execute(
+            "SELECT estancia_uuid, id_estancia, fecha_iso, monto, medio_pago, nro_operacion FROM pagos ORDER BY rowid DESC LIMIT 1200"
+        ).fetchall():
+            med_pg = str(pg["medio_pago"] or "").lower()
+            if "yape" not in med_pg and "plin" not in med_pg and "elec" not in med_pg:
+                continue
+            m_pg = round(float(pg["monto"] or 0), 2)
+            if m_pg <= 0:
+                continue
+            f_iso = str(pg["fecha_iso"] or "").strip()
+            f_dia = normalizar_fecha_dmy(f_iso.split(" ")[0]) if f_iso else ""
+            item_pg = {
+                "fecha": f_dia or f_iso[:10],
+                "fechaHora": f_iso,
+                "monto": m_pg,
+                "op": str(pg["nro_operacion"] or "").strip(),
+            }
+            u_pg = str(pg["estancia_uuid"] or "").strip()
+            id_pg = str(pg["id_estancia"] or "").strip()
+            if u_pg:
+                mapa_pagos_yape_uuid.setdefault(u_pg, []).append(item_pg)
+            if id_pg:
+                mapa_pagos_yape_idts.setdefault(id_pg, []).append(item_pg)
+
         estancias_cache: List[Dict[str, Any]] = []
         mapa_bd_por_fecha: Dict[str, Dict[str, Any]] = {}
         mapa_historial_dia: Dict[str, List[Dict[str, Any]]] = {}
@@ -880,7 +926,22 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
             tienda_pagada = round(tienda_pagada, 2)
 
             dni_norm = normalizar_dni(r["dni"], r["nac"])
-            cel_val = str(r["celular"] or "").strip() or mapa_celular_dni.get(dni_norm, "")
+            # Regla de Envío WSP: solo el celular anotado en ESTA estancia define si pidió envío de Boleta/Factura (Naranja Intenso vs Amarillo)
+            cel_val = str(r["celular"] or "").strip()
+            cel_contacto = cel_val or mapa_celular_dni.get(dni_norm, "")
+            pagos_yape_est = list(reversed(
+                mapa_pagos_yape_uuid.get(str(r["estancia_uuid"] or "").strip())
+                or mapa_pagos_yape_idts.get(str(r["id_timestamp_str"] or "").strip())
+                or []
+            ))
+            suma_yape_reg = round(sum(float(x.get("monto") or 0) for x in pagos_yape_est), 2)
+            if pago_yape > suma_yape_reg + 0.05:
+                pagos_yape_est.insert(0, {
+                    "fecha": f_in or "-",
+                    "fechaHora": f_in or "-",
+                    "monto": round(pago_yape - suma_yape_reg, 2),
+                    "op": str(r["nro_op_yape"] or "").strip(),
+                })
             det_lib = extraer_detalle_liberacion(obs_fila)
 
             info_fila: Dict[str, Any] = {
@@ -908,6 +969,8 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
                 "tipoAdicional": str(r["tipo_adicional"] or "").strip(),
                 "cuentaDestino": str(r["cuenta_destino"] or "").strip(),
                 "celular": cel_val,
+                "celularContacto": cel_contacto,
+                "pagosYapePorDia": pagos_yape_est,
                 "noches": noches_calc,
                 "tarifa": tarifa,
                 "subtotalAloj": subtotal_aloj,
@@ -1177,6 +1240,161 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
             "estanciasCache": estancias_cache,
             "syncStatus": sync_info,
         }
+    finally:
+        conn.close()
+
+
+def obtener_estancia_facturacion_por_uuid(uuid: str) -> Dict[str, Any]:
+    """
+    Recupera una estancia desde SQLite por su UUID y la formatea exactamente
+    con la estructura 'h' esperada por renderModalFacturacion(h).
+    """
+    uuid_clean = str(uuid or "").strip()
+    if not uuid_clean:
+        return {"ok": False, "error": "UUID de estancia no proporcionado"}
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        r = cur.execute("SELECT * FROM estancias WHERE estancia_uuid = ?", (uuid_clean,)).fetchone()
+        if not r:
+            return {"ok": False, "error": f"Estancia no encontrada: {uuid_clean}"}
+
+        hab = str(r["hab"] or "").strip()
+        huesped = str(r["huesped"] or "-").strip()
+        dni = str(r["dni"] or "").strip()
+        celular = str(r["celular"] or "").strip()
+        ruc = str(r["ruc"] or "").strip()
+        empresa = str(r["empresa"] or "").strip()
+        proyecto = str(r["proyecto"] or "").strip()
+        n_acomp = str(r["n_acomp"] or "").strip()
+        triple1 = str(r["triple1"] or "").strip()
+        tipo_adicional = str(r["tipo_adicional"] or "").strip()
+        check_in = str(r["fecha_in_dmy"] or "-").strip()
+        check_out = str(r["fecha_out_dmy"] or "-").strip()
+        hora = str(r["hora_registro"] or "-").strip()
+        tipo_hab = str(r["tipo_hab"] or "").strip()
+        sheet_row = int(r["sheet_row"] or 0)
+        id_timestamp = str(r["id_timestamp_str"] or "")
+
+        tarifa = float(r["tarifa"] or 0.0)
+        noches = int(r["noches"] or 1)
+        subtotal_aloj = round(tarifa * noches, 2)
+        snacks = float(r["adic_snacks"] or 0.0)
+        servicios = float(r["adic_servicios"] or 0.0)
+        adic_comp = float(r["adic_comp"] or 0.0)
+        total_adic = round(snacks + servicios + adic_comp, 2)
+
+        pago_efec = round(float(r["pago_ini_efec"] or 0.0) + float(r["pago_post_efec"] or 0.0), 2)
+        pago_yape = round(float(r["pago_ini_yape"] or 0.0) + float(r["pago_post_yape"] or 0.0), 2)
+        pago_visa = round(float(r["pago_visa"] or 0.0), 2)
+        pagado = round(pago_efec + pago_yape + pago_visa, 2)
+        saldo = round(subtotal_aloj + total_adic - pagado, 2)
+
+        pago_detalle = {
+            "efectivo": pago_efec,
+            "yape": pago_yape,
+            "visa": pago_visa,
+            "codigoMontoHora": str(r["nro_op_yape"] or "").strip(),
+        }
+
+        # Configuración de habitación
+        color_pers = ""
+        precio_ref = tarifa
+        tipo = tipo_hab
+        try:
+            row_hab = cur.execute("SELECT * FROM habitaciones_config WHERE hab = ?", (hab,)).fetchone()
+            if row_hab:
+                color_pers = str(row_hab["color_personalizado"] or "")
+                precio_ref = float(row_hab["precio_ref"] or tarifa)
+                tipo = str(row_hab["tipo"] or tipo_hab)
+        except Exception:
+            pass
+
+        # Ventas de tienda asociadas
+        tienda_items = []
+        tienda_pagada = 0.0
+        try:
+            vt_rows = cur.execute(
+                "SELECT * FROM ventas_tienda WHERE estancia_uuid = ? OR id_estancia = ?",
+                (uuid_clean, id_timestamp),
+            ).fetchall()
+            tienda_items = [dict(tr) for tr in vt_rows]
+            tienda_pagada = round(sum(float(tr.get("subtotal") or 0.0) for tr in tienda_items), 2)
+        except Exception:
+            pass
+
+        # Pagos Yape por día
+        pagos_yape_est = []
+        if pago_yape > 0:
+            pagos_yape_est.append({
+                "fecha": check_in,
+                "fechaHora": check_in,
+                "monto": pago_yape,
+                "op": str(r["nro_op_yape"] or "").strip(),
+            })
+
+        cols_r = r.keys()
+        unificado_en_uuid = str(r["unificado_en_uuid"] or "").strip() if "unificado_en_uuid" in cols_r else ""
+        opcion_decision = str(r["opcion_decision"] or "").strip() if "opcion_decision" in cols_r else ""
+
+        h: Dict[str, Any] = {
+            "estanciaUuid": uuid_clean,
+            "parentUuid": str(r["parent_uuid"] or ""),
+            "fila": sheet_row,
+            "filaNum": sheet_row,
+            "id": id_timestamp,
+            "idEstancia": id_timestamp,
+            "hab": hab,
+            "tipo": tipo or tipo_hab,
+            "tipoHab": tipo_hab or tipo,
+            "precioRef": precio_ref,
+            "colorPersonalizado": color_pers,
+            "checkIn": check_in,
+            "checkOut": check_out,
+            "hora": hora,
+            "huesped": huesped,
+            "dni": dni,
+            "ruc": ruc,
+            "empresa": empresa,
+            "proyecto": proyecto,
+            "nAcomp": n_acomp,
+            "triple1": triple1,
+            "tipoAdicional": tipo_adicional,
+            "celular": celular,
+            "celularContacto": celular,
+            "tarifa": tarifa,
+            "tarifaPactada": tarifa,
+            "noches": noches,
+            "subtotalAloj": subtotal_aloj,
+            "snacks": snacks,
+            "adicSnacksCargado": snacks,
+            "servicios": servicios,
+            "adicServicios": servicios,
+            "adicComp": adic_comp,
+            "adicional": total_adic,
+            "pagoEfec": pago_efec,
+            "pagoYape": pago_yape,
+            "pagoVisa": pago_visa,
+            "pagado": pagado,
+            "pagoDetalle": pago_detalle,
+            "pagosYapePorDia": pagos_yape_est,
+            "saldo": saldo,
+            "tiendaPagada": tienda_pagada,
+            "tiendaItems": tienda_items,
+            "solicitaComp": str(r["solicita_comp"] or "").strip(),
+            "tipoComp": str(r["tipo_comp"] or "").strip(),
+            "estadoCompBD": str(r["estado_comp"] or "").strip(),
+            "nroCompBD": str(r["nro_comp"] or "").strip(),
+            "montoFactBD": float(r["monto_factura"] or 0.0),
+            "unificadoEnUuid": unificado_en_uuid,
+            "opcionDecision": opcion_decision,
+        }
+
+        idx_fact = cargar_indices_facturacion_memoria(conn)
+        h["facturacion"] = resolver_facturacion_estancia(h, idx_fact)
+
+        return {"ok": True, "h": h}
     finally:
         conn.close()
 
@@ -1697,11 +1915,17 @@ def guardar_pago_posterior_local(datos: Dict[str, Any]) -> Dict[str, Any]:
                 if met == "Yape" and nro_op_yape:
                     nro_op_actual = f"{nro_op_actual} / {nro_op_yape}" if nro_op_actual else nro_op_yape
 
-                if met == "Yape" and not est_c and not estado_comp:
+                if met == "Yape" and delta_monto > 0 and not est_c:
                     tiene_ruc_emp = bool(str(st["ruc"] or "").strip() or str(st["empresa"] or "").strip())
                     solicita_comp = "Sí"
-                    tipo_comp = "Factura" if tiene_ruc_emp else (tipo_comp or "Boleta")
-                    estado_comp = "Pendiente"
+                    tipo_comp = "Factura" if tiene_ruc_emp else (tipo_comp if tipo_comp not in ("", "Ninguno", "No") else "Boleta")
+                    total_yape_nuevo = round(float(st["pago_ini_yape"] or 0) + p_post_yape, 2)
+                    if not estado_comp or not estado_comp.lower().startswith("emitido"):
+                        estado_comp = "Pendiente"
+                    elif total_yape_nuevo > (monto_fact + 0.05):
+                        # Nuevo Yape en día posterior (ej. Día 13 Boleta S/ 110 ya emitida + Día 14 Yape S/ 100):
+                        # vuelve a marcar Pendiente por la diferencia de Yape sin boletear
+                        estado_comp = "Pendiente"
 
                 ahora_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                 pid = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:4]}"
@@ -2396,7 +2620,7 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         diff_visa = round(p_visa - p_visa_prev, 2)
 
         tipo_c = txt_val("tipoComp", actual["tipo_comp"])
-        solicita = "Sí" if tipo_c else (actual["solicita_comp"] or "No")
+        solicita = "Sí" if (tipo_c and tipo_c not in ("Ninguno", "No")) else (actual["solicita_comp"] or "No")
         estado_c = txt_val("estadoComp", actual["estado_comp"])
         nro_comp = txt_val("nroComp", actual["nro_comp"])
         monto_fact = num_val("montoFact", float(actual["monto_factura"] or 0)) if datos.get("montoFact") not in (None, "") else float(actual["monto_factura"] or 0)
@@ -2410,6 +2634,15 @@ def modificar_estancia_local(datos: Dict[str, Any]) -> Dict[str, Any]:
         nro_op_yape = txt_val("nroOpYape", actual["nro_op_yape"])
         celular = txt_val("celular", actual["celular"])
         ruc = re.sub(r"\D", "", txt_val("ruc", actual["ruc"]))
+        # Regla Todo Yape = Pendiente Boleta (o Factura si tiene RUC/Empresa)
+        if (p_elec_ini + p_yape_post) > 0:
+            solicita = "Sí"
+            if not tipo_c or tipo_c in ("Ninguno", "No"):
+                tipo_c = "Factura" if (ruc or empresa) else "Boleta"
+            if not nro_comp and (not estado_c or estado_c in ("Ninguno", "No")):
+                estado_c = "Pendiente"
+            elif diff_yape > 0.05 and (p_elec_ini + p_yape_post) > (monto_fact + 0.05) and datos.get("estadoComp") in (None, ""):
+                estado_c = "Pendiente"
         ruc_prev_clean = re.sub(r"\D", "", str(actual["ruc"] or ""))
         emp_prev_clean = str(actual["empresa"] or "").strip().upper()
         if ruc and (not empresa or (ruc != ruc_prev_clean and empresa == emp_prev_clean)):
@@ -6598,6 +6831,47 @@ def _inyectar_rutas_en_servidor_activo() -> None:
                     elif method_name == "enviarCuentaHabWsp":
                         import pases_logic as pl
                         res = pl.enviar_wsp_cuenta_hab_local(args[0] if args else {})
+                    elif method_name == "obtenerDatosContabilidad":
+                        import contabilidad_logic as cl
+                        a0 = args[0] if args else {}
+                        mes = a0.get("mes", "2026-11") if isinstance(a0, dict) else str(a0 or "2026-11")
+                        res = cl.obtener_datos_contabilidad_local(mes)
+                    elif method_name == "recalcularAuditoriaContabilidad":
+                        import contabilidad_logic as cl
+                        res = cl.recalcular_auditoria_contabilidad_local()
+                    elif method_name == "actualizarExtraccionTributariaCompleta":
+                        import contabilidad_logic as cl
+                        a0 = args[0] if args else {}
+                        mes = a0.get("mes", "2026-11") if isinstance(a0, dict) else str(a0 or "2026-11")
+                        res = cl.actualizar_extraccion_tributaria_completa_local(mes)
+                    elif method_name == "sincronizarComprobantesFaltantesBD":
+                        import contabilidad_logic as cl
+                        res = cl.sincronizar_comprobantes_faltantes_bd_local()
+                    elif method_name == "obtenerSugerenciaUnificacion":
+                        import motor_unificacion as mu
+                        if args and isinstance(args[0], dict):
+                            u_id = str(args[0].get("estancia_uuid") or args[0].get("uuid") or "")
+                            m_bol = args[0].get("modo_mas_boletas")
+                        else:
+                            u_id = str(args[0] if len(args) > 0 else "")
+                            m_bol = bool(args[1]) if len(args) > 1 and args[1] is not None else None
+                        res = mu.sugerir_unificacion(u_id, modo_mas_boletas=m_bol)
+                    elif method_name == "aplicarDecisionUnificacion":
+                        import motor_unificacion as mu
+                        res = mu.aplicar_decision(args[0] if args else {})
+                    elif method_name == "obtenerEstanciaFacturacionPorUuid":
+                        a0 = args[0] if args else ""
+                        u_id = a0.get("uuid", "") if isinstance(a0, dict) else str(a0 or "")
+                        res = _dl_self.obtener_estancia_facturacion_por_uuid(u_id)
+                    elif method_name == "guardarModoMasBoletas":
+                        import motor_unificacion as mu
+                        a0 = args[0] if args else False
+                        activo = bool(a0.get("activo") if isinstance(a0, dict) else a0)
+                        res = mu.guardar_modo_mas_boletas(activo)
+                    elif method_name == "listarInexactosContabilidad":
+                        import contabilidad_logic as cl
+                        datos_c = cl.obtener_datos_contabilidad_local("2026-11")
+                        res = [r for r in datos_c.get("calzado_rows", []) if r.get("es_inexacto")]
                     else:
                         raise HTTPException(status_code=404, detail=f"Método RPC no soportado: {method_name}")
 

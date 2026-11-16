@@ -261,6 +261,9 @@ WRITE_METHODS = {
     "anularMovimientoAlmacen",
     "guardarCheckInGrupalEmpresa",
     "guardarPagoMasivo",
+    "sincronizarComprobantesFaltantesBD",
+    "aplicarDecisionUnificacion",
+    "guardarModoMasBoletas",
 }
 
 
@@ -757,6 +760,47 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
         elif method_name == "enviarCuentaHabWsp":
             import pases_logic as pl
             res = pl.enviar_wsp_cuenta_hab_local(args[0] if args else {})
+        elif method_name == "obtenerDatosContabilidad":
+            import contabilidad_logic as cl
+            a0 = args[0] if args else {}
+            mes = a0.get("mes", "2026-11") if isinstance(a0, dict) else str(a0 or "2026-11")
+            res = cl.obtener_datos_contabilidad_local(mes)
+        elif method_name == "recalcularAuditoriaContabilidad":
+            import contabilidad_logic as cl
+            res = cl.recalcular_auditoria_contabilidad_local()
+        elif method_name == "actualizarExtraccionTributariaCompleta":
+            import contabilidad_logic as cl
+            a0 = args[0] if args else {}
+            mes = a0.get("mes", "2026-11") if isinstance(a0, dict) else str(a0 or "2026-11")
+            res = cl.actualizar_extraccion_tributaria_completa_local(mes)
+        elif method_name == "sincronizarComprobantesFaltantesBD":
+            import contabilidad_logic as cl
+            res = cl.sincronizar_comprobantes_faltantes_bd_local()
+        elif method_name == "obtenerSugerenciaUnificacion":
+            import motor_unificacion as mu
+            if args and isinstance(args[0], dict):
+                u_id = str(args[0].get("estancia_uuid") or args[0].get("uuid") or "")
+                m_bol = args[0].get("modo_mas_boletas")
+            else:
+                u_id = str(args[0] if len(args) > 0 else "")
+                m_bol = bool(args[1]) if len(args) > 1 and args[1] is not None else None
+            res = mu.sugerir_unificacion(u_id, modo_mas_boletas=m_bol)
+        elif method_name == "aplicarDecisionUnificacion":
+            import motor_unificacion as mu
+            res = mu.aplicar_decision(args[0] if args else {})
+        elif method_name == "obtenerEstanciaFacturacionPorUuid":
+            a0 = args[0] if args else ""
+            u_id = a0.get("uuid", "") if isinstance(a0, dict) else str(a0 or "")
+            res = dl.obtener_estancia_facturacion_por_uuid(u_id)
+        elif method_name == "guardarModoMasBoletas":
+            import motor_unificacion as mu
+            a0 = args[0] if args else False
+            activo = bool(a0.get("activo") if isinstance(a0, dict) else a0)
+            res = mu.guardar_modo_mas_boletas(activo)
+        elif method_name == "listarInexactosContabilidad":
+            import contabilidad_logic as cl
+            datos_c = cl.obtener_datos_contabilidad_local("2026-11")
+            res = [r for r in datos_c.get("calzado_rows", []) if r.get("es_inexacto")]
         else:
             raise HTTPException(status_code=404, detail=f"Método RPC no soportado: {method_name}")
 

@@ -174,6 +174,12 @@ DEFAULT_CONFIG = {
             "descripcion": "Procesamiento de cola de envío de comprobantes y vouchers por WhatsApp",
             "ultima_ejecucion": ""
         },
+        "comprobacion_contable_8am": {
+            "habilitado": True,
+            "hora_ejecucion": "08:00",
+            "descripcion": "Comprobación automática diaria 08:00 AM de Boletas, Facturas, Notas de Crédito y Extractos BCP/Yape",
+            "ultima_ejecucion": ""
+        },
         "captura_aprendizaje_recepcionistas": {
             "habilitado": True,
             "intervalo_minutos": 60,
@@ -625,11 +631,23 @@ def ejecutar_captura_aprendizaje_recepcionistas() -> Dict[str, Any]:
     items = analizar_aprendizaje_recepcionistas()
     return {"status": "OK", "items_capturados": len(items)}
 
+def ejecutar_comprobacion_contable_8am() -> Dict[str, Any]:
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    print(f"[{now_iso}] Ejecutando ranura: comprobacion_contable_8am...")
+    try:
+        import contabilidad_logic as cl
+        mes_actual = datetime.now().strftime("%Y-%m")
+        res_c = cl.actualizar_extraccion_tributaria_completa_local(mes_actual)
+        return {"status": "OK", "timestamp": now_iso, "ultima_actualizacion": res_c.get("ultima_actualizacion", "")}
+    except Exception as exc:
+        return {"status": "WARN", "timestamp": now_iso, "error": str(exc)}
+
 DESPACHADORES_TAREAS = {
     "facturacion_diaria_sunat": ejecutar_facturacion_diaria_sunat,
     "conciliacion_yape_diaria": ejecutar_conciliacion_yape_diaria,
     "envio_wsp_comprobantes": ejecutar_envio_wsp_comprobantes,
     "captura_aprendizaje_recepcionistas": ejecutar_captura_aprendizaje_recepcionistas,
+    "comprobacion_contable_8am": ejecutar_comprobacion_contable_8am,
 }
 
 # --- 4. CICLO DE EJECUCIÓN (DESPACHADOR 24/7) ---

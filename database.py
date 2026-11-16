@@ -718,6 +718,34 @@ def init_db() -> None:
             cols_est = [r[1] for r in conn.execute("PRAGMA table_info(estancias)").fetchall()]
             if "tipo_adicional" not in cols_est:
                 conn.execute("ALTER TABLE estancias ADD COLUMN tipo_adicional TEXT NOT NULL DEFAULT ''")
+            # Migración: Unificación de Boletas e Inexactos (M1)
+            if "unificado_en_uuid" not in cols_est:
+                conn.execute("ALTER TABLE estancias ADD COLUMN unificado_en_uuid TEXT NOT NULL DEFAULT ''")
+            if "opcion_decision" not in cols_est:
+                conn.execute("ALTER TABLE estancias ADD COLUMN opcion_decision TEXT NOT NULL DEFAULT ''")
+
+            cols_vt = [r[1] for r in conn.execute("PRAGMA table_info(ventas_tienda)").fetchall()]
+            if "yape_tienda_usado_en" not in cols_vt:
+                conn.execute("ALTER TABLE ventas_tienda ADD COLUMN yape_tienda_usado_en TEXT NOT NULL DEFAULT ''")
+
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS decisiones_boleta (
+                    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                    fecha_iso          TEXT NOT NULL DEFAULT '',
+                    estancia_uuid      TEXT NOT NULL DEFAULT '',
+                    escenario          TEXT NOT NULL DEFAULT '',
+                    opciones_json      TEXT NOT NULL DEFAULT '',
+                    sugerida           TEXT NOT NULL DEFAULT '',
+                    elegida            TEXT NOT NULL DEFAULT '',
+                    receptora_uuid     TEXT NOT NULL DEFAULT '',
+                    origen_tienda_json TEXT NOT NULL DEFAULT '',
+                    colchon            REAL NOT NULL DEFAULT 0,
+                    usuario            TEXT NOT NULL DEFAULT '',
+                    created_at         TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decisiones_estancia ON decisiones_boleta (estancia_uuid)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_decisiones_escenario ON decisiones_boleta (escenario)")
             # Migración: personal asociado a gastos (Adelanto de sueldo -> columna J de Registro_Gastos)
             cols_gas = [r[1] for r in conn.execute("PRAGMA table_info(gastos)").fetchall()]
             if "personal" not in cols_gas:
