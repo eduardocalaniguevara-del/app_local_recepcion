@@ -72,7 +72,14 @@ TABLAS_GRUPO2_PK: Dict[str, Tuple[str, ...]] = {
     "aprendizaje_compartido_hostal": ("id",),
 }
 
-_SANDBOX = bool(MODO_PRUEBA and SUPABASE_SANDBOX_CONNECTED)
+_SANDBOX = False  # Entorno de prueba 100% local: cero trafico hacia Supabase
+
+# Tablas de cache pesadas que se recalculan localmente desde Drive/Sheets y no deben saturar Supabase
+TABLAS_SOLO_LOCAL_CACHE = {
+    "yape_conciliacion_hostal",
+    "calzado_cache",
+    "sunat_lineas_cache",
+}
 
 
 def _resolve_pk_cols(conn, tabla: str) -> Tuple[str, ...]:
@@ -361,6 +368,9 @@ def push_to_supabase() -> int:
             grouped.setdefault(key, []).append((str(r["pk1"]), str(r["pk2"]), str(r["u_at"])))
 
         for (tabla, op), pk_list in grouped.items():
+            if tabla in TABLAS_SOLO_LOCAL_CACHE:
+                invalid_keys.extend((tabla, p1, p2) for (p1, p2, _) in pk_list)
+                continue
             pk_cols = _resolve_pk_cols(conn, tabla)
             if not pk_cols:
                 invalid_keys.extend((tabla, p1, p2) for (p1, p2, _) in pk_list)
@@ -537,43 +547,52 @@ def pull_from_supabase() -> int:
                     continue
 
                 if op == "UPSERT":
-                    # Si es estancias y localmente tiene dirty=1 sin subir aún, respetar edición local
-                    if tabla == "estancias" and row_data.get("estancia_uuid"):
-                        in_uuid = str(row_data["estancia_uuid"])
-                        in_ts = str(row_data.get("id_timestamp_str") or "").strip()
-                        loc = conn.execute(
-                            "SELECT estancia_uuid, dirty FROM estancias WHERE estancia_uuid = ? OR (id_timestamp_str != '' AND id_timestamp_str = ?)",
-                            (in_uuid, in_ts),
-                        ).fetchone()
-                        if loc and int(loc["dirty"] or 0) == 1:
-                            continue
+                    try:
+                        # Si es estancias y localmente tiene dirty=1 sin subir aún, respetar edición local
+                        if tabla == "estancias" and row_data.get("estancia_uuid"):
+                            in_uuid = str(row_data["estancia_uuid"])
+                            in_ts = str(row_data.get("id_timestamp_str") or "").strip()
+                            loc = conn.execute(
+                                "SELECT estancia_uuid, dirty FROM estancias WHERE estancia_uuid = ? OR (id_timestamp_str != '' AND id_timestamp_str = ?)",
+                                (in_uuid, in_ts),
+                            ).fetchone()
+                            if loc and int(loc["dirty"] or 0) == 1:
+                                continue
 
-                    cols_present = [c for c in valid_cols if c in row_data and row_data[c] is not None]
-                    if not cols_present:
-                        continue
-                    placeholders = ",".join(["?"] * len(cols_present))
-                    cols_sql = ",".join(cols_present)
-                    vals = [row_data[c] for c in cols_present]
-                    conn.execute(
-                        f"INSERT OR REPLACE INTO {tabla} ({cols_sql}) VALUES ({placeholders})",
-                        vals,
-                    )
-                    pulled_count += 1
+                        cols_present = [c for c in valid_cols if c in row_data and row_data[c] is not None]
+                        if not cols_present:
+                            continue
+                        placeholders = ",".join(["?"] * len(cols_present))
+                        cols_sql = ",".join(cols_present)
+                        vals = [
+                            v if not isinstance(v, (dict, list)) else json.dumps(v, ensure_ascii=False)
+                            for v in (row_data[c] for c in cols_present)
+                        ]
+                        conn.execute(
+                            f"INSERT OR REPLACE INTO {tabla} ({cols_sql}) VALUES ({placeholders})",
+                            vals,
+                        )
+                        pulled_count += 1
+                    except sqlite3.Error as row_err:
+                        print(f"[SupabaseSync] Aviso ignorando fila log_id={lid} ({tabla}): {row_err}")
 
                 elif op == "DELETE":
-                    if len(pk_cols) == 1:
-                        v1 = row_data.get(pk_cols[0])
-                        if v1 is not None:
-                            conn.execute(f"DELETE FROM {tabla} WHERE {pk_cols[0]} = ?", (v1,))
-                            pulled_count += 1
-                    else:
-                        v1, v2 = row_data.get(pk_cols[0]), row_data.get(pk_cols[1])
-                        if v1 is not None and v2 is not None:
-                            conn.execute(
-                                f"DELETE FROM {tabla} WHERE {pk_cols[0]} = ? AND {pk_cols[1]} = ?",
-                                (v1, v2),
-                            )
-                            pulled_count += 1
+                    try:
+                        if len(pk_cols) == 1:
+                            v1 = row_data.get(pk_cols[0])
+                            if v1 is not None:
+                                conn.execute(f"DELETE FROM {tabla} WHERE {pk_cols[0]} = ?", (v1,))
+                                pulled_count += 1
+                        else:
+                            v1, v2 = row_data.get(pk_cols[0]), row_data.get(pk_cols[1])
+                            if v1 is not None and v2 is not None:
+                                conn.execute(
+                                    f"DELETE FROM {tabla} WHERE {pk_cols[0]} = ? AND {pk_cols[1]} = ?",
+                                    (v1, v2),
+                                )
+                                pulled_count += 1
+                    except sqlite3.Error as row_err:
+                        print(f"[SupabaseSync] Aviso ignorando DELETE log_id={lid} ({tabla}): {row_err}")
 
             now_iso = datetime.now().isoformat()
             conn.execute(

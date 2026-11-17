@@ -185,6 +185,12 @@ DEFAULT_CONFIG = {
             "intervalo_minutos": 60,
             "descripcion": "Análisis de consultas de recepción, buzón y movimientos para retroalimentación continua",
             "ultima_ejecucion": ""
+        },
+        "autolimpieza_bitacora_supabase_3am": {
+            "habilitado": True,
+            "hora_ejecucion": "03:00",
+            "descripcion": "Purga nocturna 03:00 AM SOLO de la cola de mensajería en Supabase (jamás toca las tablas reales ni SQLite local)",
+            "ultima_ejecucion": ""
         }
     }
 }
@@ -642,12 +648,52 @@ def ejecutar_comprobacion_contable_8am() -> Dict[str, Any]:
     except Exception as exc:
         return {"status": "WARN", "timestamp": now_iso, "error": str(exc)}
 
+def ejecutar_autolimpieza_bitacora_supabase_3am() -> Dict[str, Any]:
+    """
+    Purga nocturna (03:00 AM) SOLO de la cola de mensajería temporal en Supabase
+    (supabase_change_log y sandbox_change_log) hasta el menor cursor ya leído por ambas laptops.
+    JAMÁS borra nada de SQLite (ovalo_sistema.db) ni de las 33 tablas operativas reales.
+    """
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    print(f"[{now_iso}] Ejecutando ranura: autolimpieza_bitacora_supabase_3am...")
+    try:
+        url_hb = f"{SUPABASE_URL}/rest/v1/estado_sistema?select=clave,valor&clave=like.heartbeat_*"
+        headers = {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+            "x-hostal-sync-token": SUPABASE_SYNC_TOKEN,
+        }
+        req_hb = urllib.request.Request(url_hb, headers=headers, method="GET")
+        with urllib.request.urlopen(req_hb, timeout=15) as resp:
+            hbs = json.loads(resp.read().decode("utf-8"))
+        cursores = []
+        for row in (hbs or []):
+            val = str(row.get("valor") or "")
+            if "log=" in val:
+                part = val.split("log=")[-1].split()[0].strip()
+                if part.isdigit() and int(part) > 0:
+                    cursores.append(int(part))
+        keep_id = min(cursores) if cursores else 30931
+        url_rpc = f"{SUPABASE_URL}/rest/v1/rpc/purgar_bitacoras_transito"
+        req_rpc = urllib.request.Request(
+            url_rpc,
+            data=json.dumps({"p_keep_log_id": keep_id}).encode("utf-8"),
+            headers={**headers, "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_rpc, timeout=60) as resp_rpc:
+            out = json.loads(resp_rpc.read().decode("utf-8"))
+        return {"status": "OK", "timestamp": now_iso, "keep_log_id": keep_id, "resultado": out}
+    except Exception as exc:
+        return {"status": "WARN", "timestamp": now_iso, "error": str(exc)}
+
 DESPACHADORES_TAREAS = {
     "facturacion_diaria_sunat": ejecutar_facturacion_diaria_sunat,
     "conciliacion_yape_diaria": ejecutar_conciliacion_yape_diaria,
     "envio_wsp_comprobantes": ejecutar_envio_wsp_comprobantes,
     "captura_aprendizaje_recepcionistas": ejecutar_captura_aprendizaje_recepcionistas,
     "comprobacion_contable_8am": ejecutar_comprobacion_contable_8am,
+    "autolimpieza_bitacora_supabase_3am": ejecutar_autolimpieza_bitacora_supabase_3am,
 }
 
 # --- 4. CICLO DE EJECUCIÓN (DESPACHADOR 24/7) ---

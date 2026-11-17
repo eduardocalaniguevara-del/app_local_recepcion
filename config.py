@@ -171,8 +171,8 @@ COL_TIPO_ADICIONAL_IDX = _col_letra_a_indice(COL_TIPO_ADICIONAL)
 # --- Sincronización en Vivo con Supabase (Grupo 2 Compartido: ovalo_sistema.db <-> hostal-ovalo <-> Laptop 2) ---
 SUPABASE_ENABLED = (not _ES_CARPETA_TERRAZAS) and (not MODO_PRUEBA)
 SUPABASE_URL = "https://fmlfqupwscymosvwnnzx.supabase.co"
-# Puente de pruebas: en MODO_PRUEBA solo escribe en sandbox_change_log (jamas en las tablas reales).
-SUPABASE_SANDBOX_CONNECTED = bool(PERFIL_HOTEL.get("conectar_pruebas_supabase", True)) and MODO_PRUEBA
+# Puente de pruebas: desactivado por defecto (100% local en cada laptop, 0 consumo en Supabase).
+SUPABASE_SANDBOX_CONNECTED = bool(PERFIL_HOTEL.get("conectar_pruebas_supabase", False)) and MODO_PRUEBA
 # SHA-256 del codigo de autorizacion para promover a operativa / tocar Arnes2 (codigo: ver al titular).
 ARNES_AUTH_SHA256 = "c2f593c98b648395cc08947d97a7d4829db29ffa5c924c44ae1bc2eeac30b05c"
 SUPABASE_ANON_KEY = (
