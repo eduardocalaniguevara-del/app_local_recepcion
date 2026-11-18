@@ -50,6 +50,11 @@
       "id": "COPIAR_PLAN_ASISTENTE_DESCARGAS_L2_01",
       "target": "ovalo",
       "comando_cmd": "if exist \"C:\\Users\\ovalo mariategui\\Downloads\" (mkdir \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\" >nul 2>&1 & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion.md\" & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\\leemeantrigravityrecepcion.md\" & copy /Y \"PLAN_ASISTENTE_RECEPCION.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\PLAN_ASISTENTE_RECEPCION.md\" & copy /Y \"PLAN_ASISTENTE_RECEPCION.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\\PLAN_ASISTENTE_RECEPCION.md\") & if exist \"C:\\ovalo_mariategui_prueba\" (copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\ovalo_mariategui_prueba\\leemeantrigravityrecepcion.md\" & copy /Y \"PLAN_ASISTENTE_RECEPCION.md\" \"C:\\ovalo_mariategui_prueba\\PLAN_ASISTENTE_RECEPCION.md\")"
+    },
+    {
+      "id": "SYNC_WSP_PRUEBA_L2_A_SUPABASE_01",
+      "target": "ovalo",
+      "comando_cmd": "call _py.bat sync_wsp_supabase_l2.py"
     }
   ]
 }
