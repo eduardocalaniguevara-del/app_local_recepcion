@@ -59,7 +59,12 @@
     {
       "id": "ACTUALIZAR_DESCARGAS_Y_PRUEBA_LOCAL_L2_20261118",
       "target": "ovalo",
-      "comando_cmd": "call _py.bat instalar_arnes_laptop2.py --auto & if exist \"C:\\Users\\ovalo mariategui\\Downloads\" (mkdir \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\" >nul 2>&1 & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion.md\" & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\\leemeantrigravityrecepcion.md\" & copy /Y \"PLAN_ASISTENTE_RECEPCION.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\PLAN_ASISTENTE_RECEPCION.md\" & copy /Y \"PLAN_ASISTENTE_RECEPCION.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\\PLAN_ASISTENTE_RECEPCION.md\") & if exist \"C:\\ovalo_mariategui_prueba\" (copy /Y \"config.py\" \"C:\\ovalo_mariategui_prueba\\config.py\" & copy /Y \"supabase_sync.py\" \"C:\\ovalo_mariategui_prueba\\supabase_sync.py\" & copy /Y \"scheduler_recepcion_24x7.py\" \"C:\\ovalo_mariategui_prueba\\scheduler_recepcion_24x7.py\" & copy /Y \"instalar_arnes_laptop2.py\" \"C:\\ovalo_mariategui_prueba\\instalar_arnes_laptop2.py\" & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\ovalo_mariategui_prueba\\leemeantrigravityrecepcion.md\")"
+      "comando_cmd": "call _py.bat instalar_arnes_laptop2.py --auto & if exist \"C:\\Users\\ovalo mariategui\\Downloads\" (mkdir \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\" >nul 2>&1 & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion.md\" & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\\leemeantrigravityrecepcion.md\" & copy /Y \"PLAN_ASISTENTE_RECEPCION.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\PLAN_ASISTENTE_RECEPCION.md\" & copy /Y \"PLAN_ASISTENTE_RECEPCION.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\\PLAN_ASISTENTE_RECEPCION.md\")"
+    },
+    {
+      "id": "COPIAR_LEEME_WSP_COMPLETO_DESCARGAS_L2_20261118_02",
+      "target": "ovalo",
+      "comando_cmd": "if exist \"C:\\Users\\ovalo mariategui\\Downloads\" (mkdir \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\" >nul 2>&1 & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion.md\" & copy /Y \"leemeantrigravityrecepcion.md\" \"C:\\Users\\ovalo mariategui\\Downloads\\leemeantrigravityrecepcion\\leemeantrigravityrecepcion.md\") & call _py.bat sync_wsp_supabase_l2.py"
     }
   ]
 }

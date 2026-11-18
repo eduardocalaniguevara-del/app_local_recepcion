@@ -195,3 +195,40 @@ Porque en nuestra WebApp Local (`estancias` y `huespedes_padron`) tenemos la cas
 3. `arnes_recepcion/.agent/harness/guardrails/safety_rules.json`: Añadir regla `GR-09`.
 4. `static/PanelDisponibilidad.html`, `domain_logic.py` y `main.py`: Burbuja flotante `🤖 Copiloto Óvalo`, visor de fotos guía, confirmación en chat, botón de **Extracto del Dueño** y endpoints RPC (`consultarAsistenteRecepcion`, `confirmarMovimientoAsistente`, `obtenerExtractoDuenoAsistente`).
 
+---
+
+## 💬 8. RESUMEN INTELIGENTE DE WHATSAPP (`wsp_inteligencia.py`) Y SINCRONIZACIÓN ESPEJO ENTRE LAPTOPS EN PRUEBA (`8082 ↔ 8082`) [2026-11-18 — Commit `6dd26af`]
+
+### A. ¿Cuál fue el motivo y qué problema se resolvió?
+1. **En Laptop 1 salía `"WSP: resumen no disponible"` y no se actualizaban los mensajes:**
+   - **Causa 1 (Esquema incompleto en Supabase):** El recolector de WhatsApp en Laptop 2 (`whatsapp_mcp_recepcion/db.js` + `wsp_daemon.js`) guardaba 20 columnas en `wsp_recepcion_mensajes` (`id_mensaje`, `jid`, `remitente_jid`, `nombre_emisor`, `es_mio`, `timestamp_unix`, `tipo_mensaje`, `tiene_archivo`, `ruta_archivo`, `creado_en`), pero la tabla `wsp_recepcion_mensajes` en Supabase solo tenía las 10 columnas iniciales. Cuando Laptop 2 intentaba subir los mensajes a Supabase, Postgres devolvía `HTTP 400 Bad Request` y `supabase_sync.py` los descartaba en silencio (`0 mensajes` en Supabase).
+   - **Causa 2 (Lectura local en modo Prueba):**En Laptop 2 el entorno de prueba (`8082`) abría directamente `C:\Recepcion_Ovalo_Local\data\ovalo_sistema.db` del disco duro de Laptop 2 (`_abrir_operativa_ro()`), donde sí estaban los mensajes. En cambio, en Laptop 1 la base local tenía `0 mensajes` y en `MODO_PRUEBA` no descargaba las tablas `wsp_recepcion_*` desde Supabase.
+   - **Causa 3 (Rutas RPC en `main.py` de Prueba):** Faltaban registrar en `main.py` las 3 llamadas RPC (`obtenerAlertasWsp`, `obtenerBandejaWsp`, `actualizarResumenWspAhora`) además de la inyección en `domain_logic.py`, y el hilo `_background_wsp_worker` para los cortes programados.
+
+### B. ¿Qué cambios técnicos se aplicaron (100% en Entorno de Prueba `8082` + Supabase, sin tocar la Operativa)?
+1. **Migración en Supabase (`hostal-ovalo` — proyecto `fmlfqupwscymosvwnnzx`):**
+   - **`wsp_recepcion_mensajes`:** Se agregaron las columnas `id_mensaje` (con índice único), `jid`, `remitente_jid`, `nombre_emisor`, `es_mio`, `timestamp_unix`, `tipo_mensaje`, `tiene_archivo`, `ruta_archivo`, `creado_en`.
+   - **`wsp_recepcion_chats`:** Se agregaron `tipo`, `ultimo_mensaje`, `fecha_ultimo_mensaje`, `no_leidos`.
+   - **`wsp_recepcion_documentos`:** Se agregaron `id_mensaje`, `jid`, `tipo_archivo`, `nombre_archivo`, `ruta_local`, `metodo_extraccion`, `ruc_emisor`, `fecha_procesado`.
+   - **`wsp_recepcion_cola_envio`:** Se agregaron `telefono_o_jid`, `mensaje`, `ruta_adjunto`, `nombre_adjunto`, `detalle_error`.
+   - **Tablas nuevas en Supabase:** Se crearon `wsp_recepcion_estado` (`clave` PK, `valor`, `actualizado_en`) y `wsp_resumen_ejecutivo` (`id` PK, `fecha_hora`, `slot_horario`, `fuente_ia`, `payload_json`) con políticas RLS (`hostal_sync_policy`) y triggers `fn_log_hostal_change()`.
+2. **Puente Espejo de WhatsApp para Pruebas (`_sincronizar_espejo_wsp_modo_prueba` en `supabase_sync.py`):**
+   - Añadidas `wsp_recepcion_estado` y `wsp_resumen_ejecutivo` al catálogo `TABLAS_GRUPO2_PK` y auto-migración de columnas híbridas en SQLite (`_extra_wsp_cols`).
+   - En `MODO_PRUEBA` (`8082`), Laptop 2 sube automáticamente sus chats, mensajes, documentos, estado y cortes de `wsp_resumen_ejecutivo` a Supabase, y Laptop 1 (`8082`) los descarga en solo lectura (`extraer_datos_reales_supabase_readonly`) cada 25 segundos y cada vez que el usuario pulsa **"Actualizar resumen ahora"**.
+   - **Aislamiento garantizado:** No toca estancias, pagos, tienda ni Google Sheets.
+3. **Motor Funcional de WhatsApp (`wsp_inteligencia.py` + `main.py` + `PanelDisponibilidad.html`):**
+   - **Visor 100% Solo Lectura y Síntesis Ejecutiva:** Sin botones de envío ni plantillas que alteren conversaciones reales.
+   - **Fallback Inteligente de Base de Datos (`_recolectar_chats_clientes` y `_estado_daemon_raw`):** Si en `MODO_PRUEBA` la base operativa local de esa laptop tiene 0 mensajes (como ocurre en Laptop 1), cae automáticamente a la base SQLite de Prueba (`C:\ovalo_mariategui_prueba\data\ovalo_sistema.db`) alimentada desde Supabase.
+   - **Auto-regeneración de corte vacío:** Si el último corte en `wsp_resumen_ejecutivo` se había generado cuando aún había 0 mensajes, en cuanto entran los mensajes reales regenera el análisis automáticamente.
+   - **Cruce automático con el Hotel:** Cruza cada conversación de WhatsApp por celular de 9 dígitos, nombre de perfil (`sugerencia_wsp`), DNI/RUC, habitación y comprobantes emitidos en `estancias`, `huespedes_padron`, `empresas_padron`, `sunat_ventas` y `sunat_lineas_cache`.
+   - **Clasificación en 3 Bloques Claros en el Modal WSP:**
+     1. 🔴 **Pendientes por responder / emitir comprobante** (ej. solicitudes de factura/boleta, vouchers enviados o consultas sin respuesta de recepción).
+     2. 琥 **Recomendaciones, Notas y Acuerdos del turno** (ej. huéspedes que avisan hora de llegada, acuerdos de tarifa o recojo).
+     3. 🟢 **Atendidos y cerrados** (conversaciones donde recepción ya envió el PDF del comprobante o respondió y cerró con agradecimiento).
+   - **4 Cortes Programados al Día (`OvaloWspWorker`):** Ejecuta cortes automáticos a las `08:00`, `13:00`, `19:00` y `23:00`, más actualización manual en vivo con el botón **"Actualizar resumen ahora"**.
+
+### C. Estado Verificado en Vivo (`2026-11-18`):
+- **En Supabase y en ambas Laptops (Prueba `8082`):** `83 chats`, `238 mensajes`, `4 estados` (`CONECTADO`) y `20 cortes ejecutivos`.
+- **En Barra Superior de `http://127.0.0.1:8082`:** Muestra `WSP: 3 por responder · 7 atendidos (Corte 08:00)` con `Kata`, `Mari` e `ISA` en pendientes, 1 nota de seguimiento y 7 chats atendidos.
+
+
