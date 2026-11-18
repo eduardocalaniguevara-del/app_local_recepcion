@@ -177,7 +177,7 @@ def actualizar_entorno_prueba():
         "formula_snacks_en_s2": False,
         "app_port": 8082,
         "modo_prueba": True,
-        "conectar_pruebas_supabase": True,
+        "conectar_pruebas_supabase": False,
         "carpeta_operativa": str(DEST_L2_OPERATIVA if DEST_L2_OPERATIVA.exists() else HERE),
     }
     if perfil_path.exists():
@@ -189,9 +189,9 @@ def actualizar_entorno_prueba():
             pass
     perfil["modo_prueba"] = True
     perfil["app_port"] = 8082
-    perfil["conectar_pruebas_supabase"] = True
+    perfil["conectar_pruebas_supabase"] = False
     perfil_path.write_text(json.dumps(perfil, indent=2, ensure_ascii=False), encoding="utf-8")
-    print("Actualizado entorno de prueba conectado en", DEST_PRUEBA)
+    print("Actualizado entorno de prueba 100% local en", DEST_PRUEBA)
 
 
 def asegurar_demonio_24x7(scheduler_py: Path):

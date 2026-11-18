@@ -148,6 +148,24 @@ Porque en nuestra WebApp Local (`estancias` y `huespedes_padron`) tenemos la cas
   - Extractor Maelen BCP (49 movimientos históricos, 23 del mes), Vigilante WhatsApp +5m y Agente Revisor 08:30 AM con regla Cero Omisiones activos.
   - Vitrina Tienda con 36 turnos históricos (`h1..h36`), encabezados completos (N° conteo, responsable, fecha y hora) y columnas fijas de `145px` sin letras cortadas.
 
+### G. Optimización Definitiva de Supabase y Entorno de Prueba 100% Local (`2026-11-17 / 2026-11-18` — Commits `3f74e18`..actual):
+- **¿Por qué se hizo?**
+  1. **Consumo de Egress Bandwidth en Supabase (`> 5.5 GB`):** El entorno de pruebas (`Ovalo_Mariategui_PRUEBA`, puerto `8082`) estaba subiendo y descargando continuamente en `sandbox_change_log` (`140,074 filas` / `73 MB`) cada vez que corría el conciliador de Yape (`yape_conciliacion_hostal`) y `calzado_cache`.
+  2. **Bucle de descarga en Laptop 2 (`log_id=30931`):** La Laptop 2 estaba detenida en el cursor `30931` desde el `14/11/2026` porque unas filas intermedias en `supabase_change_log` (`hostal_documentos_ocr` con columna `procesado_en` y colisiones de `id_timestamp_str` en `estancias`) lanzaban excepción SQLite, haciendo `rollback` del lote de 500 filas y volviendo a descargar las mismas 500 filas cada 25 segundos (~1.2 GB/día).
+  3. **Esquema antiguo de `yape_conciliacion_hostal` en Supabase:** La tabla en Supabase tenía las columnas antiguas (`fecha_hora_banco`, `origen_destino`) mientras SQLite usaba las nuevas (`fecha_operacion`, `hora_operacion`, `remitente_bcp`, `monto_bcp`), provocando avisos `HTTP 400`.
+- **¿Qué se hizo exactamente (en Supabase, en Prueba `8082` y promovido a Operativa `8080`)?**
+  1. **`Ovalo_Mariategui_PRUEBA` (`8082`) ahora es 100% LOCAL (Cero Supabase):**
+     - En `config.py`, `instalar_arnes_laptop2.py` y `data/hotel_perfil.json` se fijó `"conectar_pruebas_supabase": false` y en `supabase_sync.py` se fijó `_SANDBOX = False`.
+     - En Supabase se vació `sandbox_change_log` (`0 filas` / `0 KB`) y se instaló el trigger `trg_discard_sandbox_log` (`RETURN NULL`) para que jamás vuelva a acumular datos de prueba en la nube.
+     - Toda edición o prueba en `C:\ovalo_mariategui_prueba` ocurre 100% en el disco duro local de la laptop y luego se pasa a la operativa (`C:\Recepcion_Ovalo_Local` o `app_local_recepcion`) con `Promover_a_Operativa.bat` (`promover_a_operativa.py`).
+  2. **Destrabe Total del Cursor y Filtro Anti-Rebote en `pull_from_supabase()` (`supabase_sync.py`):**
+     - Cada fila individual descargada desde `supabase_change_log` ahora se ejecuta dentro de su propio bloque `try...except sqlite3.Error`, de modo que si una fila aislada tiene una diferencia de esquema o índice, se ignora esa fila puntual sin abortar las otras 499 y el cursor `sb_last_log_id` avanza siempre.
+     - Se excluyeron de `supabase_change_log` las 3 tablas de caché recalculables (`TABLAS_SOLO_LOCAL_CACHE = {"yape_conciliacion_hostal", "calzado_cache", "sunat_lineas_cache"}`) tanto en Python como en la función `fn_log_hostal_change()` de Postgres.
+     - Se alinearon las columnas de `yape_conciliacion_hostal` en Supabase (`HTTP 200 OK`).
+  3. **Autolimpieza Nocturna 03:00 AM (`autolimpieza_bitacora_supabase_3am` en `scheduler_recepcion_24x7.py`):**
+     - Cada madrugada a las `03:00 AM` invoca la función RPC `purgar_bitacoras_transito(p_keep_log_id)` en Supabase.
+     - **Seguridad Total de Datos:** Esta limpieza borra **SOLO** los "sobres de aviso" viejos de la tabla de mensajería `supabase_change_log` que **ambas laptops ya leyeron y guardaron**. **JAMÁS toca ni borra** las 33 tablas operativas reales de Supabase ni el archivo `ovalo_sistema.db` (SQLite) de ninguna de las dos laptops.
+
 ---
 
 ## 🤖 7. PLAN PENDIENTE DE EJECUCIÓN EN LAPTOP 2: ASISTENTE DE RECEPCIÓN ("COPILOTO ÓVALO") + CONTROL ARNÉS² `GR-09` [2026-11-14]
