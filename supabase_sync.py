@@ -495,7 +495,12 @@ def push_to_supabase() -> int:
             rows_payload: List[Dict[str, Any]] = []
             if op == "UPSERT":
                 for p1, p2, _ in pk_list:
-                    if len(pk_cols) == 1:
+                    if tabla == "wsp_recepcion_mensajes":
+                        row = conn.execute(
+                            "SELECT * FROM wsp_recepcion_mensajes WHERE CAST(id AS TEXT) = ? OR CAST(id_mensaje AS TEXT) = ? LIMIT 1",
+                            (p1, p1),
+                        ).fetchone()
+                    elif len(pk_cols) == 1:
                         row = conn.execute(
                             f"SELECT * FROM {tabla} WHERE CAST({pk_cols[0]} AS TEXT) = ?",
                             (p1,),
@@ -506,7 +511,20 @@ def push_to_supabase() -> int:
                             (p1, p2),
                         ).fetchone()
                     if row is not None:
-                        rows_payload.append(dict(row))
+                        d_row = dict(row)
+                        if tabla == "wsp_recepcion_mensajes":
+                            mid = d_row.get("id") or d_row.get("id_mensaje") or p1
+                            d_row["id"] = mid
+                            d_row["id_mensaje"] = mid
+                            jid_v = d_row.get("jid") or d_row.get("chat_jid")
+                            if jid_v:
+                                d_row["jid"] = jid_v
+                                d_row["chat_jid"] = jid_v
+                            ts_v = d_row.get("timestamp_unix") or d_row.get("timestamp")
+                            if ts_v is not None:
+                                d_row["timestamp_unix"] = ts_v
+                                d_row["timestamp"] = ts_v
+                        rows_payload.append(d_row)
 
             batches_to_send.append((tabla, op, pk_cols, pk_list, rows_payload))
     finally:
@@ -674,6 +692,21 @@ def pull_from_supabase() -> int:
                             ).fetchone()
                             if loc and int(loc["dirty"] or 0) == 1:
                                 continue
+
+                        if tabla == "wsp_recepcion_mensajes":
+                            row_data = dict(row_data)
+                            mid = row_data.get("id") or row_data.get("id_mensaje")
+                            if mid:
+                                row_data["id"] = mid
+                                row_data["id_mensaje"] = mid
+                            jid_v = row_data.get("jid") or row_data.get("chat_jid")
+                            if jid_v:
+                                row_data["jid"] = jid_v
+                                row_data["chat_jid"] = jid_v
+                            ts_v = row_data.get("timestamp_unix") or row_data.get("timestamp")
+                            if ts_v is not None:
+                                row_data["timestamp_unix"] = ts_v
+                                row_data["timestamp"] = ts_v
 
                         cols_present = [c for c in valid_cols if c in row_data and row_data[c] is not None]
                         if not cols_present:
@@ -1046,20 +1079,23 @@ def _sincronizar_espejo_wsp_modo_prueba() -> int:
     """
     Decisión D3 (18/11/2026):
       - En MODO_PRUEBA (:8082) Supabase está 100% apagado (usa wsp_sheets_bridge.py contra 2026_Prueba_Ovalo).
-      - En MODO_OPERATIVO (:8080, MODO_PRUEBA=False) sincroniza las 4 tablas WSP + wsp_resumen_ejecutivo
-        entre la SQLite Operativa de Laptop 2 y la SQLite Operativa de Laptop 1 vía Supabase.
+      - En MODO_OPERATIVO (:8080, MODO_PRUEBA=False) sincroniza las 4 tablas WSP + wsp_resumen_ejecutivo:
+          * Si es Laptop 2 (Recepción): sube de su SQLite Operativa hacia Supabase.
+          * Si es Laptop 1 (Administración): descarga desde Supabase hacia su SQLite Operativa.
     """
     if MODO_PRUEBA or not SUPABASE_ENABLED:
         return 0
     total_movs = 0
-    try:
-        import wsp_inteligencia as wi
-        op_conn = wi._abrir_operativa_ro()
-    except Exception:
-        op_conn = None
+    eq_upper = str(EQUIPO_ID or "").upper()
+    es_l2 = ("LAPTOP_2" in eq_upper or "RECEPCION" in eq_upper) and ("LAPTOP_1" not in eq_upper)
 
-    # 1) Si existe base operativa local con mensajes (ej. Laptop 2), subir cualquier mensaje/chat/estado/resumen a Supabase
-    if op_conn is not None:
+    # 1) En Laptop 2 (Recepción), empujar primero cola outbox y tablas WSP locales hacia Supabase
+    if es_l2:
+        try:
+            total_movs += push_to_supabase()
+        except Exception:
+            pass
+        op_conn = get_connection()
         try:
             cnt_op = op_conn.execute("SELECT COUNT(*) FROM wsp_recepcion_mensajes").fetchone()[0]
             if cnt_op > 0:
@@ -1071,11 +1107,20 @@ def _sincronizar_espejo_wsp_modo_prueba() -> int:
                     ("wsp_recepcion_estado", "clave"),
                 ]:
                     try:
+                        valid_cols = _get_table_columns(op_conn, tabla)
+                        if not valid_cols:
+                            continue
                         rows = [dict(r) for r in op_conn.execute(f"SELECT * FROM {tabla}").fetchall()]
                         if tabla == "wsp_recepcion_mensajes":
                             for r in rows:
-                                if not r.get("id") and r.get("id_mensaje"):
-                                    r["id"] = r["id_mensaje"]
+                                mid = r.get("id") or r.get("id_mensaje")
+                                if mid:
+                                    r["id"] = mid
+                                    r["id_mensaje"] = mid
+                                jid_v = r.get("jid") or r.get("chat_jid")
+                                if jid_v:
+                                    r["jid"] = jid_v
+                                    r["chat_jid"] = jid_v
                         if rows:
                             url = f"{SUPABASE_URL}/rest/v1/{tabla}?on_conflict={conflict_col}"
                             for i in range(0, len(rows), 150):
@@ -1090,21 +1135,7 @@ def _sincronizar_espejo_wsp_modo_prueba() -> int:
                                 total_movs += len(chunk)
                     except Exception:
                         pass
-        except Exception:
-            pass
-        finally:
-            try:
-                op_conn.close()
-            except Exception:
-                pass
-
-    # Si en la SQLite local de prueba hay cortes de wsp_resumen_ejecutivo generados con mensajes reales, compartir el último
-    try:
-        conn_loc = get_connection()
-        try:
-            cnt_msg_loc = conn_loc.execute("SELECT COUNT(*) FROM wsp_recepcion_mensajes").fetchone()[0]
-            if cnt_msg_loc > 0 or op_conn is not None:
-                ult_res = conn_loc.execute(
+                ult_res = op_conn.execute(
                     "SELECT id, fecha_hora, slot_horario, fuente_ia, payload_json FROM wsp_resumen_ejecutivo ORDER BY id DESC LIMIT 3"
                 ).fetchall()
                 rows_res = [dict(r) for r in ult_res if "Sin conversaciones" not in str(r["payload_json"] or "")]
@@ -1113,16 +1144,24 @@ def _sincronizar_espejo_wsp_modo_prueba() -> int:
                     req = urllib.request.Request(
                         url,
                         data=json.dumps(rows_res, ensure_ascii=False).encode("utf-8"),
-                        headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+                        headers=headers_post,
                         method="POST",
                     )
                     urllib.request.urlopen(req, timeout=15).close()
+        except Exception:
+            pass
         finally:
-            conn_loc.close()
+            try:
+                op_conn.close()
+            except Exception:
+                pass
+        return total_movs
+
+    # 2) En Laptop 1 (Administración), descargar cambios pendientes y las 4 tablas WSP + resumen desde Supabase
+    try:
+        total_movs += pull_from_supabase()
     except Exception:
         pass
-
-    # 2) Descargar desde Supabase hacia la SQLite local de prueba (para que Laptop 1 vea lo mismo que Laptop 2)
     res_pull = extraer_datos_reales_supabase_readonly(
         [
             "wsp_recepcion_chats",
