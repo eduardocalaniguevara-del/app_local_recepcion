@@ -6872,6 +6872,15 @@ def _inyectar_rutas_en_servidor_activo() -> None:
                         import contabilidad_logic as cl
                         datos_c = cl.obtener_datos_contabilidad_local("2026-11")
                         res = [r for r in datos_c.get("calzado_rows", []) if r.get("es_inexacto")]
+                    elif method_name == "obtenerAlertasWsp":
+                        import wsp_inteligencia as wi
+                        res = wi.obtener_alertas_wsp()
+                    elif method_name == "obtenerBandejaWsp":
+                        import wsp_inteligencia as wi
+                        res = wi.obtener_bandeja_wsp()
+                    elif method_name == "actualizarResumenWspAhora":
+                        import wsp_inteligencia as wi
+                        res = wi.ejecutar_analisis_agente_wsp(forzar=True)
                     else:
                         raise HTTPException(status_code=404, detail=f"Método RPC no soportado: {method_name}")
 

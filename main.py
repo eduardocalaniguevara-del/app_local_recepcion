@@ -134,6 +134,24 @@ def _background_sync_worker() -> None:
         _run_sync_cycle(force_full=False)
 
 
+def _background_wsp_worker() -> None:
+    """Reloj programado del Resumen Ejecutivo WSP (08:00, 13:00, 19:00, 23:00 + corte inicial si la tabla
+    está vacía) y, SOLO en Operativa de Laptop 2 Recepción, vigilante del daemon wsp_daemon.js."""
+    try:
+        import wsp_inteligencia as _wi0
+        _wi0.tick_resumen_programado()
+    except Exception as exc:
+        print(f"[OvaloWspWorker] corte inicial: {exc}")
+    while not _sync_stop_event.wait(timeout=30):
+        try:
+            import wsp_inteligencia as wi
+            wi.tick_resumen_programado()
+            if not MODO_PRUEBA:
+                wi.vigilar_daemon()
+        except Exception as exc:
+            print(f"[OvaloWspWorker] {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -142,6 +160,8 @@ async def lifespan(app: FastAPI):
     init_supabase_local_triggers()
     worker = threading.Thread(target=_background_sync_worker, name="OvaloSyncWorker", daemon=True)
     worker.start()
+    wsp_worker = threading.Thread(target=_background_wsp_worker, name="OvaloWspWorker", daemon=True)
+    wsp_worker.start()
     iniciar_hilo_auto_actualizacion(intervalo_segundos=20)
     yield
     _sync_stop_event.set()
@@ -801,6 +821,15 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             import contabilidad_logic as cl
             datos_c = cl.obtener_datos_contabilidad_local("2026-11")
             res = [r for r in datos_c.get("calzado_rows", []) if r.get("es_inexacto")]
+        elif method_name == "obtenerAlertasWsp":
+            import wsp_inteligencia as wi
+            res = wi.obtener_alertas_wsp()
+        elif method_name == "obtenerBandejaWsp":
+            import wsp_inteligencia as wi
+            res = wi.obtener_bandeja_wsp()
+        elif method_name == "actualizarResumenWspAhora":
+            import wsp_inteligencia as wi
+            res = wi.ejecutar_analisis_agente_wsp(forzar=True)
         else:
             raise HTTPException(status_code=404, detail=f"Método RPC no soportado: {method_name}")
 

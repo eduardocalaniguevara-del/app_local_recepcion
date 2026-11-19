@@ -1,0 +1,969 @@
+[
+  {
+    "texto": "Buen dia Estoy a la espera de mi factura",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Buen dia  Estoy a la espera de mi factura",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Bs dias,\n\nPáseme la factura de la habitacion de Cristian Ccallo pfavor",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "BUENAS TARDES SU FACTURA ME CONFIRMA",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Buenas tardes \n\nRUC 20250975563 \n\nRazon social MAN PAN \n\nFacturas pendientes\n\nMartes 10/11/26  por una noche \n\n\n\nMircoles 11/11/26 hasta sábado 14/11/26\n\n4 días",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": "20250975563"
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Por favor emítame la factura con RUC 20601234567 a nombre de CONSORCIO SAN MARTIN SAC habitación 105",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [
+        "105"
+      ],
+      "dni": null,
+      "ruc": "20601234567"
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Buenas noches, solicito boleta electrónica a mi DNI 42198765 por la habitación 201",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [
+        "201"
+      ],
+      "dni": "42198765",
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Me envían el PDF de la factura al correo por favor, RUC 20456789012",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": "20456789012"
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Buenas tardes señorita, necesitamos factura por las dos noches en la 302",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [
+        "302"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Buenos días, por favor me emiten la boleta de la habitación 207, DNI 70123456",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [
+        "207"
+      ],
+      "dni": "70123456",
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Hola, necesito factura con RUC 10457641112 hab 306 por favor",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [
+        "306"
+      ],
+      "dni": null,
+      "ruc": "10457641112"
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Señorita, ¿ya emitieron la factura electrónica a nombre de Transportes del Sur?",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "¿Dan factura o boleta por el hospedaje?",
+    "tipo_mensaje": "texto",
+    "etiqueta": "COMPROBANTE",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Una abitacion de 50 tiene",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Cuenta con habitación matrimonial para el día 13",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Precio",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Cuenta con Netflix?",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Check in y Check out qué hora es",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Cual es el costo",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Somos 2 personas",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Baño privado.",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Para realizar la reserva",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Para el 13.",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Estaré llegando en la noche de mñn",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Simple",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Vaya, sabia quedarme con 30",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Quiero",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "El simple",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Me das una",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Lo tomare",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Buen dia.\n\nPor favor reserveme una habitación estoy viajando a moquegua hoy..\n\nGracias.",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Una habitación simple",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Buen dia.\n\nPor favor reserveme la habitacion estoy viajando hoy llegare a las 12",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Bs tardes,\n\nPara hoy necesito una habitacion con baño compartido, solo 1 persona\n\nLuis Loardo\nMe confirmas pfavor",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Y disponen de la otra habitacion libre con baño privado? Para 1",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Habitación matrimonial cómodo",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Me la puede separa dentro de 40 minutos estoy llendo",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Buenos días, quiero separar una habitación matrimonial para hoy en la noche",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Hola, ¿cuánto cuesta la habitación simple por noche? ¿Tienen disponibilidad?",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Quisiera reservar una habitación doble con baño privado para 2 personas el sábado",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Buenas noches, ¿tienen habitación con tina disponible para el fin de semana?",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RESERVA",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Soy 304",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [
+        "304"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Dele la llave",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Todvia no an venido nadies cuando venga le digo q me de la llave",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Va preguntar 406",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [
+        "406"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Le hace pasar porfa",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "406",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [
+        "406"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Por favor me podrían subir 2 toallas limpias a la habitación 207?",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [
+        "207"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "En la 103 no sale agua caliente, ¿pueden revisar la terma?",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [
+        "103"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Buenas tardes, me abre la cochera por favor, soy el huésped de la 104",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [
+        "104"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Por favor que pase mi visita a la 206, DNI 74118293",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [
+        "206"
+      ],
+      "dni": "74118293",
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Señorita, dejé la llave dentro del cuarto 306, ¿me pueden abrir?",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [
+        "306"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Buenas noches recepción, me pueden traer un agua sin gas a la 307?",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [
+        "307"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Favor realizar la limpieza y cambio de sábanas en la habitación 309",
+    "tipo_mensaje": "texto",
+    "etiqueta": "HABITACION",
+    "entidades_esperadas": {
+      "habs": [
+        "309"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Número a donde pagar",
+    "tipo_mensaje": "texto",
+    "etiqueta": "VOUCHER",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "O llegando pago",
+    "tipo_mensaje": "texto",
+    "etiqueta": "VOUCHER",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "[Imagen]",
+    "tipo_mensaje": "imagen",
+    "etiqueta": "VOUCHER",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Yo le pagué a la dueña por los 4 días y el igv antes de irme",
+    "tipo_mensaje": "texto",
+    "etiqueta": "VOUCHER",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Ya te yapeé los 75 soles de la matrimonial, aquí la constancia",
+    "tipo_mensaje": "texto",
+    "etiqueta": "VOUCHER",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Listo ya transferí los 80 soles por BCP número de operación 04213999",
+    "tipo_mensaje": "texto",
+    "etiqueta": "VOUCHER",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Acabo de plinear S/ 55 a Maelen Hogar, me confirma si llegó",
+    "tipo_mensaje": "texto",
+    "etiqueta": "VOUCHER",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Aquí le envío el comprobante de pago de la reserva",
+    "tipo_mensaje": "texto",
+    "etiqueta": "VOUCHER",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Ya deposité a la cuenta del banco los 150 soles",
+    "tipo_mensaje": "texto",
+    "etiqueta": "VOUCHER",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Amiga te yapeo los 60 soles del cuarto, confírmame por favor",
+    "tipo_mensaje": "texto",
+    "etiqueta": "VOUCHER",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Ok, gracias de todos modos",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "[Sticker]",
+    "tipo_mensaje": "sticker",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Buenas noches:",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Conforme",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Muchas gracias.",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Buenos dias",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Señorita",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Porfa",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Un ratito",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Ok",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "De nada señorita, buen día",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Listo muchas gracias",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Hola qué tal",
+    "tipo_mensaje": "texto",
+    "etiqueta": "RUIDO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  },
+  {
+    "texto": "Respondan",
+    "tipo_mensaje": "texto",
+    "etiqueta": "INTERNO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "El wsp",
+    "tipo_mensaje": "texto",
+    "etiqueta": "INTERNO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Ella dió 100 soles",
+    "tipo_mensaje": "texto",
+    "etiqueta": "INTERNO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Eso es culpa del Sr calani",
+    "tipo_mensaje": "texto",
+    "etiqueta": "INTERNO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "[Audio / Nota de voz]",
+    "tipo_mensaje": "audio",
+    "etiqueta": "INTERNO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Revisa el movimiento",
+    "tipo_mensaje": "texto",
+    "etiqueta": "INTERNO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "De que dia fue y la hora",
+    "tipo_mensaje": "texto",
+    "etiqueta": "INTERNO",
+    "entidades_esperadas": {
+      "habs": [],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "REAL"
+  },
+  {
+    "texto": "Eduardo, confirma si el huésped de la 105 ya pagó la extensión",
+    "tipo_mensaje": "texto",
+    "etiqueta": "INTERNO",
+    "entidades_esperadas": {
+      "habs": [
+        "105"
+      ],
+      "dni": null,
+      "ruc": null
+    },
+    "origen": "SINTETICO"
+  }
+]

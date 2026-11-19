@@ -145,6 +145,29 @@
       font-size: 12px;
       line-height: 1.35;
     }
+    /* =========================================================================
+       VISOR WSP SOLO LECTURA (barra superior) + MODAL RESUMEN EJECUTIVO IA
+       ========================================================================= */
+    #wspBarraPestanas > button,
+    #wspBarraPestanas #tabVistaEstanciasBD {
+      padding-left: 0.5rem !important;
+      padding-right: 0.5rem !important;
+    }
+    #wspTicker { line-height: 1.1; }
+    #wspTicker.wsp-nivel-INICIAL { background: #F8FAFC; border-color: #CBD5E1; color: #64748B; }
+    #wspTicker.wsp-nivel-OK { background: #F0FDF4; border-color: #BBF7D0; color: #166534; font-weight: 700; }
+    #wspTicker.wsp-nivel-OK:hover { background: #DCFCE7; }
+    #wspTicker.wsp-nivel-AMBAR { background: #FEF3C7; border-color: #F59E0B; color: #78350F; border-width: 2px; }
+    #wspTicker.wsp-nivel-AMBAR:hover { background: #FDE68A; }
+    #wspTicker.wsp-nivel-ROJO { background: #DC2626; border-color: #7F1D1D; color: #FFFFFF; border-width: 2px; }
+    #wspTicker.wsp-nivel-ROJO:hover { background: #B91C1C; }
+    #wspTicker.wsp-nivel-SIN_CONEXION { background: #E2E8F0; border-color: #94A3B8; color: #334155; }
+    #wspTicker.wsp-nivel-ERROR { background: #F8FAFC; border-color: #E2E8F0; color: #94A3B8; font-weight: 600; }
+    #modalWspBandeja .wsp-burbuja { max-width: 88%; white-space: pre-wrap; word-break: break-word; }
+    #modalWspBandeja .wsp-burbuja-cli { background: #F1F5F9; border: 1px solid #E2E8F0; color: #0F172A; border-radius: 10px 10px 10px 2px; }
+    #modalWspBandeja .wsp-burbuja-rec { background: #DCFCE7; border: 1px solid #BBF7D0; color: #14532D; border-radius: 10px 10px 2px 10px; margin-left: auto; }
+    #modalWspBandeja details.wsp-details > summary { list-style: none; cursor: pointer; user-select: none; }
+    #modalWspBandeja details.wsp-details > summary::-webkit-details-marker { display: none; }
   </style>
 </head>
 <body class="h-screen flex flex-col text-slate-800 p-1.5 sm:p-2 text-xs overflow-hidden" style="background-color: #F7EFEA;">
@@ -295,6 +318,16 @@
         <span>📱 Yapes</span>
       </button>
     </div>
+
+    <!-- VISOR RESUMEN EJECUTIVO WSP (centro de la barra, 100 % solo lectura) -->
+    <button type="button" id="wspTicker" onclick="abrirModalWspBandeja()"
+            class="wsp-ticker wsp-nivel-INICIAL flex-1 min-w-[220px] max-w-[560px] mx-auto h-[28px] rounded-lg border px-2 flex items-center gap-2 text-xs font-black overflow-hidden cursor-pointer transition-colors"
+            title="Resumen Ejecutivo de WhatsApp (solo lectura) — clic para abrir los 3 bloques">
+      <span id="wspTickerIcono" class="shrink-0">💬</span>
+      <span id="wspTickerBadge" class="shrink-0 px-1.5 rounded bg-white/90 text-slate-800 hidden">0</span>
+      <span id="wspTickerTexto" class="truncate min-w-0">WSP: cargando resumen…</span>
+      <span id="wspTickerEspera" class="ml-auto shrink-0 text-[10.5px] font-bold"></span>
+    </button>
 
     <!-- Botones de Visita y Cuentas por Habitación exactamente encima del carrito 🛒 de Venta Tienda -->
     <div class="ml-auto shrink-0 inline-flex items-center gap-1.5">
@@ -11578,6 +11611,814 @@
       window.cambiarVista('contabilidad');
     }
   }, 500);
+})();
+</script>
+<!-- =====================================================================================
+     MODAL RESUMEN EJECUTIVO WSP (100 % SOLO LECTURA — Agente Analista IA por horarios)
+     ===================================================================================== -->
+<div id="modalWspBandeja" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs hidden items-center justify-center z-50 p-3"
+     onclick="if(event.target===this) cerrarModalWspBandeja()">
+  <div class="bg-white rounded-xl shadow-2xl w-[92vw] max-w-[1540px] h-[90vh] border border-slate-300 overflow-hidden flex flex-col relative">
+    <!-- Cabecera oscura limpia -->
+    <div class="px-4 py-2.5 bg-slate-900 text-white flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="text-lg shrink-0">📊</span>
+        <div class="min-w-0">
+          <h3 class="font-extrabold text-[13px] leading-tight">Resumen Inteligente de WhatsApp (Solo Recepción)</h3>
+          <p class="text-[10px] text-slate-300">100 % lectura · sin envío de mensajes · cruce con estancias y SUNAT</p>
+        </div>
+      </div>
+      <span id="wspModalEstado" class="text-[10.5px] font-black px-2 py-0.5 rounded bg-slate-700 text-slate-200 shrink-0">…</span>
+      <span id="wspModalHorario" class="text-[10.5px] font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">Último corte: — · Próximo: — (08:00 · 13:00 · 19:00 · 23:00)</span>
+      <span id="wspModalFuenteIa" class="hidden text-[10px] font-bold px-2 py-0.5 rounded bg-slate-800 text-amber-200 border border-slate-600 shrink-0"></span>
+      <div class="ml-auto flex items-center gap-2 shrink-0">
+        <button type="button" id="wspBtnActualizarAhora" onclick="wspActualizarAhora()"
+                class="text-[11px] font-black px-2.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-xs cursor-pointer transition-colors">🔄 Actualizar resumen ahora</button>
+        <button type="button" onclick="cerrarModalWspBandeja()" class="text-slate-400 hover:text-white text-lg font-bold p-1 cursor-pointer" title="Cerrar (Esc)">✕</button>
+      </div>
+    </div>
+
+    <!-- Franja superior suave con síntesis general del turno -->
+    <div id="wspResumenTurnoBar" class="px-4 py-2 bg-amber-50/70 border-b border-[#DFD2C5] flex flex-wrap items-center gap-2 text-xs">
+      <span class="font-extrabold text-amber-900 shrink-0">🧭 Síntesis del turno:</span>
+      <span id="wspResumenGeneralTexto" class="font-semibold text-slate-800 flex-1 min-w-[220px]">Cargando el último corte ejecutivo…</span>
+      <div id="wspResumenContadores" class="flex flex-wrap items-center gap-1.5 text-[11px] font-black"></div>
+    </div>
+
+    <!-- Aviso de análisis IA en curso -->
+    <div id="wspAnalizandoBanner" class="hidden px-4 py-2 bg-sky-50 border-b border-sky-200 text-sky-900 text-xs font-extrabold items-center gap-2">
+      <span>⏳</span>
+      <span>Analizando conversaciones con IA… esto puede tardar unos segundos.</span>
+    </div>
+
+    <!-- Vista única ejecutiva con los 3 bloques -->
+    <div id="wspBandejaLista" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-5 bg-[#FAF6F3] text-xs"></div>
+  </div>
+</div>
+<div id="wspToast" class="hidden fixed bottom-4 left-1/2 -translate-x-1/2 px-3.5 py-2 rounded-lg text-xs font-black shadow-lg" style="z-index: 70;"></div>
+
+<script>
+/* ==========================================================================================
+   RESUMEN EJECUTIVO WSP 100 % SOLO LECTURA (prefijo wsp).
+   Consume únicamente: obtenerAlertasWsp · obtenerBandejaWsp · actualizarResumenWspAhora.
+   Cero envío de mensajes, cero plantillas, cero simulador. Todo texto externo se escapa (XSS).
+   ========================================================================================== */
+(function () {
+  'use strict';
+
+  var WSP_POLL_MS = 10000;
+  var WSP_REFRESCO_MODAL_MS = 30000;
+
+  var WSP = {
+    alerta: null,
+    errorAlerta: false,
+    pollEnCurso: false,
+    pollInicio: 0,
+    datos: null,
+    bandejaEnCurso: false,
+    actualizando: false,
+    ultimoRefrescoModal: 0,
+    ultimoCorteVisto: ''
+  };
+
+  var WSP_TIPO_CHIP = {
+    COMPROBANTE: { ico: '🧾', lbl: 'Comprobante', cls: 'bg-sky-100 text-sky-900 border-sky-300' },
+    RESERVA:     { ico: '🛏️', lbl: 'Reserva',     cls: 'bg-violet-100 text-violet-900 border-violet-300' },
+    HABITACION:  { ico: '🔔', lbl: 'Habitación',  cls: 'bg-amber-100 text-amber-900 border-amber-300' },
+    PAGO:        { ico: '💳', lbl: 'Pago / Voucher', cls: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
+    VOUCHER:     { ico: '💳', lbl: 'Voucher',     cls: 'bg-emerald-100 text-emerald-900 border-emerald-300' }
+  };
+
+  var WSP_NOTA_CHIP = {
+    RECLAMO:        { ico: '🚨', lbl: 'Reclamo',        cls: 'bg-rose-100 text-rose-900 border-rose-300', borde: 'border-rose-300 bg-rose-50/40' },
+    RECOMENDACION:  { ico: '💡', lbl: 'Recomendación',  cls: 'bg-amber-100 text-amber-900 border-amber-300', borde: 'border-amber-300 bg-amber-50/40' },
+    ACUERDO:        { ico: '🤝', lbl: 'Acuerdo',        cls: 'bg-sky-100 text-sky-900 border-sky-300', borde: 'border-sky-300 bg-sky-50/40' }
+  };
+
+  // ---------------------------------------------------------------- utilidades
+  function wspEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"'`]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[c];
+    });
+  }
+  function wspNum(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+  function wspMontoTexto(v) {
+    if (v === null || v === undefined || v === '') return '—';
+    if (typeof v === 'string' && v.trim().indexOf('S/') === 0) return v.trim();
+    var n = Number(v);
+    return isFinite(n) ? ('S/ ' + n.toFixed(2)) : String(v);
+  }
+  function wspEl(id) { return document.getElementById(id); }
+
+  function wspTipoMeta(t) {
+    var k = String(t || '').toUpperCase().trim();
+    return WSP_TIPO_CHIP[k] || { ico: '💬', lbl: t ? String(t) : 'Consulta', cls: 'bg-slate-100 text-slate-800 border-slate-300' };
+  }
+
+  function wspNotaMeta(t) {
+    var k = String(t || '').toUpperCase().trim();
+    if (k.indexOf('RECLAM') >= 0 || k.indexOf('QUEJ') >= 0) return WSP_NOTA_CHIP.RECLAMO;
+    if (k.indexOf('ACUERD') >= 0 || k.indexOf('ENCARG') >= 0) return WSP_NOTA_CHIP.ACUERDO;
+    if (k.indexOf('RECOM') >= 0 || k.indexOf('SUGER') >= 0) return WSP_NOTA_CHIP.RECOMENDACION;
+    return { ico: '📌', lbl: t ? String(t) : 'Nota', cls: 'bg-slate-100 text-slate-800 border-slate-300', borde: 'border-slate-200 bg-white' };
+  }
+
+  function wspRpc(method, args, ok, fail) {
+    if (typeof window.callContabilidadRpc === 'function') {
+      return window.callContabilidadRpc(method, args, ok, fail);
+    }
+    fetch('/api/rpc/' + method, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ args: args || [] })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.rpcError) throw new Error(d.error || d.detail || 'RPC Error');
+        if (ok) ok((d && d.result !== undefined) ? d.result : d);
+      })
+      .catch(function (e) { if (fail) fail(e); });
+  }
+
+  function wspRespuestaFallida(res) {
+    if (!res || typeof res !== 'object') return 'Respuesta vacía';
+    if (res.ok === false) return res.error || res.mensaje || res.msg || 'Operación rechazada';
+    if (res.detail && !res.nivel && !res.pendientes_responder) return String(res.detail);
+    if (res.error && !res.nivel && !res.pendientes_responder && res.ok !== true) return String(res.error);
+    return '';
+  }
+
+  var wspToastTimer = null;
+  function wspToast(msg, tipo) {
+    var t = wspEl('wspToast');
+    if (!t) return;
+    t.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 px-3.5 py-2 rounded-lg text-xs font-black shadow-lg border ' +
+      (tipo === 'error' ? 'bg-rose-50 text-rose-900 border-rose-300' :
+       tipo === 'info' ? 'bg-sky-50 text-sky-900 border-sky-300' :
+       'bg-emerald-50 text-emerald-900 border-emerald-300');
+    t.textContent = msg;
+    t.classList.remove('hidden');
+    clearTimeout(wspToastTimer);
+    wspToastTimer = setTimeout(function () { t.classList.add('hidden'); }, 4500);
+  }
+
+  // ---------------------------------------------------------------- barra superior (#wspTicker)
+  function wspNivelTicker(nivel) {
+    var btn = wspEl('wspTicker');
+    if (!btn) return;
+    btn.className = btn.className.replace(/\bwsp-nivel-[A-Z_]+\b/g, '').trim() + ' wsp-nivel-' + nivel;
+  }
+
+  function wspPintarTicker() {
+    var btn = wspEl('wspTicker');
+    if (!btn) return;
+    var ico = wspEl('wspTickerIcono'), badge = wspEl('wspTickerBadge'),
+        txt = wspEl('wspTickerTexto'), esp = wspEl('wspTickerEspera');
+    var a = WSP.alerta;
+
+    if (WSP.errorAlerta || !a) {
+      wspNivelTicker('ERROR');
+      ico.textContent = '💬';
+      badge.classList.add('hidden');
+      txt.textContent = 'WSP: resumen no disponible';
+      esp.textContent = '';
+      btn.title = 'No se pudo consultar el resumen de WhatsApp (se reintenta cada 10 s). Clic para abrir el visor.';
+      return;
+    }
+
+    var nivel = String(a.nivel || 'OK').toUpperCase();
+    if (['OK', 'AMBAR', 'ROJO', 'SIN_CONEXION'].indexOf(nivel) < 0) {
+      nivel = wspNum(a.pendientes !== undefined ? a.pendientes : a.pendientes_count) > 0 ? 'AMBAR' : 'OK';
+    }
+    var pend = wspNum(a.pendientes !== undefined ? a.pendientes : a.pendientes_count);
+    var atend = wspNum(a.atendidos !== undefined ? a.atendidos : a.atendidos_count);
+    var recom = wspNum(a.recomendaciones !== undefined ? a.recomendaciones : a.recomendaciones_count);
+    var corte = a.ultimo_corte_hora ? String(a.ultimo_corte_hora) : '';
+
+    wspNivelTicker(nivel);
+    ico.textContent = (nivel === 'SIN_CONEXION') ? '📵' : '💬';
+
+    if (pend > 0) {
+      badge.textContent = String(pend);
+      badge.className = 'shrink-0 px-1.5 rounded font-black ' +
+        (nivel === 'ROJO' ? 'bg-white text-red-700' : 'bg-amber-600 text-white');
+    } else {
+      badge.classList.add('hidden');
+    }
+
+    var titular = a.titular_barra ? String(a.titular_barra).trim() : '';
+    if (!titular) {
+      if (nivel === 'SIN_CONEXION') {
+        titular = 'WhatsApp desconectado / revisar conexión';
+      } else if (pend > 0) {
+        titular = 'WSP: ' + pend + ' por responder · ' + atend + ' atendidos' + (corte ? ' (Corte ' + corte + ')' : '');
+      } else {
+        titular = 'WSP al día · ' + atend + ' chats resumidos' + (corte ? ' (' + corte + ')' : '');
+      }
+    }
+    txt.textContent = titular;
+
+    var angosto = btn.offsetWidth && btn.offsetWidth < 360;
+    if (!angosto && corte && titular.indexOf(corte) < 0 && nivel !== 'SIN_CONEXION') {
+      esp.textContent = 'Corte ' + corte;
+    } else {
+      esp.textContent = '';
+    }
+
+    var lineasTitle = [titular];
+    if (a.resumen_general) lineasTitle.push('Síntesis: ' + a.resumen_general);
+    lineasTitle.push('Pendientes: ' + pend + ' · Notas/Acuerdos: ' + recom + ' · Atendidos: ' + atend);
+    if (corte || a.proximo_corte_hora) {
+      lineasTitle.push('Último corte: ' + (corte || '—') + (a.ultimo_corte_fecha ? ' (' + a.ultimo_corte_fecha + ')' : '') +
+        (a.proximo_corte_hora ? ' · Próximo: ' + a.proximo_corte_hora : ''));
+    }
+    if (a.estado_daemon) lineasTitle.push('Recepción WSP: ' + a.estado_daemon);
+    lineasTitle.push('Clic para abrir el Resumen Inteligente de WhatsApp');
+    btn.title = lineasTitle.join('\n');
+  }
+
+  function wspCargarAlertas(forzar) {
+    if (document.hidden && !forzar) return;
+    if (WSP.pollEnCurso && (Date.now() - WSP.pollInicio) < 20000) return;
+    WSP.pollEnCurso = true;
+    WSP.pollInicio = Date.now();
+    wspRpc('obtenerAlertasWsp', [], function (res) {
+      WSP.pollEnCurso = false;
+      var err = wspRespuestaFallida(res);
+      if (!res || typeof res !== 'object' || err) {
+        WSP.errorAlerta = true;
+        wspPintarTicker();
+        return;
+      }
+      WSP.errorAlerta = false;
+      WSP.alerta = res;
+      wspPintarTicker();
+      wspPintarCabeceraModal();
+      var marcaCorte = String(res.ultimo_corte_fecha || '') + ' ' + String(res.ultimo_corte_hora || '') + '#' + String(res.pendientes || 0);
+      if (wspModalAbierto() && !WSP.actualizando) {
+        if ((WSP.ultimoCorteVisto && marcaCorte !== WSP.ultimoCorteVisto) ||
+            (Date.now() - WSP.ultimoRefrescoModal) > WSP_REFRESCO_MODAL_MS) {
+          wspCargarBandeja(false);
+        }
+      }
+      WSP.ultimoCorteVisto = marcaCorte;
+    }, function () {
+      WSP.pollEnCurso = false;
+      WSP.errorAlerta = true;
+      wspPintarTicker();
+    });
+  }
+
+  // ---------------------------------------------------------------- modal ejecutivo
+  function wspModalAbierto() {
+    var m = wspEl('modalWspBandeja');
+    return !!(m && !m.classList.contains('hidden'));
+  }
+
+  window.abrirModalWspBandeja = function () {
+    var m = wspEl('modalWspBandeja');
+    if (!m) return;
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+    wspPintarCabeceraModal();
+    if (WSP.datos) wspRenderModal();
+    wspCargarBandeja(!WSP.datos);
+  };
+
+  window.cerrarModalWspBandeja = function () {
+    var m = wspEl('modalWspBandeja');
+    if (!m) return;
+    m.classList.add('hidden');
+    m.classList.remove('flex');
+  };
+
+  function wspNormalizarDatos(res) {
+    if (!res || typeof res !== 'object') return null;
+    return {
+      estado_daemon: res.estado_daemon || (WSP.alerta && WSP.alerta.estado_daemon) || '',
+      ultimo_corte_hora: res.ultimo_corte_hora || (WSP.alerta && WSP.alerta.ultimo_corte_hora) || '',
+      ultimo_corte_fecha: res.ultimo_corte_fecha || (WSP.alerta && WSP.alerta.ultimo_corte_fecha) || '',
+      proximo_corte_hora: res.proximo_corte_hora || (WSP.alerta && WSP.alerta.proximo_corte_hora) || '',
+      fuente_ia: res.fuente_ia || '',
+      horarios_fijos: Array.isArray(res.horarios_fijos) && res.horarios_fijos.length ? res.horarios_fijos : ['08:00', '13:00', '19:00', '23:00'],
+      resumen_general_turno: res.resumen_general_turno || res.resumen_general || (WSP.alerta && WSP.alerta.resumen_general) || '',
+      pendientes_responder: Array.isArray(res.pendientes_responder) ? res.pendientes_responder : [],
+      recomendaciones_y_notas: Array.isArray(res.recomendaciones_y_notas) ? res.recomendaciones_y_notas : [],
+      atendidos_y_gracias: Array.isArray(res.atendidos_y_gracias) ? res.atendidos_y_gracias : []
+    };
+  }
+
+  function wspPintarCabeceraModal() {
+    var d = WSP.datos || {};
+    var a = WSP.alerta || {};
+    var est = wspEl('wspModalEstado');
+    if (est) {
+      var ed = String(d.estado_daemon || a.estado_daemon || '').trim();
+      var con = ed.toUpperCase() === 'CONECTADO';
+      if (!ed && WSP.errorAlerta) {
+        est.textContent = '⚠️ Sin datos';
+        est.className = 'text-[10.5px] font-black px-2 py-0.5 rounded bg-slate-600 text-slate-100';
+      } else if (con) {
+        est.textContent = '🟢 Conectado';
+        est.className = 'text-[10.5px] font-black px-2 py-0.5 rounded bg-emerald-600 text-white';
+      } else {
+        est.textContent = '📵 Desconectado' + (ed ? ' (' + ed + ')' : '');
+        est.className = 'text-[10.5px] font-black px-2 py-0.5 rounded bg-rose-600 text-white';
+      }
+    }
+
+    var hor = wspEl('wspModalHorario');
+    if (hor) {
+      var ult = d.ultimo_corte_hora || a.ultimo_corte_hora || '—';
+      var fec = d.ultimo_corte_fecha || a.ultimo_corte_fecha || '';
+      var prox = d.proximo_corte_hora || a.proximo_corte_hora || '—';
+      var fijos = (d.horarios_fijos && d.horarios_fijos.length) ? d.horarios_fijos.join(' · ') : '08:00 · 13:00 · 19:00 · 23:00';
+      hor.textContent = 'Último corte: ' + ult + ' · Próximo: ' + prox + ' (' + fijos + ')';
+      hor.title = (fec ? 'Fecha del último corte: ' + fec + ' — ' : '') + 'Horarios automáticos: ' + fijos;
+    }
+
+    var fia = wspEl('wspModalFuenteIa');
+    if (fia) {
+      var fuente = String(d.fuente_ia || '').trim();
+      if (fuente) {
+        fia.textContent = '🤖 ' + fuente;
+        fia.classList.remove('hidden');
+      } else {
+        fia.classList.add('hidden');
+      }
+    }
+
+    var btnAct = wspEl('wspBtnActualizarAhora');
+    var ban = wspEl('wspAnalizandoBanner');
+    if (btnAct) {
+      btnAct.disabled = !!WSP.actualizando;
+      btnAct.textContent = WSP.actualizando ? '⏳ Analizando conversaciones con IA...' : '🔄 Actualizar resumen ahora';
+      btnAct.classList.toggle('opacity-75', !!WSP.actualizando);
+    }
+    if (ban) {
+      ban.classList.toggle('hidden', !WSP.actualizando);
+      ban.classList.toggle('flex', !!WSP.actualizando);
+    }
+  }
+
+  window.wspCargarBandeja = function (mostrarCargando) {
+    var lista = wspEl('wspBandejaLista');
+    if (!lista || WSP.bandejaEnCurso) return;
+    WSP.bandejaEnCurso = true;
+    WSP.ultimoRefrescoModal = Date.now();
+    if (mostrarCargando && !WSP.datos) {
+      lista.innerHTML = '<div class="text-center text-slate-500 font-bold py-12">⏳ Cargando resumen ejecutivo de WhatsApp…</div>';
+    }
+    wspRpc('obtenerBandejaWsp', [], function (res) {
+      WSP.bandejaEnCurso = false;
+      var err = wspRespuestaFallida(res);
+      var d = wspNormalizarDatos(res);
+      if (!d || err) {
+        lista.innerHTML = '<div class="text-center text-rose-700 font-bold py-10">⚠️ No se pudo cargar el resumen: ' + wspEsc(err || 'respuesta inválida') + '</div>';
+        return;
+      }
+      WSP.datos = d;
+      wspPintarCabeceraModal();
+      wspRenderModal();
+    }, function (e) {
+      WSP.bandejaEnCurso = false;
+      lista.innerHTML = '<div class="text-center text-rose-700 font-bold py-10">⚠️ Error al consultar el resumen (' + wspEsc(e && e.message ? e.message : 'red') + '). Use "🔄 Actualizar resumen ahora".</div>';
+    });
+  };
+
+  window.wspActualizarAhora = function () {
+    if (WSP.actualizando) return;
+    WSP.actualizando = true;
+    wspPintarCabeceraModal();
+    wspRpc('actualizarResumenWspAhora', [], function (res) {
+      WSP.actualizando = false;
+      var err = wspRespuestaFallida(res);
+      var d = wspNormalizarDatos(res);
+      if (!d || err) {
+        wspPintarCabeceraModal();
+        wspToast('❌ No se pudo regenerar el resumen: ' + (err || 'respuesta inválida'), 'error');
+        return;
+      }
+      WSP.datos = d;
+      WSP.ultimoRefrescoModal = Date.now();
+      wspPintarCabeceraModal();
+      wspRenderModal();
+      wspCargarAlertas(true);
+      wspToast('✅ Resumen ejecutivo actualizado (' + (d.ultimo_corte_hora || 'ahora') + ')', 'ok');
+    }, function (e) {
+      WSP.actualizando = false;
+      wspPintarCabeceraModal();
+      wspToast('❌ Error al actualizar el resumen: ' + (e && e.message ? e.message : 'red'), 'error');
+    });
+  };
+
+  // ---------------------------------------------------------------- render de los 3 bloques
+  function wspRenderBurbujas(mensajes) {
+    var msgs = Array.isArray(mensajes) ? mensajes : [];
+    if (!msgs.length) {
+      return '<div class="text-[11px] text-slate-400 italic py-1">Sin mensajes literales adjuntos en este corte.</div>';
+    }
+    var h = '<div class="mt-2 p-2.5 rounded-lg bg-white border border-slate-200 flex flex-col gap-1.5 max-h-[260px] overflow-y-auto">';
+    msgs.forEach(function (mm) {
+      var mio = mm.es_mio === 1 || mm.es_mio === true || mm.es_mio === '1';
+      var tipo = String(mm.tipo || '').toLowerCase();
+      var cuerpo = mm.texto ? String(mm.texto) : (tipo && tipo !== 'texto' && tipo !== 'conversation' ? '[' + tipo + ']' : '');
+      h += '<div class="wsp-burbuja ' + (mio ? 'wsp-burbuja-rec' : 'wsp-burbuja-cli') + ' px-2.5 py-1.5 text-[11.5px]">' +
+           wspEsc(cuerpo) +
+           '<div class="text-[9.5px] ' + (mio ? 'text-emerald-700' : 'text-slate-400') + ' text-right mt-0.5">' +
+           (mio ? 'Recepción' : 'Cliente') + (mm.hora ? ' · ' + wspEsc(mm.hora) : '') + '</div></div>';
+    });
+    h += '</div>';
+    return h;
+  }
+
+  function wspFilaFicha(etq, val, clsVal) {
+    var txt = (val === undefined || val === null || val === '' || val === '-') ? '—' : String(val);
+    return '<div class="flex justify-between gap-2 py-0.5 border-b border-slate-100">' +
+           '<span class="text-slate-500 text-[10.5px]">' + wspEsc(etq) + '</span>' +
+           '<span class="font-bold text-right ' + (clsVal || 'text-slate-900') + '">' + wspEsc(txt) + '</span></div>';
+  }
+
+  function wspExtraerSugerencia(it) {
+    var sug = (it && it.sugerencia_wsp && typeof it.sugerencia_wsp === 'object') ? it.sugerencia_wsp : {};
+    var raw = (it && it.cruce && typeof it.cruce === 'object') ? it.cruce : {};
+    var perfil = String(sug.perfil_wsp || it.perfil_wsp || '').trim();
+    if (!/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(perfil)) perfil = '';
+    var emp = String(sug.empresa_sugerida || raw.empresa_sugerida || '').trim();
+    var rucSug = String(raw.ruc_sugerido || sug.ruc_sugerido || '').trim();
+    if (rucSug && emp && emp.indexOf(rucSug) < 0) emp += ' (RUC ' + rucSug + ')';
+    else if (rucSug && !emp) emp = 'RUC ' + rucSug;
+    var cands = Array.isArray(sug.estancias_sugeridas) ? sug.estancias_sugeridas : [];
+    return { perfil: perfil, empresa: emp, estancias: cands };
+  }
+
+  function wspRenderEstanciasSugeridas(cands) {
+    if (!cands || !cands.length) return '';
+    var h = '<div class="mt-2 rounded-lg border border-amber-300 bg-amber-50/80 px-2.5 py-2 text-[11px] text-amber-950 space-y-1">' +
+            '<div class="font-black text-amber-900">💡 Posible huésped según nombre de WhatsApp:</div>';
+    cands.slice(0, 3).forEach(function (c) {
+      var partes = [];
+      if (c.huesped) partes.push(String(c.huesped));
+      if (c.dni) partes.push('DNI ' + c.dni);
+      if (c.hab) partes.push('Hab ' + c.hab);
+      if (c.fecha) partes.push(String(c.fecha));
+      if (c.pagado !== undefined && c.pagado !== null && c.pagado !== '') partes.push('Pagado ' + wspMontoTexto(c.pagado));
+      if (c.empresa) partes.push(String(c.empresa) + (c.ruc ? ' (' + c.ruc + ')' : ''));
+      else if (c.ruc) partes.push('RUC ' + c.ruc);
+      h += '<div class="bg-white/90 border border-amber-200 rounded px-2 py-1 font-semibold text-slate-800">• ' + wspEsc(partes.join(' · ')) + '</div>';
+    });
+    h += '</div>';
+    return h;
+  }
+
+  function wspRenderSugerenciaCompacta(it) {
+    var sg = wspExtraerSugerencia(it);
+    var cliente = String((it && it.cliente) || '');
+    var mostrarPerfil = sg.perfil && sg.perfil.toLowerCase() !== cliente.toLowerCase();
+    var cand0 = null;
+    if (sg.estancias.length && sg.estancias[0] && sg.estancias[0].huesped) {
+      var h0 = String(sg.estancias[0].huesped);
+      if (!it.hab || cliente.toLowerCase().indexOf(h0.toLowerCase()) < 0) cand0 = sg.estancias[0];
+    }
+    if (!mostrarPerfil && !sg.empresa && !cand0) return '';
+    var h = '<div class="flex flex-wrap items-center gap-1.5 pt-0.5">';
+    if (mostrarPerfil) {
+      h += '<span class="text-[10.5px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 border border-indigo-200">' +
+           '👤 Perfil WSP: ' + wspEsc(sg.perfil) + '</span>';
+    }
+    if (sg.empresa) {
+      h += '<span class="text-[10.5px] font-black px-2 py-0.5 rounded bg-indigo-100 text-indigo-950 border border-indigo-300">' +
+           '🏢 Empresa/RUC sugerido por nombre WSP: ' + wspEsc(sg.empresa) + '</span>';
+    }
+    if (cand0 && cand0.huesped) {
+      var infoCand = cand0.huesped + (cand0.hab ? ' · Hab ' + cand0.hab : '') + (cand0.dni ? ' · DNI ' + cand0.dni : '') + (cand0.fecha ? ' · ' + cand0.fecha : '');
+      h += '<span class="text-[10.5px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-950 border border-amber-300">' +
+           '💡 Posible huésped: ' + wspEsc(infoCand) + '</span>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  function wspRenderCrucePendiente(it) {
+    var raw = it.cruce || {};
+    var est = raw.estancia || {};
+    var sg = wspExtraerSugerencia(it);
+    var hab = raw.hab || est.hab || '';
+    var huesped = raw.huesped || est.huesped || '';
+    var dniRuc = raw.dni_ruc || [raw.dni || est.dni, raw.ruc || est.ruc].filter(Boolean).join(' / ');
+    var checkIn = raw.check_in || est.check_in || '';
+    var checkOut = raw.check_out || est.check_out || '';
+    var fechas = [checkIn, checkOut].filter(Boolean).join(' → ');
+    var tarifaNoches = raw.tarifa_noches || (est.tarifa !== undefined && est.tarifa !== null && est.tarifa !== ''
+      ? wspMontoTexto(est.tarifa) + (est.noches ? ' × ' + est.noches + ' noche' + (wspNum(est.noches) === 1 ? '' : 's') : '') : '');
+    var pagado = (raw.pagado !== undefined && raw.pagado !== null) ? raw.pagado : est.pagado;
+    var saldo = (raw.saldo !== undefined && raw.saldo !== null) ? raw.saldo : est.saldo;
+    var estadoSunat = raw.estado_sunat || [est.tipo_comp, est.estado_comp, est.nro_comp].filter(Boolean).join(' · ');
+    var obs25 = raw.observacion_25 || '';
+    var via = raw.via || '';
+    var viaUpper = String(via).toUpperCase();
+    var encontrado = (typeof raw.encontrado === 'boolean') ? raw.encontrado : Boolean(hab || huesped || dniRuc);
+
+    var h = '<div class="flex items-center justify-between mb-1.5">' +
+            '<span class="text-[10px] font-extrabold uppercase tracking-wide text-slate-400">Ficha cruzada (Estancia / SUNAT)</span>' +
+            (encontrado
+              ? '<span class="text-[10px] font-black px-1.5 py-0.5 rounded border ' +
+                (viaUpper === 'PERFIL_WSP' ? 'bg-violet-100 text-violet-900 border-violet-300' : 'bg-indigo-100 text-indigo-900 border-indigo-300') + '">' +
+                wspEsc(viaUpper === 'PERFIL_WSP' ? '👤 vía PERFIL WSP' : (via ? 'vía ' + via : 'cruzado')) + '</span>'
+              : '<span class="text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">sin coincidencia directa</span>') +
+            '</div>';
+
+    if (!encontrado) {
+      if (sg.empresa) {
+        h += '<div class="mb-2 rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-[11px] text-indigo-950">' +
+             '<span class="font-black">🏢 Empresa/RUC sugerido por nombre WSP:</span> ' + wspEsc(sg.empresa) + '</div>';
+      }
+      if (sg.estancias.length) {
+        h += wspRenderEstanciasSugeridas(sg.estancias);
+      } else if (!sg.empresa) {
+        h += '<div class="text-[11px] text-slate-500 italic py-2">No se encontró estancia activa o reciente asociada a este celular ni al nombre de perfil.</div>';
+      }
+      return h;
+    }
+
+    var saldoNum = Number(saldo);
+    var clsSaldo = (isFinite(saldoNum) && saldoNum > 0) ? 'text-rose-700' : 'text-emerald-700';
+
+    h += '<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4">';
+    h += wspFilaFicha('Habitación', hab ? 'Hab ' + hab : '—');
+    h += wspFilaFicha('Huésped', huesped);
+    h += wspFilaFicha('DNI / RUC', dniRuc);
+    h += wspFilaFicha('Fechas', fechas);
+    h += wspFilaFicha('Tarifa × noches', tarifaNoches);
+    h += wspFilaFicha('Pagado', wspMontoTexto(pagado), 'text-emerald-700');
+    h += wspFilaFicha('Saldo', wspMontoTexto(saldo), clsSaldo);
+    h += wspFilaFicha('Estado SUNAT', estadoSunat);
+    h += '</div>';
+
+    if (sg.empresa) {
+      h += '<div class="mt-2 rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1.5 text-[11px] text-indigo-950">' +
+           '<span class="font-black">🏢 Empresa/RUC sugerido por nombre WSP:</span> ' + wspEsc(sg.empresa) + '</div>';
+    }
+    if (viaUpper === 'PERFIL_WSP' && sg.estancias.length > 1) {
+      h += wspRenderEstanciasSugeridas(sg.estancias);
+    }
+
+    if (obs25) {
+      var obsConforme = String(obs25).toLowerCase().indexOf('conforme') >= 0;
+      h += '<div class="mt-2 rounded-lg border px-2.5 py-1.5 text-[11px] ' +
+           (obsConforme ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-amber-300 bg-amber-50 text-amber-950') + '">' +
+           '<span class="font-black">' + (obsConforme ? '✅' : '⚖️') + ' Regla 25 % / Auditoría:</span> ' + wspEsc(obs25) + '</div>';
+    }
+
+    var esComp = String(it.tipo || '').toUpperCase().indexOf('COMPROBANTE') >= 0;
+    if (hab && esComp) {
+      h += '<div class="mt-2 pt-1 flex justify-end">' +
+           '<button type="button" data-wsp-consulta-hab="' + wspEsc(hab) + '" ' +
+           'class="text-[11px] font-black text-sky-800 hover:text-sky-950 bg-sky-50 hover:bg-sky-100 border border-sky-300 rounded-md px-2.5 py-1 cursor-pointer transition-colors" ' +
+           'title="Abrir la ficha de facturación de la Hab ' + wspEsc(hab) + ' en el panel">' +
+           '🔎 Consultar ficha de facturación (Hab ' + wspEsc(hab) + ')</button></div>';
+    }
+    return h;
+  }
+
+  function wspRenderBloquePendientes(items) {
+    var h = '<section id="wspBloquePendientes" class="space-y-2.5">';
+    h += '<div class="flex items-center justify-between border-b border-rose-200 pb-1.5">' +
+         '<h4 class="font-black text-[13px] text-rose-900 flex items-center gap-1.5">🔴 1. Falta Responder o Entregar ' +
+         '<span class="px-2 py-0.5 rounded-full text-[11px] ' + (items.length ? 'bg-rose-600 text-white' : 'bg-emerald-100 text-emerald-800') + '">' + items.length + '</span></h4>' +
+         '<span class="text-[10.5px] text-slate-500 font-semibold">Consultas abiertas o comprobantes pendientes de envío</span></div>';
+
+    if (!items.length) {
+      h += '<div class="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-emerald-900 font-bold text-[12px]">' +
+           '✅ Todo respondido: no se detectan consultas ni comprobantes pendientes en los chats.</div>';
+      h += '</section>';
+      return h;
+    }
+
+    items.forEach(function (it) {
+      var tm = wspTipoMeta(it.tipo);
+      var cliente = it.cliente || it.nombre || it.jid || 'Cliente';
+      var celular = it.celular || it.celular9 || '';
+      var hora = it.hora_ultimo_msg || it.hora || '';
+      var espMin = (it.espera_min !== undefined && it.espera_min !== null && it.espera_min !== '') ? wspNum(it.espera_min) : null;
+      var msgs = Array.isArray(it.mensajes) ? it.mensajes : [];
+      var sg = wspExtraerSugerencia(it);
+
+      h += '<div class="bg-white rounded-xl border-2 border-rose-300 shadow-xs grid grid-cols-1 lg:grid-cols-2 overflow-hidden">';
+      // Izquierda: contexto del Agente + mensajes desplegables
+      h += '<div class="p-3.5 border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col justify-between">';
+      h += '<div>';
+      h += '<div class="flex flex-wrap items-center gap-1.5 mb-1.5">';
+      h += '<span class="font-black text-[13px] text-slate-900">' + wspEsc(cliente) + '</span>';
+      if (celular && cliente.indexOf(celular) < 0) {
+        h += '<span class="text-[10.5px] font-mono text-slate-500">📱 ' + wspEsc(celular) + '</span>';
+      }
+      h += '<span class="text-[10.5px] font-black px-2 py-0.5 rounded border ' + tm.cls + '">' + tm.ico + ' ' + wspEsc(tm.lbl) + '</span>';
+      if (hora) {
+        h += '<span class="ml-auto text-[10.5px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">🕒 ' + wspEsc(hora) +
+             (espMin !== null && espMin > 0 ? ' · hace ' + espMin + ' min' : '') + '</span>';
+      }
+      h += '</div>';
+      var mostrarPerfilPend = sg.perfil && (sg.perfil.toLowerCase() !== String(cliente).toLowerCase() || Boolean(sg.empresa) || sg.estancias.length > 0);
+      if (mostrarPerfilPend) {
+        h += '<div class="mb-2"><span class="inline-flex items-center gap-1 text-[10.5px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 border border-indigo-200">' +
+             '👤 Perfil WSP: ' + wspEsc(sg.perfil) + '</span></div>';
+      }
+      h += '<div class="rounded-lg bg-rose-50/70 border border-rose-200 px-3 py-2 text-[12px] text-slate-800 leading-relaxed">' +
+           '<span class="font-black text-rose-900">Motivo pendiente: </span>' + wspEsc(it.motivo_pendiente || 'Pendiente de revisión por Recepción.') + '</div>';
+      h += '</div>';
+
+      h += '<details class="wsp-details mt-2.5">' +
+           '<summary class="inline-flex items-center gap-1 text-[11px] font-extrabold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 px-2.5 py-1 rounded-md border border-slate-300">' +
+           '👁️ Ver mensajes del chat (' + msgs.length + ')</summary>' +
+           wspRenderBurbujas(msgs) + '</details>';
+      h += '</div>';
+
+      // Derecha: ficha de cruce
+      h += '<div class="p-3.5 bg-slate-50/60 flex flex-col justify-between">' + wspRenderCrucePendiente(it) + '</div>';
+      h += '</div>';
+    });
+
+    h += '</section>';
+    return h;
+  }
+
+  function wspRenderBloqueNotas(items) {
+    var h = '<section id="wspBloqueNotas" class="space-y-2">';
+    h += '<div class="flex items-center justify-between border-b border-amber-200 pb-1.5">' +
+         '<h4 class="font-black text-[13px] text-amber-950 flex items-center gap-1.5">💡 2. Recomendaciones, Reclamos o Acuerdos Detectados ' +
+         '<span class="px-2 py-0.5 rounded-full text-[11px] bg-amber-200 text-amber-950">' + items.length + '</span></h4>' +
+         '<span class="text-[10.5px] text-slate-500 font-semibold">Encargos de llaves, visitas, observaciones o quejas en los textos</span></div>';
+
+    if (!items.length) {
+      h += '<div class="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-slate-500 italic text-[11.5px]">' +
+           'Sin reclamos, acuerdos especiales ni recomendaciones detectadas en este corte.</div>';
+      h += '</section>';
+      return h;
+    }
+
+    h += '<div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">';
+    items.forEach(function (it) {
+      var nm = wspNotaMeta(it.tipo_nota);
+      var cliente = it.cliente || it.jid || 'Huésped';
+      var hab = it.hab ? String(it.hab) : '';
+      var celular = it.celular ? String(it.celular) : '';
+      h += '<div class="rounded-xl border p-3 shadow-2xs ' + nm.borde + ' flex flex-col gap-1.5">';
+      h += '<div class="flex flex-wrap items-center gap-1.5">';
+      h += '<span class="text-[10.5px] font-black px-2 py-0.5 rounded border ' + nm.cls + '">' + nm.ico + ' ' + wspEsc(nm.lbl) + '</span>';
+      h += '<span class="font-black text-[12px] text-slate-900">' + wspEsc(cliente) + '</span>';
+      if (hab && cliente.indexOf(hab) < 0) {
+        h += '<span class="text-[10.5px] font-black px-1.5 py-0.5 rounded bg-white border border-slate-300 text-slate-800">Hab ' + wspEsc(hab) + '</span>';
+      }
+      if (celular && cliente.indexOf(celular) < 0) {
+        h += '<span class="text-[10.5px] font-mono text-slate-500">📱 ' + wspEsc(celular) + '</span>';
+      }
+      if (it.hora) {
+        h += '<span class="ml-auto text-[10.5px] font-semibold text-slate-500">🕒 ' + wspEsc(it.hora) + '</span>';
+      }
+      h += '</div>';
+      h += wspRenderSugerenciaCompacta(it);
+      h += '<div class="text-[12px] text-slate-800 leading-relaxed">' + wspEsc(it.detalle || '') + '</div>';
+      if (Array.isArray(it.mensajes) && it.mensajes.length) {
+        h += '<details class="wsp-details mt-1">' +
+             '<summary class="inline-flex items-center gap-1 text-[10.5px] font-bold text-slate-600 hover:text-slate-900 bg-white/80 px-2 py-0.5 rounded border border-slate-300">👁️ Ver mensajes (' + it.mensajes.length + ')</summary>' +
+             wspRenderBurbujas(it.mensajes) + '</details>';
+      }
+      h += '</div>';
+    });
+    h += '</div></section>';
+    return h;
+  }
+
+  function wspRenderBloqueAtendidos(items) {
+    var h = '<section id="wspBloqueAtendidos" class="space-y-2">';
+    h += '<div class="flex items-center justify-between border-b border-emerald-200 pb-1.5">' +
+         '<h4 class="font-black text-[13px] text-emerald-950 flex items-center gap-1.5">✅ 3. Chats Atendidos — ¿Por qué dijeron "Gracias"? ' +
+         '<span class="px-2 py-0.5 rounded-full text-[11px] bg-emerald-200 text-emerald-950">' + items.length + '</span></h4>' +
+         '<span class="text-[10.5px] text-slate-500 font-semibold">Resumen de 1 línea por conversación cerrada</span></div>';
+
+    if (!items.length) {
+      h += '<div class="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-slate-500 italic text-[11.5px]">' +
+           'Aún no figuran chats atendidos en este corte.</div>';
+      h += '</section>';
+      return h;
+    }
+
+    h += '<div class="bg-white rounded-xl border border-slate-200 divide-y divide-slate-200 overflow-hidden shadow-2xs">';
+    items.forEach(function (it) {
+      var cliente = it.cliente || it.jid || 'Cliente';
+      var hab = it.hab ? String(it.hab) : '';
+      var celular = it.celular ? String(it.celular) : '';
+      var hora = it.hora ? String(it.hora) : '';
+      var msgs = Array.isArray(it.mensajes) ? it.mensajes : [];
+
+      h += '<div class="p-3 hover:bg-slate-50/70 transition-colors">';
+      h += '<div class="flex flex-wrap items-start justify-between gap-2">';
+      h += '<div class="space-y-1 min-w-0 flex-1">';
+      h += '<div class="flex flex-wrap items-center gap-1.5">';
+      h += '<span class="font-black text-[12.5px] text-slate-900">' + wspEsc(cliente) + '</span>';
+      if (hab && cliente.indexOf(hab) < 0) {
+        h += '<span class="text-[10.5px] font-black px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-300 text-emerald-900">Hab ' + wspEsc(hab) + '</span>';
+      }
+      if (celular && cliente.indexOf(celular) < 0) {
+        h += '<span class="text-[10.5px] font-mono text-slate-500">📱 ' + wspEsc(celular) + '</span>';
+      }
+      if (hora) {
+        h += '<span class="text-[10.5px] font-semibold text-slate-400">🕒 ' + wspEsc(hora) + '</span>';
+      }
+      h += '</div>';
+      h += wspRenderSugerenciaCompacta(it);
+      h += '<div class="text-[11.5px] text-slate-700"><span class="font-black text-slate-900">Qué pidió:</span> ' + wspEsc(it.que_pidio || '—') + '</div>';
+      h += '<div class="text-[11.5px] text-emerald-900"><span class="font-black">Cierre / Por qué agradeció:</span> ' + wspEsc(it.por_que_agradecio || '—') + '</div>';
+      h += '</div>';
+
+      if (msgs.length) {
+        h += '<details class="wsp-details shrink-0">' +
+             '<summary class="inline-flex items-center gap-1 text-[10.5px] font-extrabold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-md border border-slate-300">' +
+             '👁️ Ver mensajes (' + msgs.length + ')</summary>' +
+             '<div class="w-full sm:w-[420px] max-w-[82vw]">' + wspRenderBurbujas(msgs) + '</div></details>';
+      }
+      h += '</div></div>';
+    });
+    h += '</div></section>';
+    return h;
+  }
+
+  function wspRenderModal() {
+    var lista = wspEl('wspBandejaLista');
+    if (!lista) return;
+    var d = WSP.datos || { pendientes_responder: [], recomendaciones_y_notas: [], atendidos_y_gracias: [] };
+
+    var txtGen = wspEl('wspResumenGeneralTexto');
+    if (txtGen) {
+      txtGen.textContent = d.resumen_general_turno || 'Resumen de las conversaciones recientes recibidas en el WhatsApp de Recepción.';
+    }
+
+    var cnt = wspEl('wspResumenContadores');
+    if (cnt) {
+      var nP = d.pendientes_responder.length;
+      var nN = d.recomendaciones_y_notas.length;
+      var nA = d.atendidos_y_gracias.length;
+      cnt.innerHTML =
+        '<button type="button" data-wsp-ir="wspBloquePendientes" class="px-2 py-0.5 rounded border cursor-pointer ' +
+          (nP ? 'bg-rose-600 text-white border-rose-700' : 'bg-white text-slate-700 border-slate-300') + '">🔴 ' + nP + ' por responder</button>' +
+        '<button type="button" data-wsp-ir="wspBloqueNotas" class="px-2 py-0.5 rounded border bg-amber-100 text-amber-950 border-amber-300 cursor-pointer">💡 ' + nN + ' notas/acuerdos</button>' +
+        '<button type="button" data-wsp-ir="wspBloqueAtendidos" class="px-2 py-0.5 rounded border bg-emerald-100 text-emerald-950 border-emerald-300 cursor-pointer">✅ ' + nA + ' atendidos</button>';
+    }
+
+    var scroll = lista.scrollTop;
+    lista.innerHTML =
+      wspRenderBloquePendientes(d.pendientes_responder) +
+      wspRenderBloqueNotas(d.recomendaciones_y_notas) +
+      wspRenderBloqueAtendidos(d.atendidos_y_gracias);
+    lista.scrollTop = scroll;
+  }
+
+  function wspConsultarFacturacion(ev, hab) {
+    var h = (window.habitacionesData || []).find(function (x) { return String(x.hab) === String(hab); });
+    if (!h || String(h.estado || '').toLowerCase() === 'libre') {
+      wspToast('ℹ️ La Hab ' + hab + ' no figura ocupada en la fecha visible del panel', 'info');
+      return;
+    }
+    if (typeof window.verDetalleFacturacion !== 'function') {
+      wspToast('ℹ️ Vista de facturación no disponible', 'info');
+      return;
+    }
+    cerrarModalWspBandeja();
+    window.verDetalleFacturacion(ev, hab);
+  }
+
+  // ---------------------------------------------------------------- arranque
+  function wspInit() {
+    var lista = wspEl('wspBandejaLista');
+    if (lista) {
+      lista.addEventListener('click', function (ev) {
+        var btnHab = ev.target.closest('[data-wsp-consulta-hab]');
+        if (!btnHab) return;
+        wspConsultarFacturacion(ev, btnHab.getAttribute('data-wsp-consulta-hab'));
+      });
+    }
+    var bar = wspEl('wspResumenTurnoBar');
+    if (bar) {
+      bar.addEventListener('click', function (ev) {
+        var btnIr = ev.target.closest('[data-wsp-ir]');
+        if (!btnIr) return;
+        var sec = wspEl(btnIr.getAttribute('data-wsp-ir'));
+        if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && wspModalAbierto()) cerrarModalWspBandeja();
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) wspCargarAlertas(true);
+    });
+    wspCargarAlertas(true);
+    setInterval(wspCargarAlertas, WSP_POLL_MS);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wspInit);
+  else wspInit();
 })();
 </script>
 </body>

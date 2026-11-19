@@ -16,3 +16,17 @@ __pycache__/
 *.log
 .DS_Store
 Thumbs.db
+.playwright-cli/
+test-results/
+tests/screenshots/
+
+# --- Seguridad / entorno local (Extractor WSP vive SOLO en Laptop 2 Recepción, nunca en Git) ---
+.env
+*.env
+whatsapp_mcp_recepcion/
+auth_info/
+media/
+.venv_whisper/
+node_modules/
+scratch/
+data/*.json.bak

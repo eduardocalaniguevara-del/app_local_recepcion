@@ -704,6 +704,26 @@ def init_db() -> None:
                     created_at    TEXT NOT NULL DEFAULT ''
                 );
                 CREATE INDEX IF NOT EXISTS idx_serv_det_est ON servicios_detalle(estancia_uuid);
+
+                -- 13. Bitácora y Extracto del Dueño del Asistente Operativo de Recepción (Copiloto Óvalo + GR-09)
+                CREATE TABLE IF NOT EXISTS asistente_movimientos_log (
+                    log_uuid          TEXT PRIMARY KEY,
+                    fecha_dmy         TEXT NOT NULL DEFAULT '',
+                    hora              TEXT NOT NULL DEFAULT '',
+                    ts_iso            TEXT NOT NULL DEFAULT '',
+                    recepcionista     TEXT NOT NULL DEFAULT '',
+                    tipo_interaccion  TEXT NOT NULL DEFAULT '',
+                    pedido_original   TEXT NOT NULL DEFAULT '',
+                    accion_ejecutada  TEXT NOT NULL DEFAULT '',
+                    hab               TEXT NOT NULL DEFAULT '',
+                    huesped           TEXT NOT NULL DEFAULT '',
+                    monto             REAL NOT NULL DEFAULT 0,
+                    estado_anterior   TEXT NOT NULL DEFAULT '{}',
+                    estado_nuevo      TEXT NOT NULL DEFAULT '{}',
+                    resumen_dueno     TEXT NOT NULL DEFAULT '',
+                    equipo            TEXT NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_asist_log_fecha ON asistente_movimientos_log (fecha_dmy, tipo_interaccion);
                 """
             )
             # Migración única: el panel de colores queda desvinculado de Sheets; se parte limpio.
@@ -761,6 +781,35 @@ def init_db() -> None:
             cols_liq = [r[1] for r in conn.execute("PRAGMA table_info(horario_liquidaciones)").fetchall()]
             if "a_efec" not in cols_liq:
                 conn.execute("ALTER TABLE horario_liquidaciones ADD COLUMN a_efec REAL NOT NULL DEFAULT 0")
+            # Migración preventiva WSP (Punto 1c): asegurar columnas jid e id_mensaje si existen tablas heredadas
+            tablas_existentes = {
+                r[0]
+                for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+            }
+            if "wsp_recepcion_chats" in tablas_existentes:
+                c_wc = {r[1] for r in conn.execute("PRAGMA table_info(wsp_recepcion_chats)").fetchall()}
+                if "jid" not in c_wc:
+                    conn.execute("ALTER TABLE wsp_recepcion_chats ADD COLUMN jid TEXT DEFAULT ''")
+                    if "chat_jid" in c_wc:
+                        conn.execute("UPDATE wsp_recepcion_chats SET jid = COALESCE(chat_jid, '') WHERE COALESCE(jid, '') = ''")
+            if "wsp_recepcion_mensajes" in tablas_existentes:
+                c_wm = {r[1] for r in conn.execute("PRAGMA table_info(wsp_recepcion_mensajes)").fetchall()}
+                if "jid" not in c_wm:
+                    conn.execute("ALTER TABLE wsp_recepcion_mensajes ADD COLUMN jid TEXT DEFAULT ''")
+                    if "chat_jid" in c_wm:
+                        conn.execute("UPDATE wsp_recepcion_mensajes SET jid = COALESCE(chat_jid, '') WHERE COALESCE(jid, '') = ''")
+                if "id_mensaje" not in c_wm:
+                    conn.execute("ALTER TABLE wsp_recepcion_mensajes ADD COLUMN id_mensaje TEXT DEFAULT ''")
+                    if "id" in c_wm:
+                        conn.execute("UPDATE wsp_recepcion_mensajes SET id_mensaje = CAST(id AS TEXT) WHERE COALESCE(id_mensaje, '') = ''")
+            if "wsp_recepcion_documentos" in tablas_existentes:
+                c_wd = {r[1] for r in conn.execute("PRAGMA table_info(wsp_recepcion_documentos)").fetchall()}
+                if "jid" not in c_wd:
+                    conn.execute("ALTER TABLE wsp_recepcion_documentos ADD COLUMN jid TEXT DEFAULT ''")
+                if "id_mensaje" not in c_wd:
+                    conn.execute("ALTER TABLE wsp_recepcion_documentos ADD COLUMN id_mensaje TEXT DEFAULT ''")
+                    if "mensaje_id" in c_wd:
+                        conn.execute("UPDATE wsp_recepcion_documentos SET id_mensaje = COALESCE(mensaje_id, '') WHERE COALESCE(id_mensaje, '') = ''")
             # Semilla de personal (editable luego desde Cuentas / Pagos)
             if not conn.execute("SELECT 1 FROM personal_config LIMIT 1").fetchone():
                 semilla = [

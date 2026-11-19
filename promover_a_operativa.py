@@ -31,9 +31,11 @@ from datetime import datetime
 from pathlib import Path
 
 AQUI = Path(__file__).resolve().parent
-EXCLUIR_DIRS = {".git", "__pycache__", "data", "backups", "respaldos", "node_modules", ".venv", "scratch"}
+EXCLUIR_DIRS = {".git", "__pycache__", "data", "backups", "respaldos", "node_modules", ".venv", "scratch",
+                "auth_info", "media", ".venv_whisper", ".pytest_cache", "screenshots",
+                "whatsapp_mcp_recepcion"}  # nunca subir ni promover el extractor WSP (vive solo en Laptop 2 Recepción)
 EXCLUIR_EXT = {".db", ".db-wal", ".db-shm", ".db-journal", ".log", ".pyc", ".bak", ".flag"}
-EXCLUIR_NOMBRES = {"hotel_perfil.json", "leeme_prueba.txt", "prueba.ico"}
+EXCLUIR_NOMBRES = {"hotel_perfil.json", "leeme_prueba.txt", "prueba.ico", "merge_l1_l2_notas.md", "publicar_actualizacion_hoteles.bat"}
 RESPALDOS = Path(r"C:\Hostal_Sistema\respaldos_promocion")
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
@@ -192,7 +194,9 @@ def main() -> int:
     c = subprocess.run([git, "-C", str(oper), "commit", "-m", msg], capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
     print((c.stdout or c.stderr).strip()[:300])
     token = pg._obtener_token_windows()
-    push_url = f"https://eduardocalaniguevara-del:{token}@{pg.REPO_SLUG}"
+    if hasattr(pg, "_aceptar_invitaciones_pendientes"):
+        pg._aceptar_invitaciones_pendientes(token)
+    push_url = f"https://x-access-token:{token}@{pg.REPO_SLUG}"
     p = subprocess.run([git, "-C", str(oper), "push", push_url, "main"], capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
     print(((p.stdout or "") + (p.stderr or "")).replace(token, "***").strip()[-300:])
     if p.returncode == 0:
