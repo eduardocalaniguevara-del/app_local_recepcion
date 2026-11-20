@@ -202,9 +202,25 @@
           </span>
         </div>
 
-        <span id="badgeEstadoSync" class="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">
-          🟢 En vivo
-        </span>
+        <div class="inline-flex items-center gap-1.5 flex-wrap">
+          <span id="badgeEstadoSync" class="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">
+            🟢 En vivo
+          </span>
+
+          <!-- 1. Botón Actualizar (al costado de En vivo) -->
+          <button type="button" id="btnActualizarTop" onclick="recargarDatos(event)"
+                  title="Sincronizar y actualizar datos del panel en tiempo real"
+                  class="px-2 py-0.5 rounded font-bold bg-slate-700 hover:bg-slate-800 text-white text-[11px] transition-colors inline-flex items-center gap-1 shadow-2xs cursor-pointer">
+            🔄 Actualizar
+          </button>
+
+          <!-- 2. Botón Reiniciar Servidor Local -->
+          <button type="button" id="btnReiniciarTop" onclick="reiniciarServidorDesdeUI(event)"
+                  title="Reiniciar el servidor local y recargar módulos en caliente"
+                  class="px-2 py-0.5 rounded font-bold bg-amber-600 hover:bg-amber-700 text-white text-[11px] transition-colors inline-flex items-center gap-1 shadow-2xs cursor-pointer">
+            ⚡ Reiniciar
+          </button>
+        </div>
 
         <!-- Indicador de Fecha Histórica Sellada (Solo aparece si la fecha es anterior a Ayer) -->
         <span id="badgeModoHistorico" class="hidden text-[11px] font-extrabold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300 shadow-2xs">
@@ -6021,6 +6037,45 @@
           renderTabla();
           ocultarSplashScreen();
         }, 300);
+      }
+    }
+
+    window.reiniciarServidorDesdeUI = reiniciarServidorDesdeUI;
+    async function reiniciarServidorDesdeUI(e) {
+      if (e) e.preventDefault();
+      const btn = document.getElementById("btnReiniciarTop");
+      const origHtml = btn ? btn.innerHTML : "⚡ Reiniciar";
+      try {
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = "⏳ Reiniciando...";
+        }
+        if (badgeSync) {
+          badgeSync.className = "text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded border border-amber-300";
+          badgeSync.textContent = "⚡ Reiniciando servidor...";
+        }
+        mostrarSplashScreen("⚡ Reiniciando servidor local y recargando módulos...");
+        await fetch("/api/system/restart", { method: "POST" }).catch(() => {});
+
+        await new Promise(r => setTimeout(r, 2500));
+        for (let intento = 0; intento < 25; intento++) {
+          try {
+            const r = await fetch("/api/sync/status?t=" + Date.now(), { cache: "no-store" });
+            if (r.ok) {
+              window.location.reload();
+              return;
+            }
+          } catch (_err) {}
+          await new Promise(r => setTimeout(r, 1000));
+        }
+        window.location.reload();
+      } catch (err) {
+        console.error("Error al reiniciar servidor:", err);
+        ocultarSplashScreen();
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
+        }
       }
     }
 

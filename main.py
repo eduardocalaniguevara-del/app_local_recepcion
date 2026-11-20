@@ -581,6 +581,24 @@ def api_system_update():
     return res
 
 
+@app.post("/api/system/restart")
+def api_system_restart():
+    """Recarga módulos en memoria y lanza reiniciar_app.ps1 en segundo plano para reiniciar limpiamente el proceso."""
+    import subprocess
+    try:
+        reiniciar_servidor_en_caliente()
+    except Exception:
+        pass
+    ps1 = Path(_APP_DIR) / "reiniciar_app.ps1"
+    if ps1.exists() and os.name == "nt":
+        subprocess.Popen(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(ps1)],
+            cwd=_APP_DIR,
+            creationflags=0x08000000,
+        )
+    return {"ok": True, "status": "RESTARTING"}
+
+
 @app.post("/api/sync/trigger")
 def api_sync_trigger():
     _sync_wakeup_event.set()
