@@ -16,7 +16,7 @@ import time
 import webbrowser
 
 BASE_DIR = Path(__file__).resolve().parent
-MOTOR_DIR = BASE_DIR / "04_GIT_app_motor"
+MOTOR_DIR = BASE_DIR / "03_GIT_app_motor"
 if str(MOTOR_DIR) not in sys.path:
     sys.path.insert(0, str(MOTOR_DIR))
 

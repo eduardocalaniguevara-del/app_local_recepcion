@@ -1294,18 +1294,36 @@ def sincronizar_transferencias_maelen_correo(forzar: bool = False) -> Dict[str, 
         nuevos_leidos_gmail = 0
         error_gmail = ""
 
-        # 1) Delegar extracción privada de Gmail exclusivamente a 02_PRIV_correo_bcp (si existe en Nivel 1)
-        # En Nivel 2 (Laptop Madre) y Nivel 3 (Terciarias), esta carpeta no existe y se lee directo de SQLite/Supabase.
-        _priv_ext = Path(__file__).resolve().parent.parent / "02_PRIV_correo_bcp"
-        if (_priv_ext / "extractor_bcp_gmail.py").exists():
-            try:
-                if str(_priv_ext) not in _sys.path:
-                    _sys.path.insert(0, str(_priv_ext))
-                import extractor_bcp_gmail as _ebcp
-                _res_priv = _ebcp.extraer_gmail_bcp_y_subir_a_supabase(consultar_gmail_en_vivo=bool(forzar))
-                nuevos_leidos_gmail = int(_res_priv.get("nuevos_gmail_leidos") or 0)
-            except Exception as _exc_p:
-                error_gmail = str(_exc_p)[:160]
+        # 1) SOLO en NIVEL_2_MADRE_HOTEL (Laptop 2 Recepción 24/7): lee directamente el correo propio del hotel
+        # (CORREO_RECEPCION_HOTEL = hostal.ovalo@gmail.com, que recibe copia reenviada solo de notificaciones BCP 8023).
+        # En NIVEL_1_INGENIERIA (Laptop 1) y NIVEL_3_TERCIARIA, NO toca ningún Gmail y lee directo de SQLite/Supabase.
+        from config import CORREO_RECEPCION_HOTEL, ES_NIVEL_2_MADRE_HOTEL
+        if ES_NIVEL_2_MADRE_HOTEL and CORREO_RECEPCION_HOTEL:
+            rc_s, out_s, err_s = _ejecutar_gmail_cli(
+                ["readonly", "search", "notificacionesbcp.com.pe", "--max", "25", "--json"],
+                CORREO_RECEPCION_HOTEL,
+            )
+            if rc_s == 0 and out_s.strip():
+                try:
+                    lista_ids = json.loads(out_s)
+                except Exception:
+                    lista_ids = []
+                pendientes_get = [
+                    str(it.get("id") or "")
+                    for it in (lista_ids if isinstance(lista_ids, list) else [])
+                    if it.get("id") and str(it.get("id")) not in msgs_cache
+                ]
+                for mid in pendientes_get[:12]:
+                    rc_g, out_g, err_g = _ejecutar_gmail_cli(["readonly", "get", mid], CORREO_RECEPCION_HOTEL)
+                    if rc_g == 0 and out_g.strip():
+                        parsed = _parsear_correo_maelen_bcp(mid, out_g, CORREO_RECEPCION_HOTEL)
+                        msgs_cache[mid] = parsed if parsed else {"msg_id": mid, "ignorado": True}
+                        nuevos_leidos_gmail += 1
+                    elif "rateLimitExceeded" in (err_g or out_g):
+                        error_gmail = "rateLimitExceeded"
+                        break
+            elif err_s:
+                error_gmail = err_s.strip()[:160]
 
         _guardar_cache_correo_maelen(cache)
 

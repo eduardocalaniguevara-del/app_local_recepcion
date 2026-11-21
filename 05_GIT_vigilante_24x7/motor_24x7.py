@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-MOTOR_DIR = Path(__file__).resolve().parent.parent / "04_GIT_app_motor"
+MOTOR_DIR = Path(__file__).resolve().parent.parent / "03_GIT_app_motor"
 if str(MOTOR_DIR) not in sys.path:
     sys.path.insert(0, str(MOTOR_DIR))
 

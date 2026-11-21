@@ -1,6 +1,6 @@
 """
-04_GIT_app_motor/salud.py — Monitor ligero (~80 líneas) que reemplaza a los 25 archivos del antiguo Arnés.
-Verifica solo lo vital: Aduana .gitignore, Estructura 01..06, SQLite local y alcance de Supabase.
+03_GIT_app_motor/salud.py — Monitor ligero (~80 líneas) que reemplaza a los 25 archivos del antiguo Arnés.
+Verifica solo lo vital: Aduana .gitignore (Estructura 01..05), SQLite local y alcance de Supabase.
 """
 import json
 import sqlite3
@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import BASE_DIR, DATA_DIR, DB_PATH, ROL_NODO, SUPABASE_URL, ACTIVAR_MOTOR_24X7
+from config import BASE_DIR, CORREO_RECEPCION_HOTEL, DATA_DIR, DB_PATH, ROL_NODO, SUPABASE_URL, ACTIVAR_MOTOR_24X7
 
 
 def verificar_aduana_gitignore() -> dict:
@@ -21,8 +21,7 @@ def verificar_aduana_gitignore() -> dict:
     texto = gi_path.read_text(encoding="utf-8", errors="ignore")
     reglas = {
         "borradores": "01_PRIV_borradores/" in texto,
-        "privado_l1": "02_PRIV_correo_bcp/" in texto,
-        "data_db": "03_DB_sqlite_local/" in texto and "*.db" in texto,
+        "data_db": "02_DB_sqlite_local/" in texto and "*.db" in texto,
         "env": ".env" in texto,
     }
     return {"ok": all(reglas.values()), "candados": reglas}
@@ -61,6 +60,7 @@ def reporte_salud() -> dict:
         "ok": salud_global,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "nodo": ROL_NODO,
+        "correo_hotel_bcp": CORREO_RECEPCION_HOTEL,
         "motor_24x7_activo_en_este_nodo": ACTIVAR_MOTOR_24X7,
         "aduana_gitignore": aduana,
         "sqlite_local": sqlite_st,

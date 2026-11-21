@@ -1,8 +1,10 @@
 """
-04_GIT_app_motor/config.py — Configuración unificada para la Arquitectura Hotelera de 3 Niveles:
-- NIVEL_1_INGENIERIA: Tu Laptop 1 (crea código, corre 02_PRIV_correo_bcp -> Supabase).
-- NIVEL_2_MADRE_HOTEL: Laptop 2 Recepción 24/7 (único QR físico de WhatsApp + SUNAT + motor_24x7).
-- NIVEL_3_TERCIARIA: Laptops 3, 4... (reciben todo en vivo desde Supabase sin escanear QR).
+03_GIT_app_motor/config.py — Configuración unificada y Multi-Hotel (Estructura 01..05):
+- NIVEL_1_INGENIERIA (Tu Laptop 1): Editor de código (git push) + Terminal Terciaria (recibe datos de Supabase).
+  No vincula tu WhatsApp ni tu correo personal.
+- NIVEL_2_MADRE_HOTEL (Laptop 2 Recepción 24/7): 100% autónoma. Tiene el único QR de WhatsApp de Recepción,
+  lee su propio correo del hotel (hostal.ovalo@gmail.com con copia reenviada de BCP), emite SUNAT y envía por su WSP.
+- NIVEL_3_TERCIARIA (Laptops 3+): Solo recibe información desde Supabase sin vincular WhatsApp ni correo.
 """
 import json
 import os
@@ -12,18 +14,16 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 BASE_APP_DIR = BASE_DIR
 BORRADORES_DIR = BASE_DIR / "01_PRIV_borradores"
-PRIVADO_BCP_DIR = BASE_DIR / "02_PRIV_correo_bcp"
-DATA_DIR = BASE_DIR / "03_DB_sqlite_local"
-APP_MOTOR_DIR = BASE_DIR / "04_GIT_app_motor"
-WEB_DIR = BASE_DIR / "05_GIT_web_mostrador"
+DATA_DIR = BASE_DIR / "02_DB_sqlite_local"
+APP_MOTOR_DIR = BASE_DIR / "03_GIT_app_motor"
+WEB_DIR = BASE_DIR / "04_GIT_web_mostrador"
 STATIC_DIR = WEB_DIR
-VIGILANTE_DIR = BASE_DIR / "06_GIT_vigilante_24x7"
+VIGILANTE_DIR = BASE_DIR / "05_GIT_vigilante_24x7"
 DB_PATH = DATA_DIR / "ovalo.db"
 PERFIL_HOTEL_PATH = DATA_DIR / "hotel_perfil.json"
 
 
 def cargar_env_local() -> None:
-    """Lee el archivo .env local de esta laptop (si existe)."""
     env_file = BASE_DIR / ".env"
     if not env_file.exists():
         return
@@ -63,6 +63,7 @@ MODO_PRUEBA = False
 SYNC_INTERVAL_SECONDS = 25
 
 NOMBRE_HOTEL = os.environ.get("NOMBRE_HOTEL", "Hotel El Óvalo Mariátegui")
+CORREO_RECEPCION_HOTEL = os.environ.get("CORREO_RECEPCION_HOTEL", "hostal.ovalo@gmail.com")
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1KudqxM1D6MSCxT5Zb2_vAOTGxnw9Ja92JuFjFpDuxZ8")
 COL_TIPO_ADICIONAL = "BA"
 COL_TIPO_ADICIONAL_IDX = 52

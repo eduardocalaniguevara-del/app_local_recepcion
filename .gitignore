@@ -1,19 +1,17 @@
 # =====================================================================
 # ADUANA DE SEGURIDAD (.gitignore) — C:\Ovalo_Sistema_v2
-# Regla de Oro: 1 Canal = 1 Propósito.
-# - 01_PRIV_* y 02_PRIV_*: Privados de la laptop donde se creen (NUNCA suben a Git)
-# - 03_DB_*: Base SQLite local de cada laptop (Sincroniza por Supabase, NO por Git)
-# - 04_GIT_*, 05_GIT_*, 06_GIT_*: Código oficial que viaja por GitHub a cualquier laptop
+# Regla de Oro: 1 Canal = 1 Propósito (5 Carpetas 01..05)
+# - 01_PRIV_borradores/: Privada de tu Laptop 1 para trabajar con agentes (NUNCA sube a Git)
+# - 02_DB_sqlite_local/: Base SQLite local de cada laptop (Sincroniza por Supabase, NO por Git)
+# - 03_GIT_*, 04_GIT_*, 05_GIT_*: Código oficial que viaja por GitHub a cualquier laptop
 # =====================================================================
 
-# 1. Carpetas Privadas Locales (JAMÁS suben a GitHub)
+# 1. Carpeta Privada de Borradores con Agentes (JAMÁS sube a GitHub)
 01_PRIV_borradores/
-02_PRIV_correo_bcp/
 borradores/
-privado_l1/
 
 # 2. Base de datos SQLite local (Datos vivos viajan por Supabase, NO por Git)
-03_DB_sqlite_local/
+02_DB_sqlite_local/
 data/
 *.db
 *.db-shm
@@ -21,7 +19,7 @@ data/
 *.sqlite
 *.sqlite3
 
-# 3. Variables de entorno por laptop (.env decide el rol de Laptop 1, 2, 3...)
+# 3. Variables de entorno por laptop (.env decide el rol y correo del hotel)
 .env
 .env.*
 !.env.example
