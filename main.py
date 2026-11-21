@@ -30,7 +30,9 @@ sys.modules["config"] = _cfg_v2
 sys.modules["database"] = _db_v2
 
 import estancias as dl
+import yape_bcp as ym
 sys.modules["domain_logic"] = dl
+sys.modules["yape_manager"] = ym
 
 from config import APP_HOST, APP_PORT, MODO_PRUEBA, NOMBRE_HOTEL, ROL_NODO, STATIC_DIR, WEB_DIR
 from db import get_connection, init_db

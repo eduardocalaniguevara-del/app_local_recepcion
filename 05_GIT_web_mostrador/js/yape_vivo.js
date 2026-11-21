@@ -719,10 +719,6 @@
       } else {
         sueltosRecibidos.forEach((it, idx) => {
           const bg = idx % 2 === 0 ? "#FFFFFF" : "#FFFDF9";
-          const tieneAlertaWsp = Boolean(it.alerta_wsp_5m) || (it.minutos_sin_anotar != null && Number(it.minutos_sin_anotar) >= 5);
-          const badgeWsp5m = tieneAlertaWsp
-            ? `<span style="background:#DCFCE7; color:#166534; border:1px solid #86EFAC; font-size:9px; font-weight:800; padding:1px 5px; border-radius:4px; white-space:nowrap;" title="Alerta WhatsApp (+5 min sin registrar)">📲 WSP +5m</span>`
-            : "";
           itemsSueltosHtml += `
             <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 9px; background:${bg}; border:1px solid #FDE68A; border-radius:5px; font-size:11px; flex-shrink:0;">
               <div style="display:flex; align-items:center; gap:7px; min-width:0;">
@@ -734,7 +730,6 @@
                 </span>
               </div>
               <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                ${badgeWsp5m}
                 <span style="font-size:10px; color:#64748b;">Cód: <b>${escHtml(it.nro_operacion || "-")}</b></span>
                 <span style="font-weight:900; color:#b45309; font-size:12px; min-width:68px; text-align:right;">
                   S/ ${Number(it.monto_bcp || 0).toFixed(2)}

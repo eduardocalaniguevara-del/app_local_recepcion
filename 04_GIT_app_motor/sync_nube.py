@@ -65,7 +65,11 @@ def instalar_triggers_outbox() -> dict:
 
             conn.executescript(
                 f"""
-                CREATE TRIGGER IF NOT EXISTS trg_sb_ins_{tabla}
+                DROP TRIGGER IF EXISTS trg_sb_ins_{tabla};
+                DROP TRIGGER IF EXISTS trg_sb_upd_{tabla};
+                DROP TRIGGER IF EXISTS trg_sb_del_{tabla};
+
+                CREATE TRIGGER trg_sb_ins_{tabla}
                 AFTER INSERT ON {tabla}
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
                 BEGIN
@@ -73,7 +77,7 @@ def instalar_triggers_outbox() -> dict:
                     VALUES ('{tabla}', CAST(NEW.{pk1} AS TEXT), {pk2_new}, 'UPSERT', datetime('now', 'localtime'));
                 END;
 
-                CREATE TRIGGER IF NOT EXISTS trg_sb_upd_{tabla}
+                CREATE TRIGGER trg_sb_upd_{tabla}
                 AFTER UPDATE ON {tabla}
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
                 BEGIN
@@ -81,7 +85,7 @@ def instalar_triggers_outbox() -> dict:
                     VALUES ('{tabla}', CAST(NEW.{pk1} AS TEXT), {pk2_new}, 'UPSERT', datetime('now', 'localtime'));
                 END;
 
-                CREATE TRIGGER IF NOT EXISTS trg_sb_del_{tabla}
+                CREATE TRIGGER trg_sb_del_{tabla}
                 AFTER DELETE ON {tabla}
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
                 BEGIN
