@@ -104,17 +104,24 @@ TIENE_QR_WSP_FISICO = (
     or ES_NIVEL_2_MADRE_HOTEL
 )
 
+_DEFAULT_SB_KEY = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZtbGZxdXB3c2N5bW9zdndubnp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ0MjYzNzUsImV4cCI6MjExMDAwMjM3NX0."
+    "pi3f4dEklYT28oBxYhktYlWwGiLkFdMqhqSq6-gfZ2g"
+)
+_DEFAULT_SB_TOKEN = "ovalo_master_sync_2026_k9x"
+
 SUPABASE_URL = os.environ.get(
     "SUPABASE_URL",
     _sb_local.get("supabase_url", "https://fmlfqupwscymosvwnnzx.supabase.co"),
 ).rstrip("/")
 SUPABASE_KEY = os.environ.get(
     "SUPABASE_KEY",
-    _sb_local.get("supabase_anon_key") or _sb_local.get("supabase_publishable_key") or "",
+    _sb_local.get("supabase_anon_key") or _sb_local.get("supabase_publishable_key") or _DEFAULT_SB_KEY,
 )
 HOSTAL_SYNC_TOKEN = os.environ.get(
     "HOSTAL_SYNC_TOKEN",
-    _sb_local.get("hostal_sync_token", ""),
+    _sb_local.get("hostal_sync_token", _DEFAULT_SB_TOKEN),
 )
 SUPABASE_CONFIGURADO = bool(SUPABASE_URL and SUPABASE_KEY and "REEMPLAZAR" not in SUPABASE_KEY)
 SUPABASE_ENABLED = SUPABASE_CONFIGURADO
