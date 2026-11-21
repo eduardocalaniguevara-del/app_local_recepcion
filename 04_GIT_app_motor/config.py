@@ -10,13 +10,16 @@ import socket
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_APP_DIR = BASE_DIR
 BORRADORES_DIR = BASE_DIR / "01_PRIV_borradores"
 PRIVADO_BCP_DIR = BASE_DIR / "02_PRIV_correo_bcp"
 DATA_DIR = BASE_DIR / "03_DB_sqlite_local"
 APP_MOTOR_DIR = BASE_DIR / "04_GIT_app_motor"
 WEB_DIR = BASE_DIR / "05_GIT_web_mostrador"
+STATIC_DIR = WEB_DIR
 VIGILANTE_DIR = BASE_DIR / "06_GIT_vigilante_24x7"
 DB_PATH = DATA_DIR / "ovalo.db"
+PERFIL_HOTEL_PATH = DATA_DIR / "hotel_perfil.json"
 
 
 def cargar_env_local() -> None:
@@ -33,10 +36,6 @@ def cargar_env_local() -> None:
 
 
 def _cargar_credenciales_supabase_locales() -> dict:
-    """
-    Si el archivo .env aún no tiene SUPABASE_KEY, busca en las ubicaciones locales
-    seguras de la laptop (fuera de Git) para que funcione sin exponer llaves en código.
-    """
     candidatos = [
         BASE_DIR / "supabase_config.json",
         Path(r"C:\Hostal_Sistema\leemeantrigravityrecepcion\supabase_config.json"),
@@ -58,6 +57,34 @@ _sb_local = _cargar_credenciales_supabase_locales()
 ROL_NODO = os.environ.get("ROL_NODO", "NIVEL_1_INGENIERIA").upper()
 EQUIPO_ID = os.environ.get("EQUIPO_ID", socket.gethostname() or ROL_NODO)
 PUERTO_WEB = int(os.environ.get("PUERTO_WEB", "8080"))
+APP_HOST = "0.0.0.0"
+APP_PORT = PUERTO_WEB
+MODO_PRUEBA = False
+SYNC_INTERVAL_SECONDS = 25
+
+NOMBRE_HOTEL = os.environ.get("NOMBRE_HOTEL", "Hotel El Óvalo Mariátegui")
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1KudqxM1D6MSCxT5Zb2_vAOTGxnw9Ja92JuFjFpDuxZ8")
+COL_TIPO_ADICIONAL = "BA"
+COL_TIPO_ADICIONAL_IDX = 52
+FORMULA_SNACKS_EN_S2 = False
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+CREDENTIAL_CANDIDATES = [
+    DATA_DIR / "credentials.json",
+    Path(r"C:\Hostal_Sistema\config\credentials.json"),
+    Path.home() / "Downloads" / "trabajo" / "Sistema de agentes IA" / "HostalAI" / "config" / "credentials.json",
+]
+
+
+def obtener_ruta_credenciales() -> str:
+    for p in CREDENTIAL_CANDIDATES:
+        if p.exists():
+            return str(p)
+    return str(CREDENTIAL_CANDIDATES[-1])
+
 
 ES_NIVEL_1_INGENIERIA = ROL_NODO in ("NIVEL_1_INGENIERIA", "LAPTOP_1_ADMIN")
 ES_NIVEL_2_MADRE_HOTEL = ROL_NODO in ("NIVEL_2_MADRE_HOTEL", "LAPTOP_2_RECEPCION")
@@ -85,4 +112,23 @@ HOSTAL_SYNC_TOKEN = os.environ.get(
     _sb_local.get("hostal_sync_token", ""),
 )
 SUPABASE_CONFIGURADO = bool(SUPABASE_URL and SUPABASE_KEY and "REEMPLAZAR" not in SUPABASE_KEY)
+SUPABASE_ENABLED = SUPABASE_CONFIGURADO
+SUPABASE_ANON_KEY = SUPABASE_KEY
+SUPABASE_SYNC_TOKEN = HOSTAL_SYNC_TOKEN
+SUPABASE_SANDBOX_CONNECTED = False
+
 RUTA_HOSTAL_SISTEMA = Path(os.environ.get("RUTA_HOSTAL_SISTEMA", r"C:\Hostal_Sistema"))
+HOSTAL_SISTEMA_DIR = RUTA_HOSTAL_SISTEMA
+SCRIPTS_HOSTAL_DIR = HOSTAL_SISTEMA_DIR / "scripts"
+EJECUTAR_REMOTO_SCRIPT = HOSTAL_SISTEMA_DIR / "ejecutar_remoto.py"
+EMITIR_COMPROBANTE_SCRIPT = SCRIPTS_HOSTAL_DIR / "emitir_comprobante_sunat.py"
+BRAZO_WSP_SCRIPT = SCRIPTS_HOSTAL_DIR / "brazo_wsp.py"
+REGLAS_AUDITORIA_JSON = HOSTAL_SISTEMA_DIR / "reglas_auditoria.json"
+DESCARGAS_RECEPCION_DIR = HOSTAL_SISTEMA_DIR / "descargas_recepcion"
+
+APISPERU_TOKEN = os.environ.get(
+    "APISPERU_TOKEN",
+    "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImVkdWFyZG9jYWxhbmlndWV2YXJhQGdtYWlsLmNvbSIsImp0aSI6ImIxMDM1MmRkY2VmZDU4MDkifQ.0sX69ADETj8CXcs_HLn9_n9ioe6KW2IwLKo_ot5XtiA",
+)
+APISPERU_DNI_URL = "https://dniruc.apisperu.com/api/v1/dni"
+APISPERU_RUC_URL = "https://dniruc.apisperu.com/api/v1/ruc"

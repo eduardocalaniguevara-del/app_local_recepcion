@@ -9,8 +9,9 @@ import json
 import sqlite3
 import sys
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Iterator, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import DATA_DIR, DB_PATH, ROL_NODO
@@ -42,7 +43,7 @@ TABLAS_SINCRONIZADAS_PK: Dict[str, Tuple[str, ...]] = {
     "sunat_ventas": ("nro_cp",),
     "sire_compras_hostal": ("id",),
     "hostal_documentos_ocr": ("id",),
-    "maelen_transferencias_correo": ("id",),
+    "maelen_transferencias_correo": ("msg_id",),
     "tablet_limpieza_dia": ("hab", "fecha_dmy"),
     "tablet_firmas_conformidad": ("id",),
     "tablet_buzon_mejoras": ("id",),
@@ -73,6 +74,24 @@ def get_connection() -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
     return conn
+
+
+@contextmanager
+def db_transaction() -> Iterator[sqlite3.Connection]:
+    """Transacción atómica BEGIN IMMEDIATE con rollback automático en caso de error."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE;")
+        yield conn
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
 
 
 def repair_db_if_malformed(force: bool = False) -> bool:
@@ -140,7 +159,7 @@ def init_db() -> dict:
                 last_log_id INTEGER NOT NULL DEFAULT 0,
                 updated_at  TEXT DEFAULT (datetime('now', 'localtime'))
             );
-            INSERT OR IGNORE INTO _supabase_sync_control (id, pulling, last_log_id) VALUES (1, 0, 0);
+            INSERT OR IGNORE INTO _supabase_sync_control (id, pulling) VALUES (1, 0);
 
             CREATE TABLE IF NOT EXISTS _supabase_outbox (
                 tabla      TEXT NOT NULL,
@@ -390,23 +409,23 @@ def init_db() -> dict:
             -- 3. Transferencias BCP/Yape extraídas en Nivel 1 (02_PRIV_correo_bcp) -> Supabase -> Nivel 2 y 3
             -- CANDADO UNIQUE ANTI-DUPLICADOS: impide que una misma transferencia bancaria se duplique jamás
             CREATE TABLE IF NOT EXISTS maelen_transferencias_correo (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                msg_id_gmail     TEXT DEFAULT '',
-                fecha_hora       TEXT NOT NULL DEFAULT '',
-                fecha_dmy        TEXT DEFAULT '',
-                hora_min         TEXT DEFAULT '',
-                banco_canal      TEXT DEFAULT 'BCP',
-                tipo_operacion   TEXT DEFAULT '',
-                monto            REAL NOT NULL DEFAULT 0,
-                moneda           TEXT DEFAULT 'PEN',
-                operacion_nro    TEXT NOT NULL DEFAULT '',
-                titular_origen   TEXT NOT NULL DEFAULT '',
-                cuenta_destino   TEXT DEFAULT '',
-                asunto_correo    TEXT DEFAULT '',
-                resumen_limpio   TEXT DEFAULT '',
-                created_at       TEXT DEFAULT (datetime('now', 'localtime')),
-                UNIQUE (fecha_hora, monto, operacion_nro, titular_origen)
+                msg_id                TEXT PRIMARY KEY,
+                cuenta_correo         TEXT DEFAULT '',
+                fecha_operacion       TEXT NOT NULL DEFAULT '',
+                hora_operacion        TEXT DEFAULT '',
+                tipo_movimiento       TEXT DEFAULT '',
+                remitente_o_destino   TEXT NOT NULL DEFAULT '',
+                monto                 REAL NOT NULL DEFAULT 0,
+                nro_operacion         TEXT DEFAULT '',
+                cuenta_origen_destino TEXT DEFAULT 'BCP CTA CTE 8023 MAELEN',
+                asunto                TEXT DEFAULT '',
+                estado_cruce          TEXT DEFAULT 'PENDIENTE',
+                id_cruce_recepcion    TEXT DEFAULT '',
+                detalle_cruce         TEXT DEFAULT '',
+                created_at            TEXT DEFAULT (datetime('now', 'localtime'))
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_maelen_bcp_unique
+            ON maelen_transferencias_correo (fecha_operacion, hora_operacion, monto, nro_operacion, remitente_o_destino);
 
             -- 4. Facturación Electrónica SUNAT y Compras SIRE
             CREATE TABLE IF NOT EXISTS sunat_ventas (
@@ -563,6 +582,12 @@ def init_db() -> dict:
             """
         )
         conn.commit()
+        for col_def in ("last_log_id INTEGER NOT NULL DEFAULT 0", "updated_at TEXT DEFAULT ''"):
+            try:
+                conn.execute(f"ALTER TABLE _supabase_sync_control ADD COLUMN {col_def};")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
         total_tablas = conn.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
@@ -587,26 +612,25 @@ def probar_candado_unique_antiduplicados() -> dict:
     init_db()
     conn = get_connection()
     try:
-        fila_prueba = ("2026-11-21 10:00:00", 55.0, "OP-TEST-UNIQUE-999", "CLIENTE PRUEBA UNIQUE")
         sql = """
             INSERT OR IGNORE INTO maelen_transferencias_correo
-            (fecha_hora, monto, operacion_nro, titular_origen)
-            VALUES (?, ?, ?, ?)
+            (msg_id, fecha_operacion, hora_operacion, monto, nro_operacion, remitente_o_destino)
+            VALUES (?, '21/11/2026', '10:00:00', 55.0, 'OP-TEST-UNIQUE-999', 'CLIENTE PRUEBA UNIQUE')
         """
-        conn.execute(sql, fila_prueba)
-        conn.execute(sql, fila_prueba)  # Segundo intento duplicado: debe ser ignorado por UNIQUE
+        conn.execute(sql, ("MSG-TEST-1",))
+        conn.execute(sql, ("MSG-TEST-2",))  # Distinto msg_id pero misma operación/monto/hora: bloqueado por idx_maelen_bcp_unique
         conn.commit()
 
         conteo = conn.execute(
-            "SELECT COUNT(*) FROM maelen_transferencias_correo WHERE operacion_nro = ?",
+            "SELECT COUNT(*) FROM maelen_transferencias_correo WHERE nro_operacion = ?",
             ("OP-TEST-UNIQUE-999",),
         ).fetchone()[0]
 
         conn.execute(
-            "DELETE FROM maelen_transferencias_correo WHERE operacion_nro = ?",
+            "DELETE FROM maelen_transferencias_correo WHERE nro_operacion = ?",
             ("OP-TEST-UNIQUE-999",),
         )
-        conn.execute("DELETE FROM _supabase_outbox WHERE pk1 LIKE '%'")
+        conn.execute("DELETE FROM _supabase_outbox WHERE pk1 IN ('MSG-TEST-1', 'MSG-TEST-2')")
         conn.commit()
         return {"candado_unique_ok": conteo == 1, "filas_insertadas_tras_doble_intento": conteo}
     finally:
