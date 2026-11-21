@@ -1,0 +1,37 @@
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0b1120;
+  color: #f8fafc;
+}
+.topbar {
+  background: #1e293b;
+  padding: 14px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #334155;
+}
+.topbar h1 { margin: 0; font-size: 18px; color: #38bdf8; }
+.badge {
+  background: #065f46;
+  color: #a7f3d0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.container { padding: 24px; max-width: 960px; margin: 0 auto; }
+.card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 20px;
+}
+pre {
+  background: #0f172a;
+  padding: 14px;
+  border-radius: 8px;
+  color: #6ee7b7;
+  overflow-x: auto;
+}
