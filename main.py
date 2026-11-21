@@ -19,11 +19,6 @@ MOTOR_DIR = BASE_DIR / "03_GIT_app_motor"
 if str(MOTOR_DIR) not in sys.path:
     sys.path.insert(0, str(MOTOR_DIR))
 
-# Respaldo temporal de módulos de Fases 4 y 5 mientras se migran (forzados a usar ovalo.db de v2)
-LEGACY_DIR = Path(r"C:\Recepcion_Ovalo_Local")
-if LEGACY_DIR.exists() and str(LEGACY_DIR) not in sys.path:
-    sys.path.append(str(LEGACY_DIR))
-
 import config as _cfg_v2
 import db as _db_v2
 sys.modules["config"] = _cfg_v2

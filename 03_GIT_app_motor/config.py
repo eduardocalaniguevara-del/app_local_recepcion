@@ -22,6 +22,10 @@ VIGILANTE_DIR = BASE_DIR / "05_GIT_vigilante_24x7"
 DB_PATH = DATA_DIR / "ovalo.db"
 PERFIL_HOTEL_PATH = DATA_DIR / "hotel_perfil.json"
 
+# Crear automáticamente las carpetas locales (01_PRIV y 02_DB) en cualquier laptop donde arranque el sistema
+BORRADORES_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def cargar_env_local() -> None:
     env_file = BASE_DIR / ".env"
