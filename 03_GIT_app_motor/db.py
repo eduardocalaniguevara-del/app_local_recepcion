@@ -54,6 +54,7 @@ TABLAS_SINCRONIZADAS_PK: Dict[str, Tuple[str, ...]] = {
     "wsp_recepcion_estado": ("clave",),
     "wsp_resumen_ejecutivo": ("id",),
     "aprendizaje_compartido_hostal": ("id",),
+    "estado_sistema": ("clave",),
 }
 
 # Tablas caché que se recalculan localmente en cada laptop y NUNCA suben a Supabase (protección de Egress)
@@ -539,6 +540,12 @@ def init_db() -> dict:
                 categoria        TEXT DEFAULT '',
                 titulo           TEXT UNIQUE,
                 contenido        TEXT DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS estado_sistema (
+                clave            TEXT PRIMARY KEY,
+                valor            TEXT NOT NULL DEFAULT '',
+                updated_at       TEXT DEFAULT (datetime('now', 'localtime'))
             );
 
             -- 6. Tablas Caché SOLO LOCALES (Bloqueadas de subir a Supabase para ahorro de Egress)

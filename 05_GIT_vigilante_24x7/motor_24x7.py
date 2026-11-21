@@ -22,7 +22,7 @@ if str(MOTOR_DIR) not in sys.path:
     sys.path.insert(0, str(MOTOR_DIR))
 
 from config import ACTIVAR_MOTOR_24X7, ES_NIVEL_2_MADRE_HOTEL, ROL_NODO, TIENE_QR_WSP_FISICO
-from salud import reporte_salud
+from salud import publicar_seguidor_carpetas_supabase, reporte_salud
 from sync_nube import instalar_triggers_outbox, pull_from_supabase, push_to_supabase
 import whatsapp as wsp
 import yape_bcp as ym
@@ -116,6 +116,7 @@ def iniciar_vigilante_24x7(modo_prueba_unica: bool = False) -> None:
                 wsp.vigilar_daemon()
             if ciclo % 10 == 0 and ES_NIVEL_2_MADRE_HOTEL:  # Cada 5 min revisa si subiste código nuevo a GitHub
                 actualizar_codigo_git_solo_lectura()
+                publicar_seguidor_carpetas_supabase()
             if ciclo % 60 == 0:  # Cada 30 minutos ronda completa de salud y correo BCP
                 est = ejecutar_ronda_integral()
                 print(f"[motor_24x7] Ronda 30m -> Salud OK={est['ok']} ({est['timestamp']})")

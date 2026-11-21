@@ -26,4 +26,7 @@
 - **✅ Fase 3 — Mostrador de Recepción (`03_GIT_app_motor/estancias.py` + `04_GIT_web_mostrador/` + Ícono Google Chrome):** COMPLETADA
 - **✅ Fase 4 — Conciliación Bancaria 24/7 en Laptop 2 (`03_GIT_app_motor/yape_bcp.py` leyendo `hostal.ovalo@gmail.com` sin `WSP +5m`):** COMPLETADA
 - **✅ Fase 5 — SUNAT (`03_GIT_app_motor/sunat.py`) + WhatsApp (`03_GIT_app_motor/whatsapp.py`) + Ronda `motor_24x7.py`:** COMPLETADA
-- **✅ Fase 6 — Publicado en GitHub (`sistema-v2`) + Paquete Instalador 1-Clic en `Descargas` para Laptop 2 Recepción:** LISTO EN `Downloads\Paquete_Ovalo_Sistema_v2_Recepcion_L2.zip`
+- **✅ Fase 6 — Publicado en GitHub (`sistema-v2`) + Seguidor Multi-Laptop en Vivo (`seguidor_v2_*`) + Paquete Instalador 1-Clic en `Descargas`:** COMPLETADO
+  - **🛰️ Seguidor en Vivo de Carpetas y Archivos `.py` en Otras Laptops (`03_GIT_app_motor/salud.py`):**
+    - Cada laptop (`NIVEL_1`, `NIVEL_2_MADRE_HOTEL`, `NIVEL_3_TERCIARIA`) escanea sus 5 carpetas (`01_PRIV` a `05_GIT`) + `.env`, detecta qué archivo `.py`/`.html`/`.js` se movió o actualizó por última vez y qué commit Git tiene, y lo publica automáticamente en Supabase (`estado_sistema` -> `seguidor_v2_<ROL_NODO>`).
+    - El **Plano Interactivo v2 (`:8788`)** lee esos sensores desde Supabase cada 5 segundos e ilumina las cajas de **Zona 5 (Hotel Madre L2)** y **Zona 6 (Terciarias)** en tiempo real cuando una carpeta o `.py` se crea o actualiza en las otras laptops.

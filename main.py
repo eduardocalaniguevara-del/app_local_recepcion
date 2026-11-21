@@ -35,7 +35,7 @@ sys.modules["wsp_inteligencia"] = wi
 
 from config import APP_HOST, APP_PORT, MODO_PRUEBA, NOMBRE_HOTEL, ROL_NODO, STATIC_DIR, WEB_DIR
 from db import get_connection, init_db
-from salud import reporte_salud
+from salud import publicar_seguidor_carpetas_supabase, reporte_salud
 from sync_nube import instalar_triggers_outbox, pull_from_supabase, push_to_supabase
 
 from fastapi import FastAPI, HTTPException, Request
@@ -51,6 +51,7 @@ _sync_stop_event = threading.Event()
 def _background_supabase_worker() -> None:
     try:
         instalar_triggers_outbox()
+        publicar_seguidor_carpetas_supabase()
         push_to_supabase()
         pull_from_supabase()
     except Exception as exc:
@@ -63,6 +64,7 @@ def _background_supabase_worker() -> None:
             _sync_wakeup_event.clear()
             time.sleep(0.25)
         try:
+            publicar_seguidor_carpetas_supabase()
             push_to_supabase()
             pull_from_supabase()
         except Exception as exc:
