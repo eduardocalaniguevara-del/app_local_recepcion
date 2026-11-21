@@ -1,11 +1,15 @@
 """
 main.py — Interruptor general del servidor web de C:\\Ovalo_Sistema_v2.
-En Fase 1 expone la vista base y el chequeo /api/salud; en Fase 3 suma las rutas operativas de Recepción.
+Funciona igual en Laptop 1, Laptop 2 o una futura Laptop 3.
 """
 import json
+import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from app.config import PUERTO_WEB, WEB_DIR, ROL_NODO
-from app.salud import reporte_salud
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "04_GIT_app_motor"))
+from config import PUERTO_WEB, WEB_DIR, ROL_NODO
+from salud import reporte_salud
 
 
 class OvaloV2Handler(SimpleHTTPRequestHandler):

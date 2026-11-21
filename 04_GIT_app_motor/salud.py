@@ -1,6 +1,6 @@
 """
-app/salud.py — Monitor ligero (~80 líneas) que reemplaza a los 25 archivos del antiguo Arnés.
-Verifica solo lo vital: Aduana .gitignore, Estructura Base, SQLite local y alcance de Supabase.
+04_GIT_app_motor/salud.py — Monitor ligero (~80 líneas) que reemplaza a los 25 archivos del antiguo Arnés.
+Verifica solo lo vital: Aduana .gitignore, Estructura 01..06, SQLite local y alcance de Supabase.
 """
 import json
 import sqlite3
@@ -10,8 +10,8 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app.config import BASE_DIR, DB_PATH, ROL_NODO, SUPABASE_URL, ACTIVAR_MOTOR_24X7
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config import BASE_DIR, DATA_DIR, DB_PATH, ROL_NODO, SUPABASE_URL, ACTIVAR_MOTOR_24X7
 
 
 def verificar_aduana_gitignore() -> dict:
@@ -20,15 +20,16 @@ def verificar_aduana_gitignore() -> dict:
         return {"ok": False, "detalle": "Falta archivo .gitignore"}
     texto = gi_path.read_text(encoding="utf-8", errors="ignore")
     reglas = {
-        "borradores": "borradores/" in texto,
-        "privado_l1": "privado_l1/" in texto,
-        "data_db": "data/" in texto and "*.db" in texto,
+        "borradores": "01_PRIV_borradores/" in texto,
+        "privado_l1": "02_PRIV_correo_bcp/" in texto,
+        "data_db": "03_DB_sqlite_local/" in texto and "*.db" in texto,
         "env": ".env" in texto,
     }
     return {"ok": all(reglas.values()), "candados": reglas}
 
 
 def verificar_sqlite_local() -> dict:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not DB_PATH.exists():
         return {"ok": True, "estado": "PENDIENTE_FASE_2", "ruta": str(DB_PATH)}
     try:
