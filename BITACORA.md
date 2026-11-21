@@ -3,15 +3,18 @@
 
 ---
 
-## 🚦 Estado General por Fases
+## 🚦 Estado General por Fases (`18 / 18 Componentes en Disco — 100%`)
 
 - **✅ Fase 0 — Regla Global Modo Arquitecto Senior + Prioridad Visual (`/learn`):** COMPLETADA
 - **✅ Fase 1 — Esqueleto Escalable `01..06` + Aduana `.gitignore` + Plano Interactivo (`:8788`):** COMPLETADA
 - **✅ Fase 2 — Base SQLite Limpia (`04_GIT_app_motor/db.py`) + Puente Supabase 3-Niveles (`04_GIT_app_motor/sync_nube.py`):** COMPLETADA
 - **✅ Fase 3 — Mostrador de Recepción (`04_GIT_app_motor/estancias.py` + `05_GIT_web_mostrador/` + Ícono Google Chrome):** COMPLETADA
 - **✅ Fase 4 — Conciliación Bancaria (`02_PRIV_correo_bcp/` + `04_GIT_app_motor/yape_bcp.py` sin `WSP +5m`):** COMPLETADA
-  - **Aislamiento total de tu Gmail personal:** Creado `02_PRIV_correo_bcp/extractor_bcp_gmail.py` (**🔒 bloqueado en `.gitignore`**, solo corre en Nivel 1 / Laptop 1, extrae notificaciones BCP de la Cuenta Maelen `8023`, las guarda con candado `UNIQUE` en `maelen_transferencias_correo` y las sube a Supabase).
-  - **Motor público limpio (`04_GIT_app_motor/yape_bcp.py`):** Cero correos personales ni rutas fijas en Git. En Laptop 2 (Madre) y Laptops Terciarias (Nivel 3) lee directamente los movimientos bancarios desde SQLite/Supabase y los cruza con los pagos anotados en Recepción.
-  - **Interfaz limpia sin ruido `WSP +5m`:** Eliminada la etiqueta `📲 WSP +5m` de `05_GIT_web_mostrador/js/yape_vivo.js`.
-- **⏳ Fase 5 — SUNAT (`04_GIT_app_motor/sunat.py`) + WhatsApp (`04_GIT_app_motor/whatsapp.py`) + `motor_24x7.py`:** PENDIENTE (Siguiente paso)
-- **⏳ Fase 6 — Clon en Solo Lectura en Laptop Madre (L2) / Terciarias (L3+) y Retiro de Carpetas Antiguas:** PENDIENTE
+- **✅ Fase 5 — SUNAT (`04_GIT_app_motor/sunat.py`) + WhatsApp Centralizado (`04_GIT_app_motor/whatsapp.py`) + Ronda `motor_24x7.py`:** COMPLETADA
+  - **`04_GIT_app_motor/sunat.py` activo:** Emisión de Boletas/Facturas (IGV 10.5% MYPE Hotelería), Notas de Crédito y consulta DNI/RUC conectada a `03_DB_sqlite_local/ovalo.db`.
+  - **`04_GIT_app_motor/whatsapp.py` activo:**
+    - En **Nivel 2 (Laptop Madre del Hotel)**: Vigila el único QR físico de WhatsApp de Recepción y procesa la cola de envío.
+    - En **Nivel 1 (Tu Laptop 1)** y **Nivel 3 (Laptops Terciarias)**: Muestra la bandeja completa de chats y resúmenes ejecutivos desde Supabase sin escanear ningún QR.
+  - **`06_GIT_vigilante_24x7/motor_24x7.py` consolidado:** Orquesta `sync_nube.py`, `yape_bcp.py`, `whatsapp.py` y `salud.py` (~80 líneas).
+  - **Mapa Interactivo `:8788` al 100% (`18 / 18` cajas en verde `✅ EN DISCO`).**
+- **⏳ Fase 6 — Despliegue en Laptop Madre del Hotel (L2) en Solo Lectura y Retiro de Carpetas Antiguas:** LISTO PARA EJECUTAR

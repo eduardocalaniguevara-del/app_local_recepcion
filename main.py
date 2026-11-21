@@ -31,8 +31,12 @@ sys.modules["database"] = _db_v2
 
 import estancias as dl
 import yape_bcp as ym
+import sunat as sws
+import whatsapp as wi
 sys.modules["domain_logic"] = dl
 sys.modules["yape_manager"] = ym
+sys.modules["sunat_wsp_service"] = sws
+sys.modules["wsp_inteligencia"] = wi
 
 from config import APP_HOST, APP_PORT, MODO_PRUEBA, NOMBRE_HOTEL, ROL_NODO, STATIC_DIR, WEB_DIR
 from db import get_connection, init_db
