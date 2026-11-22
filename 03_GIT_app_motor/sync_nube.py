@@ -101,10 +101,44 @@ def instalar_triggers_outbox() -> dict:
         conn.close()
 
 
+_SUPABASE_COLS_CACHE: Dict[str, set] = {}
+_VITRINA_EXTRA_COLS = {f"h{i}_{suf}" for i in range(9, 37) for suf in ("cant", "est")}
+
+
+def _obtener_columnas_reales_supabase(tabla: str) -> set:
+    if tabla in _SUPABASE_COLS_CACHE:
+        return _SUPABASE_COLS_CACHE[tabla]
+    url = f"{SUPABASE_URL}/rest/v1/{tabla}?select=*&limit=1"
+    req = urllib.request.Request(url, method="GET", headers=_headers())
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+            if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+                cols = set(rows[0].keys())
+                _SUPABASE_COLS_CACHE[tabla] = cols
+                return cols
+    except Exception:
+        pass
+    return set()
+
+
+def _recortar_columnas_locales_extra(tabla: str, filas: List[Dict[str, Any]], cols_permitidas: set | None = None) -> List[Dict[str, Any]]:
+    recortadas = []
+    for f in filas:
+        d = dict(f)
+        if tabla == "vitrina_local":
+            for k_extra in _VITRINA_EXTRA_COLS:
+                d.pop(k_extra, None)
+        if cols_permitidas:
+            d = {k: v for k, v in d.items() if k in cols_permitidas}
+        recortadas.append(d)
+    return recortadas
+
+
 def push_to_supabase(limit: int = 150) -> dict:
     """
     Lee los sobres pendientes en _supabase_outbox, cierra SQLite en <5 ms (cero bloqueos)
-    y los sube por lotes a Supabase.
+    y los sube por lotes a Supabase recortando automáticamente cualquier columna local extra.
     """
     if not SUPABASE_CONFIGURADO:
         return {"ok": False, "modo": "OFFLINE_SIN_LLAVE", "enviados": 0}
@@ -147,20 +181,47 @@ def push_to_supabase(limit: int = 150) -> dict:
         pks = TABLAS_SINCRONIZADAS_PK[tabla]
         on_conflict = ",".join(pks)
         url = f"{SUPABASE_URL}/rest/v1/{tabla}?on_conflict={urllib.parse.quote(on_conflict)}"
-        body = json.dumps(filas, ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=body,
-            method="POST",
-            headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                if 200 <= resp.status < 300:
-                    enviados += len(filas)
-                    tablas_ok.add(tabla)
-        except Exception as exc:
-            errores.append(f"{tabla}: {exc}")
+        filas_limpias = _recortar_columnas_locales_extra(tabla, filas, _SUPABASE_COLS_CACHE.get(tabla))
+
+        for intento in range(3):
+            body = json.dumps(filas_limpias, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=body,
+                method="POST",
+                headers=_headers({"Prefer": "resolution=merge-duplicates,return=minimal"}),
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    if 200 <= resp.status < 300:
+                        enviados += len(filas_limpias)
+                        tablas_ok.add(tabla)
+                        break
+            except urllib.error.HTTPError as he:
+                err_body = ""
+                try:
+                    err_body = he.read().decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+                # Si Supabase reporta una columna local extra que no existe en la nube, recortarla y reintentar al instante
+                if he.code == 400 and ("column" in err_body or "PGRST204" in err_body):
+                    import re as _re
+                    m_col = _re.search(r"Could not find the '([^']+)' column", err_body)
+                    cols_sb = _obtener_columnas_reales_supabase(tabla)
+                    if m_col:
+                        col_desconocida = m_col.group(1)
+                        filas_limpias = [{k: v for k, v in f.items() if k != col_desconocida} for f in filas_limpias]
+                        if cols_sb:
+                            cols_sb.discard(col_desconocida)
+                        continue
+                    elif cols_sb:
+                        filas_limpias = _recortar_columnas_locales_extra(tabla, filas_limpias, cols_sb)
+                        continue
+                errores.append(f"{tabla} (HTTP {he.code}): {err_body[:160]}")
+                break
+            except Exception as exc:
+                errores.append(f"{tabla}: {exc}")
+                break
 
     # Limpiar de _supabase_outbox los sobres que ya subieron correctamente
     conn_clean = get_connection()
@@ -178,9 +239,9 @@ def push_to_supabase(limit: int = 150) -> dict:
     return {"ok": len(errores) == 0, "enviados": enviados, "errores": errores}
 
 
-def pull_from_supabase(limit: int = 300) -> dict:
+def pull_from_supabase(limit: int = 400) -> dict:
     """
-    Descarga en 1 sola llamada HTTP los cambios nuevos desde supabase_change_log
+    Descarga en 1 sola llamada HTTP los cambios nuevos desde supabase_change_log (columna row_json)
     para que cualquier Laptop (Nivel 1, Nivel 2 o Nivel 3 Terciaria) se mantenga al día.
     """
     if not SUPABASE_CONFIGURADO:
@@ -189,17 +250,20 @@ def pull_from_supabase(limit: int = 300) -> dict:
     conn = get_connection()
     try:
         ctrl = conn.execute("SELECT last_log_id FROM _supabase_sync_control WHERE id = 1").fetchone()
-        last_log_id = int(ctrl["last_log_id"]) if ctrl else 0
+        ctrl_id = int(ctrl["last_log_id"]) if (ctrl and ctrl["last_log_id"]) else 0
+        sb_row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'").fetchone()
+        sb_id = int(sb_row["valor"]) if (sb_row and str(sb_row["valor"]).isdigit()) else 0
+        last_log_id = max(ctrl_id, sb_id)
     finally:
         conn.close()
 
     url = (
         f"{SUPABASE_URL}/rest/v1/supabase_change_log"
-        f"?select=log_id,tabla,op,payload&log_id=gt.{last_log_id}&order=log_id.asc&limit={limit}"
+        f"?select=log_id,tabla,op,row_json,origen_equipo&log_id=gt.{last_log_id}&order=log_id.asc&limit={limit}"
     )
     req = urllib.request.Request(url, method="GET", headers=_headers())
     try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             logs = json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
         return {"ok": False, "aplicados": 0, "error": str(exc)}
@@ -218,7 +282,7 @@ def pull_from_supabase(limit: int = 300) -> dict:
                 nuevo_cursor = lid
             tabla = str(item.get("tabla") or "")
             op = str(item.get("op") or "UPSERT").upper()
-            payload = item.get("payload") or {}
+            payload = item.get("row_json") if item.get("row_json") is not None else (item.get("payload") or {})
             if isinstance(payload, str):
                 try:
                     payload = json.loads(payload)
@@ -252,6 +316,10 @@ def pull_from_supabase(limit: int = 300) -> dict:
                 )
                 aplicados += 1
 
+        conn_apply.execute(
+            "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('sb_last_log_id', ?, datetime('now', 'localtime'))",
+            (str(nuevo_cursor),),
+        )
         conn_apply.execute(
             "UPDATE _supabase_sync_control SET pulling = 0, last_log_id = ?, updated_at = datetime('now', 'localtime') WHERE id = 1;",
             (nuevo_cursor,),

@@ -39,7 +39,6 @@ TABLAS_SINCRONIZADAS_PK: Dict[str, Tuple[str, ...]] = {
     "control_pases": ("pase_uuid",),
     "servicios_detalle": ("serv_uuid",),
     "historial_movimientos": ("mov_id",),
-    "auditoria_audio_noche": ("clip_id",),
     "sunat_ventas": ("nro_cp",),
     "sire_compras_hostal": ("id",),
     "hostal_documentos_ocr": ("id",),
@@ -57,11 +56,12 @@ TABLAS_SINCRONIZADAS_PK: Dict[str, Tuple[str, ...]] = {
     "estado_sistema": ("clave",),
 }
 
-# Tablas caché que se recalculan localmente en cada laptop y NUNCA suben a Supabase (protección de Egress)
+# Tablas caché o pesadas locales que NUNCA suben a Supabase (protección de Egress; viajan por Syncthing si aplica)
 TABLAS_SOLO_LOCAL_CACHE = {
     "yape_conciliacion_hostal",
     "calzado_cache",
     "sunat_lineas_cache",
+    "auditoria_audio_noche",
 }
 
 
@@ -595,6 +595,55 @@ def init_db() -> dict:
                 conn.commit()
             except sqlite3.OperationalError:
                 pass
+
+        # Estandarización de columnas entre Laptop 1, Laptop 2 y Supabase
+        _estandar_cols = [
+            ("estancias", "unificado_en_uuid TEXT DEFAULT ''"),
+            ("estancias", "opcion_decision TEXT DEFAULT ''"),
+            ("ventas_tienda", "yape_tienda_usado_en TEXT DEFAULT ''"),
+            ("sunat_ventas", "id INTEGER"),
+            ("sunat_ventas", "tipo_doc TEXT DEFAULT ''"),
+            ("sunat_ventas", "serie TEXT DEFAULT ''"),
+            ("sunat_ventas", "numero TEXT DEFAULT ''"),
+            ("sunat_ventas", "receptor_doc_tipo TEXT DEFAULT ''"),
+            ("sunat_ventas", "moneda TEXT DEFAULT 'PEN'"),
+            ("sunat_ventas", "total REAL DEFAULT 0"),
+            ("sunat_ventas", "items_json TEXT DEFAULT ''"),
+            ("sunat_ventas", "origen_json TEXT DEFAULT ''"),
+            ("sunat_ventas", "updated_at TEXT DEFAULT ''"),
+            ("sire_compras_hostal", "tipo_cp TEXT DEFAULT ''"),
+            ("sire_compras_hostal", "moneda TEXT DEFAULT 'PEN'"),
+            ("sire_compras_hostal", "origen_excel TEXT DEFAULT ''"),
+            ("sire_compras_hostal", "updated_at TEXT DEFAULT ''"),
+            ("hostal_documentos_ocr", "id_mensaje TEXT DEFAULT ''"),
+            ("hostal_documentos_ocr", "jid TEXT DEFAULT ''"),
+            ("hostal_documentos_ocr", "nombre_archivo TEXT DEFAULT ''"),
+            ("hostal_documentos_ocr", "ruta_local TEXT DEFAULT ''"),
+            ("hostal_documentos_ocr", "metodo_extraccion TEXT DEFAULT ''"),
+            ("hostal_documentos_ocr", "fecha_procesado TEXT DEFAULT ''"),
+        ]
+        for tbl_name, col_def in _estandar_cols:
+            try:
+                conn.execute(f"ALTER TABLE {tbl_name} ADD COLUMN {col_def};")
+            except sqlite3.OperationalError:
+                pass
+
+        # Limpiar de _supabase_outbox cualquier tabla de TABLAS_SOLO_LOCAL_CACHE (ej. auditoria_audio_noche)
+        for t_cache in TABLAS_SOLO_LOCAL_CACHE:
+            conn.execute("DELETE FROM _supabase_outbox WHERE tabla = ?", (t_cache,))
+
+        # Sincronizar el cursor last_log_id con sb_last_log_id de estado_sistema si estaba en 0
+        try:
+            ctrl_row = conn.execute("SELECT last_log_id FROM _supabase_sync_control WHERE id = 1").fetchone()
+            sb_row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_last_log_id'").fetchone()
+            cur_ctrl = int(ctrl_row[0]) if ctrl_row and ctrl_row[0] else 0
+            cur_sb = int(sb_row[0]) if (sb_row and str(sb_row[0]).isdigit()) else 0
+            max_cur = max(cur_ctrl, cur_sb)
+            if max_cur > 0 and cur_ctrl != max_cur:
+                conn.execute("UPDATE _supabase_sync_control SET last_log_id = ? WHERE id = 1", (max_cur,))
+        except Exception:
+            pass
+        conn.commit()
 
         total_tablas = conn.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
