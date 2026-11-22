@@ -1,5 +1,5 @@
 # 📓 Bitácora Viva de Construcción — `C:\Ovalo_Sistema_v2`
-> **Actualizado:** 21/11/2026 — Monitoreado en vivo desde `http://127.0.0.1:8788/?grupo=sistema_v2`
+> **Actualizado:** 22/11/2026 — Monitoreado en vivo desde `http://127.0.0.1:8788/?grupo=sistema_v2`
 
 ---
 
@@ -39,3 +39,6 @@
   - **Esquema Supabase Homologado:** Agregadas en Supabase `unificado_en_uuid` y `opcion_decision` en `estancias`, `yape_tienda_usado_en` en `ventas_tienda`, columnas XML de `sunat_ventas`, `sire_compras_hostal`, `hostal_documentos_ocr` y creada la tabla `maelen_transferencias_correo`.
   - **Aduana de Recorte Automático en `PUSH` y Lectura `row_json` en `PULL` (`03_GIT_app_motor/sync_nube.py`):** Si cualquier tabla SQLite local tiene una columna extra que no exista en Supabase, `push_to_supabase()` la recorta al vuelo y reintenta sin cortar la transmisión; `pull_from_supabase()` lee `row_json` desde `supabase_change_log`.
   - **Base Maestra Unificada:** Sembrada la base de Recepción (`5,831 estancias`, `3,103 pagos`, `778 sunat_ventas`, `55 transferencias BCP`) con `0` pendientes en `_supabase_outbox`.
+- **✅ Fase 9 — Reconexión Automática de WhatsApp Recepción (`db.js` → `ovalo.db` v2) y Filtro Oficial de Reenvío BCP (`8023`) a `hostal.ovalo@gmail.com`:** COMPLETADA
+  - **Auto-reconexión de `wsp_daemon.js` en Laptop 2 (`03_GIT_app_motor/whatsapp.py`):** `vigilar_daemon()` redirige automáticamente `db.js` del daemon de WhatsApp en Recepción hacia `C:\Ovalo_Sistema_v2\02_DB_sqlite_local\ovalo.db` y lo reinicia sin tocar `auth_info` (cero QR nuevo). Rescatados y sincronizados los `91 chats` y `446 mensajes` de WhatsApp.
+  - **Filtro de Correo BCP (`8023` Maelen) Activo en Gmail:** Configurado en el Gmail personal (`Disable forwarding` global activo + filtro exclusivo `from:(notificacionesbcp.com.pe) 8023` -> `Forward it to: hostal.ovalo@gmail.com` + `Never send it to Spam`). Así la Laptop 2 lee 24/7 únicamente las transferencias de la cuenta del hotel sin exponer ningún correo personal.
