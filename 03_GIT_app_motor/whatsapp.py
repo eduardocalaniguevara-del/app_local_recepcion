@@ -2017,8 +2017,66 @@ def _es_laptop_recepcion_l2() -> bool:
     return Path(r"C:\Users\ovalo mariategui").exists()
 
 
+def _resolver_carpeta_wsp_daemon() -> Optional[Path]:
+    candidatos = [
+        _BASE_DIR / "01_PRIV_borradores" / "whatsapp_mcp_recepcion",
+        _BASE_DIR / "whatsapp_mcp_recepcion",
+        Path(r"C:\Recepcion_Ovalo_Local\whatsapp_mcp_recepcion"),
+        Path(r"C:\Hostal_Sistema\whatsapp_mcp_recepcion"),
+    ]
+    for c in candidatos:
+        if (c / "wsp_daemon.js").exists():
+            return c
+    return None
+
+
+def _asegurar_db_js_apunta_a_v2(carpeta: Path) -> bool:
+    """
+    Asegura que db.js del daemon de WhatsApp en Laptop 2 escriba directamente en
+    02_DB_sqlite_local/ovalo.db de C:\\Ovalo_Sistema_v2 (y no en la carpeta V1 antigua).
+    Devuelve True si tuvo que actualizar db.js (para reiniciar el daemon).
+    """
+    db_js = carpeta / "db.js"
+    if not db_js.exists():
+        return False
+    try:
+        txt = db_js.read_text(encoding="utf-8")
+        target_db = str(getattr(_cfg, "DB_PATH", r"C:\Ovalo_Sistema_v2\02_DB_sqlite_local\ovalo.db")).replace("\\", "\\\\")
+        linea_v2 = f"const DB_HOSTAL_PATH = '{target_db}';"
+        if linea_v2 in txt:
+            return False
+        nuevo_txt = re.sub(
+            r"const\s+DB_HOSTAL_PATH\s*=\s*[^;]+;",
+            lambda _: linea_v2,
+            txt,
+            count=1,
+        )
+        if nuevo_txt != txt:
+            db_js.write_text(nuevo_txt, encoding="utf-8")
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _detener_daemon_wsp() -> None:
+    try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.run(
+            [
+                "powershell", "-NoProfile", "-Command",
+                "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | "
+                "Where-Object { $_.CommandLine -like '*wsp_daemon.js*' } | "
+                "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+            ],
+            capture_output=True, text=True, timeout=15, creationflags=flags,
+        )
+    except Exception:
+        pass
+
+
 def vigilar_daemon() -> Dict[str, Any]:
-    """Relanza `node wsp_daemon.js` si no hay proceso. EXCLUSIVO de Operativa (:8080) en Laptop 2 (Recepción)."""
+    """Relanza `node wsp_daemon.js` apuntando a 02_DB_sqlite_local/ovalo.db. EXCLUSIVO de Laptop 2 (Recepción)."""
     if MODO_PRUEBA:
         return {"accion": "omitido", "motivo": "MODO_PRUEBA"}
     if not _es_laptop_recepcion_l2():
@@ -2026,12 +2084,16 @@ def vigilar_daemon() -> Dict[str, Any]:
     raw = _estado_daemon_raw().strip().upper()
     if raw == "ESPERANDO_QR" or "LOGGED_OUT" in raw or raw.endswith("_401"):
         return {"accion": "omitido", "motivo": "pide QR / sesión cerrada", "estado": raw}
-    carpeta = _BASE_DIR / "whatsapp_mcp_recepcion"
-    script = carpeta / "wsp_daemon.js"
-    if not script.exists():
+    carpeta = _resolver_carpeta_wsp_daemon()
+    if not carpeta:
         return {"accion": "omitido", "motivo": "no existe wsp_daemon.js"}
-    if _daemon_corriendo("wsp_daemon.js"):
-        return {"accion": "ninguna", "motivo": "ya corre"}
+    script = carpeta / "wsp_daemon.js"
+    cambio_db = _asegurar_db_js_apunta_a_v2(carpeta)
+    if cambio_db:
+        _detener_daemon_wsp()
+        time.sleep(0.5)
+    elif _daemon_corriendo("wsp_daemon.js"):
+        return {"accion": "ninguna", "motivo": "ya corre en DB v2", "carpeta": str(carpeta)}
     node = shutil.which("node") or r"C:\Program Files\nodejs\node.exe"
     if not Path(node).exists():
         return {"accion": "omitido", "motivo": "node no encontrado"}
@@ -2044,4 +2106,4 @@ def vigilar_daemon() -> Dict[str, Any]:
         stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,
     )
-    return {"accion": "lanzado", "node": node}
+    return {"accion": "lanzado_en_db_v2" if cambio_db else "lanzado", "node": node, "carpeta": str(carpeta)}
