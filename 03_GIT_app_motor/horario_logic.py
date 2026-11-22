@@ -1,13 +1,3 @@
-import sys as _sys
-from pathlib import Path as _Path
-_MDIR = str(_Path(__file__).resolve().parent)
-if _MDIR not in _sys.path:
-    _sys.path.insert(0, _MDIR)
-import config as _cfg_v2
-import db as _db_v2
-_sys.modules["config"] = _cfg_v2
-_sys.modules["database"] = _db_v2
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -19,6 +9,16 @@ Módulo ⏰ Horario y Pagos de Personal (offline-first, SQLite).
 """
 
 from __future__ import annotations
+
+import sys as _sys
+from pathlib import Path as _Path
+_MDIR = str(_Path(__file__).resolve().parent)
+if _MDIR not in _sys.path:
+    _sys.path.insert(0, _MDIR)
+import config as _cfg_v2
+import db as _db_v2
+_sys.modules["config"] = _cfg_v2
+_sys.modules["database"] = _db_v2
 
 import calendar
 import hashlib
