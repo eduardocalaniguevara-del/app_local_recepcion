@@ -278,6 +278,95 @@ def push_to_supabase(limit: int = 150) -> dict:
     return {"ok": len(errores) == 0, "enviados": enviados, "errores": errores}
 
 
+def bootstrap_initial_from_supabase() -> dict:
+    """
+    Si esta base local ovalo.db es nueva (tiene < 100 estancias o 0 habitaciones_config),
+    descarga de un solo golpe el 100% de las tablas maestras desde Supabase para que una
+    Laptop Terciaria (L3) recién instalada tenga todas las habitaciones y fechas históricas.
+    """
+    if not SUPABASE_CONFIGURADO:
+        return {"ok": False, "modo": "OFFLINE_SIN_LLAVE"}
+    conn = get_connection()
+    try:
+        c_est = conn.execute("SELECT COUNT(*) FROM estancias").fetchone()[0]
+        c_hab = conn.execute("SELECT COUNT(*) FROM habitaciones_config").fetchone()[0]
+        done_flag = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_bootstrap_full_v1'").fetchone()
+    finally:
+        conn.close()
+    if done_flag and c_est >= 500 and c_hab >= 15:
+        return {"ok": True, "bootstrap": "ALREADY_DONE", "estancias": c_est}
+
+    total_descargados = {}
+    conn_w = get_connection()
+    try:
+        conn_w.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1;")
+        for tabla in TABLAS_SINCRONIZADAS_PK.keys():
+            if tabla in TABLAS_SOLO_LOCAL_CACHE:
+                continue
+            cols_locales = {r[1] for r in conn_w.execute(f'PRAGMA table_info("{tabla}")').fetchall()}
+            if not cols_locales:
+                continue
+            offset = 0
+            page_size = 1000
+            t_count = 0
+            while True:
+                url = f"{SUPABASE_URL}/rest/v1/{tabla}?select=*&limit={page_size}&offset={offset}"
+                req = urllib.request.Request(url, method="GET", headers=_headers())
+                try:
+                    with urllib.request.urlopen(req, timeout=20) as resp:
+                        rows = json.loads(resp.read().decode("utf-8"))
+                except Exception:
+                    break
+                if not isinstance(rows, list) or not rows:
+                    break
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    if tabla == "estado_sistema" and row.get("clave") in ("sb_last_log_id", "network_online", "offline_since_iso"):
+                        continue
+                    datos = {k: v for k, v in row.items() if k in cols_locales}
+                    if not datos:
+                        continue
+                    cols_q = ", ".join(f'"{k}"' for k in datos.keys())
+                    ph = ", ".join("?" for _ in datos)
+                    conn_w.execute(f'INSERT OR REPLACE INTO "{tabla}" ({cols_q}) VALUES ({ph})', tuple(datos.values()))
+                    t_count += 1
+                if len(rows) < page_size:
+                    break
+                offset += page_size
+            total_descargados[tabla] = t_count
+
+        # Fijar cursor al último log_id actual de supabase_change_log
+        try:
+            url_max = f"{SUPABASE_URL}/rest/v1/supabase_change_log?select=log_id&order=log_id.desc&limit=1"
+            req_m = urllib.request.Request(url_max, method="GET", headers=_headers())
+            with urllib.request.urlopen(req_m, timeout=10) as rm:
+                arr = json.loads(rm.read().decode("utf-8"))
+                if arr and isinstance(arr, list):
+                    max_lid = int(arr[0].get("log_id") or 0)
+                    conn_w.execute("UPDATE _supabase_sync_control SET last_log_id = ? WHERE id = 1;", (max_lid,))
+                    conn_w.execute(
+                        "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('sb_last_log_id', ?, datetime('now', 'localtime'))",
+                        (str(max_lid),),
+                    )
+        except Exception:
+            pass
+
+        conn_w.execute(
+            "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('sb_bootstrap_full_v1', 'OK', datetime('now', 'localtime'))"
+        )
+        conn_w.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
+        conn_w.commit()
+    finally:
+        try:
+            conn_w.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
+            conn_w.commit()
+        except Exception:
+            pass
+        conn_w.close()
+    return {"ok": True, "bootstrap": "COMPLETED", "tablas": total_descargados}
+
+
 def pull_from_supabase(limit: int = 400) -> dict:
     """
     Descarga en 1 sola llamada HTTP los cambios nuevos desde supabase_change_log (columna row_json)
@@ -285,6 +374,8 @@ def pull_from_supabase(limit: int = 400) -> dict:
     """
     if not SUPABASE_CONFIGURADO:
         return {"ok": False, "modo": "OFFLINE_SIN_LLAVE", "aplicados": 0}
+
+    bootstrap_initial_from_supabase()
 
     conn = get_connection()
     try:
@@ -342,6 +433,8 @@ def pull_from_supabase(limit: int = 400) -> dict:
                 except Exception:
                     payload = {}
             if tabla not in TABLAS_SINCRONIZADAS_PK or tabla in TABLAS_SOLO_LOCAL_CACHE or not isinstance(payload, dict):
+                continue
+            if tabla == "estado_sistema" and payload.get("clave") in ("sb_last_log_id", "network_online", "offline_since_iso"):
                 continue
 
             cols_locales = {
