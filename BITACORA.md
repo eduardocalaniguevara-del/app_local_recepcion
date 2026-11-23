@@ -1,5 +1,5 @@
 # 📓 Bitácora Viva de Construcción — `C:\Ovalo_Sistema_v2`
-> **Actualizado:** 22/11/2026 — Monitoreado en vivo desde `http://127.0.0.1:8788/?grupo=sistema_v2`
+> **Actualizado:** 23/11/2026 — Monitoreado en vivo desde `http://127.0.0.1:8788/?grupo=sistema_v2`
 
 ---
 
@@ -50,6 +50,16 @@
     - La fuente maestra es `02_DB_sqlite_local\ovalo.db ↔ Supabase`. Google Sheets funciona únicamente como **copia espejo unidireccional (`SQLite ➔ Sheets`)**: lo que se edita en la aplicación se refleja en Sheets respetando las fórmulas `=MAP(...)`, y jamás a la inversa.
   - **3. Hidratación Completa Automática para Laptops Nuevas (`bootstrap_initial_from_supabase`):**
     - Cuando una computadora nueva se instala desde cero (`< 500 estancias`), descarga automáticamente el **100% de las tablas maestras desde Supabase** (`5,762+ estancias`, `3,108+ pagos`, `29 habitaciones`, tienda y gastos), crea `sync_queue` en `init_db()`, ignora cualquier BOM UTF-8 en `.env` y marca `network_online = 1` (`🟢 En vivo`).
+- **✅ Fase 11 — Facturación Electrónica SUNAT v2 Autonomizada (`03_GIT_app_motor`), Carpeta Local `comprobantes_pdf`, Conversor PDF ➔ Supabase y Cola Remota (`L1/L3 ➔ L2 Madre`):** COMPLETADA (23/11/2026)
+  - **1. Motores SUNAT y WhatsApp Integrados en `03_GIT_app_motor\` (100% vía GitHub, Cero dependencia de `C:\Hostal_Sistema`):**
+    - Integrados en `03_GIT_app_motor/sunat_motor_playwright.py`, `03_GIT_app_motor/sunat.py` y `03_GIT_app_motor/auditor_calzado_bcp_sunat.py` los motores Playwright + MS Edge Headless Stealth (Boletas `EB01`, Facturas `E001` al Contado, Notas de Crédito y Modo Borrador Preliminar con IGV 10.5% Ley 31556).
+  - **2. Carpeta Local Exclusiva de PDFs en Laptop Madre (`02_DB_sqlite_local\comprobantes_pdf\`):**
+    - Creada estructura local protegida en `.gitignore` (`boletas\`, `facturas\`, `notas_credito\`, `capturas\`). Ningún PDF nuevo se guarda en la antigua carpeta compartida `C:\Hostal_Sistema` ni sube a GitHub.
+  - **3. Conversión Inmediata de PDF a Datos Estructurados en Supabase (`convertir_comprobante_a_datos_y_subir_supabase`):**
+    - Apenas se emite un comprobante, el motor extrae `nro_cp`, `tipo_doc`, `fecha_emision`, `receptor_doc`, `receptor_nombre`, `op_gravada`, `igv_105`, `total`, `items_json`, `hab` y `noche_dmy`, y los sincroniza en vivo hacia `sunat_ventas`, `sunat_lineas_cache` y `estancias` en Supabase (verificado con la Boleta `EB01-6904` de `YESICA HUALLPARA AROCUTIPA` por `S/ 80.00`).
+  - **4. Candado Estricto de Rol (`ROL_NODO`) y Cola Remota por Supabase (`L1 / L3 Terciaria ➔ L2 Madre`):**
+    - Aunque todas las laptops descargan los mismos `.py` desde GitHub, solo `NIVEL_2_MADRE_HOTEL` (Laptop 2 Recepción) mantiene encendido el emisor SUNAT y el despachador WhatsApp (con hilo consumidor automático cada `3.5s` al recargar `sunat.py`).
+    - `NIVEL_3_TERCIARIA` y `NIVEL_1_INGENIERIA` tienen bloqueada la emisión local y delegan toda orden vía `estado_sistema` (`sunat_orden_remota_<job_id>`) hacia la Laptop Madre.
 
 ---
 
