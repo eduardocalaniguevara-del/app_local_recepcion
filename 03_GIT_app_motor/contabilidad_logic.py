@@ -1087,7 +1087,22 @@ def actualizar_extraccion_tributaria_completa_local(mes: str = "2026-11") -> Dic
     pasos_ok = []
     avisos = []
 
-    # 1. Sincronización Yape / BCP local
+    # 1. Revisor Incremental de Faltantes SUNAT (en Laptop 2 Madre descarga PDFs faltantes de SEE-SOL; en L1/L3 envía orden remota o sincroniza desde Supabase)
+    try:
+        from config import ES_NIVEL_2_MADRE_HOTEL
+        from sync_nube import pull_from_supabase
+        if ES_NIVEL_2_MADRE_HOTEL:
+            from sunat_motor_playwright import revisar_y_descargar_faltantes_sunat_incremental
+            res_inc = revisar_y_descargar_faltantes_sunat_incremental(dias_atras=7)
+            desc_n = len(res_inc.get("faltantes_descargados") or [])
+            pasos_ok.append(f"Revisor incremental SUNAT ejecutado ({desc_n} faltantes descargados)")
+        else:
+            pull_from_supabase(limit=250)
+            pasos_ok.append("Datos SUNAT sincronizados desde Supabase")
+    except Exception as exc:
+        avisos.append(f"Revisor incremental SUNAT: {exc}")
+
+    # 2. Sincronización Yape / BCP local (sin consultar correo BCP automáticamente)
     try:
         import yape_bcp as ym
         if hasattr(ym, "conciliar_yapes_sqlite"):

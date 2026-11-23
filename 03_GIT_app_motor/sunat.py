@@ -23,6 +23,8 @@ import re
 import sys
 import threading
 import time
+import urllib.parse
+import urllib.request
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +47,8 @@ from config import (
     MODO_PRUEBA,
     REGLAS_AUDITORIA_JSON,
     ROL_NODO,
+    SUPABASE_CONFIGURADO,
+    SUPABASE_URL,
     TIENE_QR_WSP_FISICO,
 )
 from db import db_transaction, get_connection
@@ -56,8 +60,9 @@ from sunat_motor_playwright import (
     despachar_wsp_comprobante_local,
     emitir_comprobante_sunat_local,
     emitir_nota_credito_sunat_local,
+    revisar_y_descargar_faltantes_sunat_incremental,
 )
-from sync_nube import encolar_whatsapp_remoto, pull_from_supabase, push_to_supabase
+from sync_nube import _headers, encolar_whatsapp_remoto, pull_from_supabase, push_to_supabase
 
 FACTOR_IGV_HOTEL = 1.105
 
@@ -434,7 +439,48 @@ def _guardar_estado_orden_remota_supabase(job_id: str, orden_dict: Dict[str, Any
 
 
 def _leer_orden_remota_local(job_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Lee el estado de `sunat_orden_remota_{job_id}` directamente desde la tabla `estado_sistema`
+    en Supabase (ya que `estado_sistema` no genera filas en `supabase_change_log`) y lo sincroniza
+    en `estado_sistema` local para recibir `RUNNING`/`DONE` al instante sin timeout.
+    """
     clave = f"sunat_orden_remota_{job_id}"
+    if SUPABASE_CONFIGURADO:
+        try:
+            url = (
+                f"{SUPABASE_URL}/rest/v1/estado_sistema"
+                f"?clave=eq.{urllib.parse.quote(clave)}&select=valor,updated_at&limit=1"
+            )
+            req = urllib.request.Request(url, method="GET", headers=_headers())
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                rows = json.loads(resp.read().decode("utf-8"))
+                if isinstance(rows, list) and rows and rows[0].get("valor"):
+                    val_str = str(rows[0]["valor"])
+                    upd_at = str(rows[0].get("updated_at") or datetime.now().isoformat(timespec="seconds"))
+                    c_w = get_connection()
+                    try:
+                        c_w.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1")
+                        c_w.execute(
+                            """
+                            INSERT INTO estado_sistema (clave, valor, updated_at)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at
+                            """,
+                            (clave, val_str, upd_at),
+                        )
+                        c_w.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+                        c_w.commit()
+                    finally:
+                        try:
+                            c_w.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+                            c_w.commit()
+                        except Exception:
+                            pass
+                        c_w.close()
+                    return json.loads(val_str)
+        except Exception:
+            pass
+
     conn = get_connection()
     try:
         row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = ?", (clave,)).fetchone()
@@ -445,6 +491,59 @@ def _leer_orden_remota_local(job_id: str) -> Optional[Dict[str, Any]]:
     finally:
         conn.close()
     return None
+
+
+def _sincronizar_ordenes_remotas_desde_supabase_en_madre() -> int:
+    """
+    Descarga directamente de Supabase todas las filas `clave=like.sunat_orden_remota*` de `estado_sistema`
+    y las sincroniza en `estado_sistema` local de Laptop 2 Madre antes de procesarlas.
+    """
+    if not SUPABASE_CONFIGURADO:
+        return 0
+    sincronizadas = 0
+    try:
+        url = (
+            f"{SUPABASE_URL}/rest/v1/estado_sistema"
+            f"?clave=like.sunat_orden_remota*&select=clave,valor,updated_at"
+        )
+        req = urllib.request.Request(url, method="GET", headers=_headers())
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+        if not isinstance(rows, list) or not rows:
+            return 0
+
+        conn = get_connection()
+        try:
+            conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1")
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                cl = str(r.get("clave") or "").strip()
+                vl = str(r.get("valor") or "").strip()
+                up = str(r.get("updated_at") or datetime.now().isoformat(timespec="seconds"))
+                if not cl or not vl:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO estado_sistema (clave, valor, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at
+                    """,
+                    (cl, vl, up),
+                )
+                sincronizadas += 1
+            conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+            conn.commit()
+        finally:
+            try:
+                conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+                conn.commit()
+            except Exception:
+                pass
+            conn.close()
+    except Exception:
+        pass
+    return sincronizadas
 
 
 def _ejecutar_trabajo_sunat_wsp_local(
@@ -461,13 +560,24 @@ def _ejecutar_trabajo_sunat_wsp_local(
 
     with _sunat_emission_lock:
         accion = data_norm["accion"]
-        hab = data_norm["hab"]
-        estancia_uuid = data_norm["estanciaUuid"]
-        id_estancia = data_norm["id_estancia"]
-        modo_borrador = bool(data_norm["modoBorrador"])
-        tipo = data_norm["tipo"]
+        hab = data_norm.get("hab", "")
+        estancia_uuid = data_norm.get("estanciaUuid", "")
+        id_estancia = data_norm.get("id_estancia", 0)
+        modo_borrador = bool(data_norm.get("modoBorrador", False))
+        tipo = data_norm.get("tipo", "BOLETA")
         en_recepcion = es_laptop_recepcion_directa()
         CAPTURAS_SUNAT_DIR.mkdir(parents=True, exist_ok=True)
+
+        # ------------------------------------------------------------------
+        # CASO 0: REVISOR INCREMENTAL DE FALTANTES SUNAT (SOLO EN MADRE L2)
+        # ------------------------------------------------------------------
+        if accion == "REVISAR_FALTANTES_SUNAT":
+            dias_atras = int(data_norm.get("dias_atras") or 7)
+            if job_id:
+                _update_job(job_id, state="RUNNING", etapa=f"🔍 Revisando comprobantes faltantes en SUNAT ({dias_atras} días)...")
+            res_inc = revisar_y_descargar_faltantes_sunat_incremental(dias_atras=dias_atras)
+            res_inc["accion"] = "REVISAR_FALTANTES_SUNAT"
+            return res_inc
 
         # ------------------------------------------------------------------
         # CASO A: REENVÍO SOLO WHATSAPP
@@ -789,6 +899,7 @@ def procesar_cola_ordenes_sunat_madre(wakeup_cb: Optional[Callable[[], None]] = 
 
     procesadas = 0
     try:
+        _sincronizar_ordenes_remotas_desde_supabase_en_madre()
         conn = get_connection()
         try:
             filas = conn.execute(
@@ -995,11 +1106,25 @@ def ejecutar_orden_sunat_wsp(
     sincrono = bool(data.get("sincrono", False))
     forzar_local = bool(data.get("forzar_local", False))
 
-    if accion not in ("EMITIR", "EMITIR_Y_WSP", "SOLO_WSP", "NOTA_CREDITO"):
+    if accion not in ("EMITIR", "EMITIR_Y_WSP", "SOLO_WSP", "NOTA_CREDITO", "REVISAR_FALTANTES_SUNAT"):
         return {"status": "ERROR", "error": f"Acción '{accion_raw}' no soportada."}
 
+    # 0. Revisor Incremental de Faltantes SUNAT
+    if accion == "REVISAR_FALTANTES_SUNAT":
+        data_norm = {
+            "accion": "REVISAR_FALTANTES_SUNAT",
+            "hab": "",
+            "estanciaUuid": "",
+            "id_estancia": 0,
+            "fila_calzado": None,
+            "modoBorrador": False,
+            "forzar_local": False,
+            "tipo": "SUNAT",
+            "dias_atras": int(data.get("dias_atras") or 7),
+        }
+
     # 1. Validación rápida SOLO_WSP
-    if accion == "SOLO_WSP":
+    elif accion == "SOLO_WSP":
         tel = re.sub(r"\D", "", str(data.get("telefono") or "").strip())
         if not tel:
             return {"status": "ERROR", "error": "Ingrese un número de celular válido para enviar por WhatsApp."}

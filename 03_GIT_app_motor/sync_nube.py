@@ -81,24 +81,27 @@ def instalar_triggers_outbox() -> dict:
                 AFTER INSERT ON {tabla}
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
                 BEGIN
-                    INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-                    VALUES ('{tabla}', CAST(NEW.{pk1} AS TEXT), {pk2_new}, 'UPSERT', datetime('now', 'localtime'));
+                    INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+                    VALUES ('{tabla}', CAST(NEW.{pk1} AS TEXT), {pk2_new}, 'UPSERT', datetime('now', 'localtime'))
+                    ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET op = excluded.op, updated_at = excluded.updated_at;
                 END;
 
                 CREATE TRIGGER trg_sb_upd_{tabla}
                 AFTER UPDATE ON {tabla}
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
                 BEGIN
-                    INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-                    VALUES ('{tabla}', CAST(NEW.{pk1} AS TEXT), {pk2_new}, 'UPSERT', datetime('now', 'localtime'));
+                    INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+                    VALUES ('{tabla}', CAST(NEW.{pk1} AS TEXT), {pk2_new}, 'UPSERT', datetime('now', 'localtime'))
+                    ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET op = excluded.op, updated_at = excluded.updated_at;
                 END;
 
                 CREATE TRIGGER trg_sb_del_{tabla}
                 AFTER DELETE ON {tabla}
                 WHEN (SELECT pulling FROM _supabase_sync_control WHERE id = 1) = 0
                 BEGIN
-                    INSERT OR REPLACE INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
-                    VALUES ('{tabla}', CAST(OLD.{pk1} AS TEXT), {pk2_old}, 'DELETE', datetime('now', 'localtime'));
+                    INSERT INTO _supabase_outbox (tabla, pk1, pk2, op, updated_at)
+                    VALUES ('{tabla}', CAST(OLD.{pk1} AS TEXT), {pk2_old}, 'DELETE', datetime('now', 'localtime'))
+                    ON CONFLICT(tabla, pk1, pk2) DO UPDATE SET op = excluded.op, updated_at = excluded.updated_at;
                 END;
                 """
             )

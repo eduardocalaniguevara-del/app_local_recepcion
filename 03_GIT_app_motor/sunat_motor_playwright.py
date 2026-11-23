@@ -30,7 +30,7 @@ import sys
 import threading
 import time
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -44,6 +44,7 @@ from config import (
     CAPTURAS_SUNAT_DIR,
     COMPROBANTES_PDF_DIR,
     DATA_DIR,
+    ES_NIVEL_2_MADRE_HOTEL,
     FACTURAS_PDF_DIR,
     HOSTAL_SISTEMA_DIR,
     MODO_PRUEBA,
@@ -716,8 +717,14 @@ def _emitir_comprobante_intento(
                 ruta_limpia = str(dir_dia_dest / nombre_limpio)
                 try:
                     if os.path.abspath(ruta_limpia) != os.path.abspath(ruta_pdf_orig):
-                        shutil.copy2(ruta_pdf_orig, ruta_limpia)
+                        if os.path.exists(ruta_limpia):
+                            try:
+                                os.remove(ruta_limpia)
+                            except Exception:
+                                pass
+                        shutil.move(ruta_pdf_orig, ruta_limpia)
                         ruta_pdf_final = ruta_limpia
+                        ruta_pdf_orig = ruta_pdf_final
                 except Exception:
                     pass
 
@@ -726,7 +733,7 @@ def _emitir_comprobante_intento(
                 "tipo": tipo,
                 "nro_comprobante": nro_cp,
                 "archivo_pdf": ruta_pdf_final,
-                "archivo_pdf_original": ruta_pdf_orig,
+                "archivo_pdf_original": ruta_pdf_final,
                 "nombre_pdf": os.path.basename(ruta_pdf_final),
                 "receptor_nombre": nombre_receptor_sunat,
                 "receptor_doc": doc_limpio,
@@ -1046,13 +1053,11 @@ def emitir_nota_credito_sunat_local(
                         except Exception:
                             btn_descargar.click(force=True)
                     download = download_info.value
-                    nombre_pdf = download.suggested_filename
-                    if not nombre_pdf or not nombre_pdf.endswith(".pdf"):
-                        nom_cte = re.sub(r"[^A-Z0-9_]", "_", str(datos_cp_origen.get("cliente") or "CLIENTE").upper())[:30]
-                        nombre_pdf = f"NOTA_CREDITO_{nro_nc}_{nom_cte}.pdf"
-                    ruta_pdf = str(dir_destino / nombre_pdf)
-                    download.save_as(ruta_pdf)
-                    pdf_descargado = ruta_pdf
+                    nom_cte = re.sub(r"[^A-Z0-9]+", "_", str(datos_cp_origen.get("cliente") or "CLIENTE").upper()).strip("_")[:36] or "CLIENTE"
+                    nombre_pdf_limpio = f"NOTA_CREDITO_{nro_nc}_{nom_cte}.pdf"
+                    ruta_pdf_limpia = str(dir_destino / nombre_pdf_limpio)
+                    download.save_as(ruta_pdf_limpia)
+                    pdf_descargado = ruta_pdf_limpia
             except Exception:
                 pass
 
@@ -1721,3 +1726,471 @@ def despachar_wsp_comprobante_local(
         return True, "Enviado por WhatsApp Desktop.", ""
     except Exception as exc:
         return False, "", str(exc)
+
+
+# ==============================================================================
+# 7. REVISOR INCREMENTAL DIARIO DE FALTANTES SUNAT (100% HEADLESS, 0 VENTANAS)
+# ==============================================================================
+
+def _buscar_pdf_solo_en_carpeta_local_v2(nro_cp: str) -> Optional[str]:
+    """Verifica si ya existe un PDF para `nro_cp` dentro de `02_DB_sqlite_local/comprobantes_pdf/`."""
+    if not nro_cp:
+        return None
+    cp_clean = nro_cp.strip().upper()
+    cp_nodash = cp_clean.replace("-", "")
+    for pat in (
+        str(BOLETAS_PDF_DIR / "**" / "*.pdf"),
+        str(FACTURAS_PDF_DIR / "**" / "*.pdf"),
+        str(NOTAS_CREDITO_PDF_DIR / "**" / "*.pdf"),
+        str(COMPROBANTES_PDF_DIR / "*.pdf"),
+    ):
+        for ruta in glob.glob(pat, recursive=True):
+            nom = os.path.basename(ruta).upper()
+            if cp_clean in nom or cp_nodash in nom:
+                return os.path.abspath(ruta)
+    return None
+
+
+def _limpiar_pdfs_raw_duplicados_locales() -> int:
+    """
+    Elimina archivos raw duplicados (`PDF-BOLETA*`, `PDF-DOC*`) en `02_DB_sqlite_local/comprobantes_pdf/`
+    cuando en la misma carpeta ya existe el archivo con nombre limpio (`BOLETA_*`, `FACTURA_*`, `NOTA_CREDITO_*`).
+    """
+    eliminados = 0
+    for base_d in (BOLETAS_PDF_DIR, FACTURAS_PDF_DIR, NOTAS_CREDITO_PDF_DIR):
+        for ruta in glob.glob(str(base_d / "**" / "PDF-*.pdf"), recursive=True):
+            try:
+                carpeta = Path(ruta).parent
+                limpios = [
+                    p for p in carpeta.glob("*.pdf")
+                    if not p.name.upper().startswith("PDF-")
+                ]
+                if limpios:
+                    os.remove(ruta)
+                    eliminados += 1
+            except Exception:
+                pass
+    return eliminados
+
+
+def _extraer_fila_consulta_see_sol(row_locator, tipo_esperado: str) -> Dict[str, Any]:
+    """
+    Extrae Fecha, Nro Comprobante (`r"(E001|EB01)\\s*-\\s*(\\d+)"`), Receptor, Monto y Estado
+    desde una fila de `Consultar Factura y Nota` o `Consultar Boleta de Venta y Nota`.
+    """
+    info: Dict[str, Any] = {
+        "tipo_doc": tipo_esperado,
+        "fecha_emision": "",
+        "nro_cp": "",
+        "receptor_doc": "",
+        "receptor_nombre": "",
+        "monto_total": 0.0,
+        "estado": "VIGENTE",
+    }
+    try:
+        celdas = row_locator.locator("td, div.dojoxGridCell").all()
+        textos = [c.inner_text().strip() for c in celdas]
+        texto_fila = " | ".join(textos)
+
+        m_cp = re.search(r"(E001|EB01)\s*-\s*(\d+)", texto_fila, re.I)
+        if m_cp:
+            info["nro_cp"] = f"{m_cp.group(1).upper()}-{int(m_cp.group(2))}"
+
+        for c_txt in textos:
+            if not info["fecha_emision"] and re.match(r"^\d{2}/\d{2}/\d{4}$", c_txt):
+                info["fecha_emision"] = c_txt
+            if " - " in c_txt and not re.search(r"(E001|EB01)\s*-\s*\d+", c_txt, re.I):
+                doc_p, nom_p = c_txt.split(" - ", 1)
+                doc_digits = re.sub(r"\D", "", doc_p)
+                if len(doc_digits) in (8, 11):
+                    info["receptor_doc"] = doc_digits
+                    info["receptor_nombre"] = nom_p.strip().upper()
+            if "S/" in c_txt or re.match(r"^\d+[\.,]\d{2}$", c_txt.replace("S/", "").strip()):
+                try:
+                    val_m = float(c_txt.replace("S/", "").replace(",", "").replace("\xa0", "").strip())
+                    if val_m > 0:
+                        info["monto_total"] = val_m
+                except Exception:
+                    pass
+
+        row_html = row_locator.inner_html().lower()
+        if any(k in row_html for k in ("anulado", "✓", "glyphicon-ok")):
+            info["estado"] = "ANULADO (NCE)"
+        for c_txt in textos:
+            cu = c_txt.upper()
+            if any(k in cu for k in ("ANULAD", "CANCELAD", "NCE")) and "ANULACION DE LA OPERACION" not in cu and "ANULACIÓN DE LA OPERACIÓN" not in cu:
+                info["estado"] = "ANULADO (NCE)"
+    except Exception:
+        pass
+    return info
+
+
+def _procesar_y_descargar_popup_consulta_sunat(
+    popup_page,
+    info_base: Dict[str, Any],
+    ruta_pdf_limpia: str,
+) -> Dict[str, Any]:
+    """
+    Lee el emergente (`verImprimir`) de SUNAT SEE-SOL para extraer glosa, DNI/RUC, nombre y monto exacto,
+    y guarda el PDF único directamente en `ruta_pdf_limpia` (`headless=True`).
+    """
+    out = dict(info_base)
+    items_extraidos: List[Dict[str, Any]] = []
+    try:
+        popup_page.wait_for_load_state("domcontentloaded", timeout=12000)
+        time.sleep(1.2)
+        texto_pag = popup_page.inner_text("body")
+
+        if not out.get("receptor_doc"):
+            m_dni = re.search(r"\bDNI\s*:\s*(\d{8})\b", texto_pag, re.I)
+            if m_dni:
+                out["receptor_doc"] = m_dni.group(1)
+            else:
+                for r_cand in re.findall(r"\bRUC\s*:\s*(\d{11})\b", texto_pag, re.I):
+                    if r_cand != "20611986484":
+                        out["receptor_doc"] = r_cand
+                        break
+
+        m_nom = re.search(r"Se[ñn\xa0\?]+or\(es\)\s*:\s*([^\n\r\t]+)", texto_pag, re.I)
+        if m_nom:
+            nom_clean = re.sub(r"\s+", " ", m_nom.group(1).replace("\ufffd", "").replace("\xa0", " ")).strip().upper()
+            if len(nom_clean) >= 3:
+                out["receptor_nombre"] = nom_clean
+
+        m_tot = re.search(r"Importe\s+Total\s*:\s*S/?\s*([0-9\.,]+)", texto_pag, re.I)
+        if m_tot:
+            try:
+                out["monto_total"] = float(m_tot.group(1).replace(",", "").strip())
+            except Exception:
+                pass
+
+        for tr in popup_page.locator("tr").all():
+            try:
+                t_row = re.sub(r"\s+", " ", tr.inner_text().strip()).upper()
+                if any(k in t_row for k in ("ALOJAMIENTO", "HOSPEDAJE", "HAB")):
+                    desc_limpia = re.sub(r"^\s*\d+(?:\.\d+)?\s*(?:UNIDAD|ZZ|NIU|SERV|EA|DOC)?\s*", "", t_row, flags=re.I).strip()
+                    if len(desc_limpia) >= 8:
+                        items_extraidos.append({
+                            "cantidad": 1,
+                            "descripcion": desc_limpia[:240],
+                            "precio_unitario": float(out.get("monto_total") or 0.0),
+                        })
+                        break
+            except Exception:
+                pass
+
+        if not items_extraidos:
+            m_glosa = re.search(r"((?:DIA|D[IÍ]AS|POR|SERVICIO|ALOJAMIENTO|HOSPEDAJE)[^\n\r]{6,180})", texto_pag, re.I)
+            glosa_txt = m_glosa.group(1).strip().upper() if m_glosa else f"ALOJAMIENTO SEGUN {out.get('nro_cp', '')}"
+            items_extraidos.append({
+                "cantidad": 1,
+                "descripcion": glosa_txt,
+                "precio_unitario": float(out.get("monto_total") or 0.0),
+            })
+
+        out["items"] = items_extraidos
+
+        # Guardar PDF único con nombre entendible (recalcular nombre si el popup trajo el nombre del receptor)
+        cli_slug = re.sub(r"[^A-Z0-9]+", "_", str(out.get("receptor_nombre") or out.get("receptor_doc") or "CLIENTE").upper()).strip("_")[:36] or "CLIENTE"
+        pref_nom = "FACTURA" if out.get("tipo_doc") == "FACTURA" else "BOLETA"
+        dir_dest = Path(ruta_pdf_limpia).parent
+        dir_dest.mkdir(parents=True, exist_ok=True)
+        ruta_final = str(dir_dest / f"{pref_nom}_{out['nro_cp']}_{cli_slug}.pdf")
+
+        descargado = False
+        try:
+            btn_pdf = popup_page.locator("text='Descargar PDF', button:has-text('Descargar PDF'), a:has-text('Descargar PDF'), [widgetid*='pdf']").first
+            if btn_pdf.count() > 0:
+                with popup_page.expect_download(timeout=10000) as dl_info:
+                    btn_pdf.click(force=True)
+                dl_info.value.save_as(ruta_final)
+                descargado = os.path.isfile(ruta_final)
+        except Exception:
+            pass
+
+        if not descargado:
+            try:
+                popup_page.pdf(path=ruta_final, format="A4", print_background=True)
+                descargado = os.path.isfile(ruta_final)
+            except Exception:
+                pass
+
+        if descargado:
+            out["archivo_pdf"] = ruta_final
+    except Exception:
+        pass
+    finally:
+        try:
+            popup_page.close()
+        except Exception:
+            pass
+    return out
+
+
+def revisar_y_descargar_faltantes_sunat_incremental(dias_atras: int = 7) -> Dict[str, Any]:
+    """
+    Revisor Incremental Diario de Faltantes SUNAT (100% Headless, 0 ventanas CMD):
+    - Bloqueado estrictamente para correr solo en `ES_NIVEL_2_MADRE_HOTEL` (Laptop 2 Recepción).
+    - Entra a SUNAT SEE-SOL (`Consultar Factura y Nota` y `Consultar Boleta de Venta y Nota`)
+      para los últimos `dias_atras` días usando regex `r"(E001|EB01)\\s*-\\s*(\\d+)"`.
+    - Compara contra `sunat_ventas` en SQLite y contra `02_DB_sqlite_local/comprobantes_pdf/`.
+    - Solo si falta algún comprobante (en BD o en PDF), descarga su PDF con nombre entendible único
+      (`FACTURA_E001-XXXX_EMPRESA.pdf` / `BOLETA_EB01-XXXX_NOMBRE.pdf`), extrae sus datos a
+      `sunat_ventas` + `sunat_lineas_cache` y los sube a Supabase.
+    """
+    if not ES_NIVEL_2_MADRE_HOTEL:
+        return {
+            "ok": False,
+            "status": "SKIPPED_NO_MADRE",
+            "nodo": ROL_NODO,
+            "mensaje": f"Revisor incremental SUNAT solo se ejecuta en NIVEL_2_MADRE_HOTEL (nodo actual: {ROL_NODO}).",
+        }
+
+    from playwright.sync_api import sync_playwright
+    from sync_nube import push_to_supabase
+
+    _limpiar_pdfs_raw_duplicados_locales()
+
+    hoy_dt = datetime.now()
+    dias_eff = max(1, min(int(dias_atras or 7), 30))
+    ini_dt = hoy_dt - timedelta(days=dias_eff)
+    fecha_inicio = ini_dt.strftime("%d/%m/%Y")
+    fecha_fin = hoy_dt.strftime("%d/%m/%Y")
+
+    conn = get_connection()
+    existentes_db: Dict[str, Dict[str, Any]] = {}
+    try:
+        for r in conn.execute("SELECT nro_cp, tipo_doc, estado, receptor_nombre, total FROM sunat_ventas").fetchall():
+            cp_k = str(r["nro_cp"] or "").strip().upper()
+            if cp_k:
+                existentes_db[cp_k] = dict(r)
+    finally:
+        conn.close()
+
+    ruc_sol, usr_sol, clv_sol = obtener_credenciales_sunat()
+    descargados: List[str] = []
+    actualizados_estado: List[str] = []
+    revisados_total = 0
+    errores: List[str] = []
+
+    with sync_playwright() as pw:
+        browser = lanzar_edge_sunat(pw, headless=True)
+        context = crear_contexto_sunat(browser)
+        try:
+            page = iniciar_sesion_sol_blindado(context, ruc_sol, usr_sol, clv_sol)
+
+            modulos = [
+                ("FACTURA", "#nivel3_11_5_3", "Consultar Factura y Nota", "FE Emitidas"),
+                ("BOLETA", "#nivel3_11_5_4", "Consultar Boleta de Venta y", "BVE"),
+            ]
+
+            for tipo_mod, sel_n3, texto_menu, texto_opt in modulos:
+                try:
+                    try:
+                        page.get_by_role("heading", name="Empresas").click(timeout=3000)
+                        time.sleep(0.6)
+                    except Exception:
+                        pass
+
+                    for sel_nav in ("#nivel1_11 > .glyphicon", "#nivel2_11_5 > .glyphicon", f"{sel_n3} > .glyphicon"):
+                        try:
+                            loc_n = page.locator(sel_nav).first
+                            if loc_n.count() > 0 and loc_n.is_visible():
+                                loc_n.click(timeout=4000)
+                                time.sleep(0.7)
+                        except Exception:
+                            pass
+
+                    try:
+                        page.get_by_text(texto_menu).first.click(timeout=7000)
+                    except Exception:
+                        page.get_by_text(texto_menu).first.dispatch_event("click")
+
+                    time.sleep(3.2)
+                    frame = page.locator('iframe[name="iframeApplication"]').content_frame
+
+                    # Llenar rango de fechas y consultar
+                    llenado_ok = False
+                    for _ in range(12):
+                        time.sleep(0.8)
+                        try:
+                            tbs = frame.get_by_role("textbox").all()
+                            if len(tbs) >= 2:
+                                tbs[0].click()
+                                tbs[0].fill(fecha_inicio)
+                                time.sleep(0.25)
+                                tbs[1].click()
+                                tbs[1].fill(fecha_fin)
+                                time.sleep(0.25)
+                                try:
+                                    arrow = frame.locator(".dijitReset.dijitRight").first
+                                    if arrow.count() > 0:
+                                        arrow.click()
+                                        time.sleep(0.4)
+                                        opt = frame.get_by_role("option", name=re.compile(texto_opt, re.I))
+                                        if opt.count() > 0:
+                                            opt.first.click()
+                                            time.sleep(0.3)
+                                except Exception:
+                                    pass
+                                btn_ac = frame.get_by_role("button", name="Aceptar")
+                                if btn_ac.count() > 0:
+                                    btn_ac.first.click()
+                                    llenado_ok = True
+                                    break
+                        except Exception:
+                            pass
+
+                    if not llenado_ok:
+                        continue
+
+                    time.sleep(4.2)
+                    try:
+                        scrollbox = frame.locator(".dojoxGridScrollbox, div[dojoattachpoint='scrollbox']").first
+                        if scrollbox.count() > 0:
+                            for _ in range(10):
+                                scrollbox.evaluate("el => el.scrollTop += 550")
+                                time.sleep(0.2)
+                            scrollbox.evaluate("el => el.scrollTop = 0")
+                            time.sleep(0.6)
+                    except Exception:
+                        pass
+
+                    filas = frame.locator(".dojoxGridRow, tr.dojoxGridRow, tr[dojoxgridrowindex]").all()
+                    for fila in filas:
+                        info_f = _extraer_fila_consulta_see_sol(fila, tipo_mod)
+                        nro_cp = info_f.get("nro_cp") or ""
+                        if not nro_cp:
+                            continue
+                        revisados_total += 1
+
+                        en_db = existentes_db.get(nro_cp)
+                        pdf_local = _buscar_pdf_solo_en_carpeta_local_v2(nro_cp)
+
+                        # Si fue anulado en SUNAT y en DB seguía VIGENTE, actualizar estado
+                        if info_f.get("estado") == "ANULADO (NCE)" and en_db and en_db.get("estado") != "ANULADO (NCE)":
+                            ahora_s = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            with db_transaction() as c_an:
+                                c_an.execute(
+                                    "UPDATE sunat_ventas SET estado = 'ANULADO (NCE)', updated_at = ?, actualizado_en = ? WHERE nro_cp = ?",
+                                    (ahora_s, ahora_s, nro_cp),
+                                )
+                                c_an.execute(
+                                    "UPDATE sunat_lineas_cache SET estado = 'ANULADO (NCE)' WHERE nro_cp = ?",
+                                    (nro_cp,),
+                                )
+                            actualizados_estado.append(nro_cp)
+
+                        if en_db and pdf_local:
+                            continue
+
+                        # Falta en sunat_ventas o falta su PDF en 02_DB_sqlite_local/comprobantes_pdf/
+                        f_em = info_f.get("fecha_emision") or hoy_dt.strftime("%d/%m/%Y")
+                        partes_dmy = f_em.split("/")
+                        if len(partes_dmy) == 3 and partes_dmy[0].isdigit() and partes_dmy[1].isdigit():
+                            carpeta_dia = f"{int(partes_dmy[0]):02d}_{MESES_CARPETA.get(int(partes_dmy[1]), 'Mes')}"
+                        else:
+                            carpeta_dia = f"{hoy_dt.day:02d}_{MESES_CARPETA.get(hoy_dt.month, 'Mes')}"
+
+                        dir_base = FACTURAS_PDF_DIR if tipo_mod == "FACTURA" else BOLETAS_PDF_DIR
+                        dir_dia = dir_base / carpeta_dia
+                        dir_dia.mkdir(parents=True, exist_ok=True)
+
+                        cli_slug = re.sub(r"[^A-Z0-9]+", "_", str(info_f.get("receptor_nombre") or info_f.get("receptor_doc") or "CLIENTE").upper()).strip("_")[:36] or "CLIENTE"
+                        pref_nom = "FACTURA" if tipo_mod == "FACTURA" else "BOLETA"
+                        ruta_pdf_tentativa = str(dir_dia / f"{pref_nom}_{nro_cp}_{cli_slug}.pdf")
+
+                        detalle_cp = dict(info_f)
+                        link_cp = fila.locator("a:has(img), a[href*='verimprimir'], a[href*='verImprimir'], a[href*='consultar.do'], a").first
+                        if link_cp.count() > 0:
+                            try:
+                                link_cp.scroll_into_view_if_needed(timeout=2000)
+                                with page.expect_popup(timeout=9000) as pop_info:
+                                    link_cp.click(force=True)
+                                detalle_cp = _procesar_y_descargar_popup_consulta_sunat(
+                                    pop_info.value,
+                                    info_f,
+                                    ruta_pdf_tentativa,
+                                )
+                            except Exception as exc_pop:
+                                errores.append(f"{nro_cp}: {exc_pop}")
+
+                        res_em_sim = {
+                            "status": "OK",
+                            "tipo": tipo_mod,
+                            "nro_comprobante": nro_cp,
+                            "archivo_pdf": detalle_cp.get("archivo_pdf") or pdf_local or "",
+                            "receptor_nombre": detalle_cp.get("receptor_nombre") or info_f.get("receptor_nombre") or "CLIENTES VARIOS",
+                            "receptor_doc": detalle_cp.get("receptor_doc") or info_f.get("receptor_doc") or "",
+                            "fecha_emision": f_em,
+                        }
+                        data_norm_sim = {
+                            "accion": "EMITIR",
+                            "tipo": tipo_mod,
+                            "documento": res_em_sim["receptor_doc"],
+                            "cliente": res_em_sim["receptor_nombre"],
+                            "items": detalle_cp.get("items") or [
+                                {
+                                    "cantidad": 1,
+                                    "descripcion": f"ALOJAMIENTO SEGUN {nro_cp}",
+                                    "precio_unitario": float(detalle_cp.get("monto_total") or info_f.get("monto_total") or 0.0),
+                                }
+                            ],
+                            "total_monto": float(detalle_cp.get("monto_total") or info_f.get("monto_total") or 0.0),
+                        }
+                        convertir_comprobante_a_datos_y_subir_supabase(res_em_sim, data_norm_sim)
+                        descargados.append(nro_cp)
+                        existentes_db[nro_cp] = {"nro_cp": nro_cp, "tipo_doc": tipo_mod, "estado": info_f.get("estado", "VIGENTE")}
+
+                    try:
+                        page.once("dialog", lambda d: d.dismiss())
+                        frame.get_by_role("button", name="Cerrar").click(timeout=2500)
+                        time.sleep(1.0)
+                    except Exception:
+                        pass
+                except Exception as exc_mod:
+                    errores.append(f"{tipo_mod}: {exc_mod}")
+        finally:
+            try:
+                context.close()
+                browser.close()
+            except Exception:
+                pass
+
+    ahora_iso = datetime.now().isoformat(timespec="seconds")
+    hoy_ymd = hoy_dt.strftime("%Y-%m-%d")
+    resumen = {
+        "ok": True,
+        "status": "OK",
+        "nodo": ROL_NODO,
+        "rango_fechas": f"{fecha_inicio} al {fecha_fin}",
+        "comprobantes_revisados": revisados_total,
+        "faltantes_descargados": descargados,
+        "anulaciones_sincronizadas": actualizados_estado,
+        "errores": errores[:10],
+        "ejecutado_en": ahora_iso,
+    }
+    try:
+        with db_transaction() as conn_st:
+            conn_st.execute(
+                """
+                INSERT INTO estado_sistema (clave, valor, updated_at)
+                VALUES ('sunat_revisor_incremental_ult_fecha', ?, ?)
+                ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at
+                """,
+                (hoy_ymd, ahora_iso),
+            )
+            conn_st.execute(
+                """
+                INSERT INTO estado_sistema (clave, valor, updated_at)
+                VALUES ('sunat_revisor_incremental_ult_resumen', ?, ?)
+                ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at
+                """,
+                (json.dumps(resumen, ensure_ascii=False), ahora_iso),
+            )
+        push_to_supabase(limit=40)
+    except Exception:
+        pass
+
+    return resumen
+

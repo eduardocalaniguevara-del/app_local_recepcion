@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,7 +23,9 @@ if str(MOTOR_DIR) not in sys.path:
     sys.path.insert(0, str(MOTOR_DIR))
 
 from config import ACTIVAR_MOTOR_24X7, ES_NIVEL_2_MADRE_HOTEL, ROL_NODO, TIENE_QR_WSP_FISICO
+from db import get_connection
 from salud import publicar_seguidor_carpetas_supabase, reporte_salud
+from sunat_motor_playwright import revisar_y_descargar_faltantes_sunat_incremental
 from sync_nube import instalar_triggers_outbox, pull_from_supabase, push_to_supabase
 import sunat as sunat_svc
 import whatsapp as wsp
@@ -76,19 +79,53 @@ def actualizar_codigo_git_solo_lectura() -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+def _verificar_revisor_incremental_sunat_8am() -> dict:
+    """
+    Ejecuta `revisar_y_descargar_faltantes_sunat_incremental(dias_atras=7)` automáticamente
+    1 sola vez al día a partir de las 08:00 AM (únicamente en `ES_NIVEL_2_MADRE_HOTEL`),
+    guardando la última fecha ejecutada en `estado_sistema` (`sunat_revisor_incremental_ult_fecha`).
+    """
+    if not ES_NIVEL_2_MADRE_HOTEL:
+        return {"ok": False, "status": "SKIPPED_NO_MADRE"}
+    ahora = datetime.now()
+    if ahora.hour < 8:
+        return {"ok": True, "status": "ANTES_DE_8AM"}
+
+    hoy_ymd = ahora.strftime("%Y-%m-%d")
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT valor FROM estado_sistema WHERE clave = 'sunat_revisor_incremental_ult_fecha'"
+        ).fetchone()
+        ult_fecha = str(row["valor"] or "").strip() if row else ""
+    finally:
+        conn.close()
+
+    if ult_fecha == hoy_ymd:
+        return {"ok": True, "status": "YA_EJECUTADO_HOY", "fecha": hoy_ymd}
+
+    return revisar_y_descargar_faltantes_sunat_incremental(dias_atras=7)
+
+
 def ejecutar_ronda_integral() -> dict:
-    """Ejecuta un ciclo completo de sincronización, conciliación Yape/BCP, WhatsApp y salud."""
+    """Ejecuta un ciclo completo de sincronización, conciliación Yape local, revisor SUNAT 8AM, WhatsApp y salud."""
     instalar_triggers_outbox()
     up = push_to_supabase()
     down = pull_from_supabase()
 
     res_yape = {"ok": True}
     try:
-        if ES_NIVEL_2_MADRE_HOTEL:
-            ym.sincronizar_transferencias_maelen_correo(forzar=False)
+        # Llamada automática al correo BCP desactivada por ahora; solo concilia Yape local en SQLite
         ym.conciliar_yapes_sqlite()
     except Exception as exc:
         res_yape = {"ok": False, "error": str(exc)}
+
+    res_sunat_8am = {"ok": True, "status": "SKIPPED"}
+    if ES_NIVEL_2_MADRE_HOTEL:
+        try:
+            res_sunat_8am = _verificar_revisor_incremental_sunat_8am()
+        except Exception as exc:
+            res_sunat_8am = {"ok": False, "error": str(exc)}
 
     res_wsp = {"ok": True, "qr_fisico_en_este_nodo": TIENE_QR_WSP_FISICO}
     try:
@@ -113,6 +150,7 @@ def ejecutar_ronda_integral() -> dict:
         "supabase_push": up.get("enviados", 0),
         "supabase_pull": down.get("aplicados", 0),
         "yape_conciliacion": res_yape.get("ok", False),
+        "sunat_revisor_8am": res_sunat_8am,
         "whatsapp_ciclo": res_wsp,
         "salud": salud,
     }
