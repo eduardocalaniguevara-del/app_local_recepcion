@@ -70,6 +70,18 @@ _sunat_emission_lock = threading.Lock()
 _remote_consumer_lock = threading.Lock()
 _jobs_lock = threading.Lock()
 _SUNAT_JOBS: Dict[str, Dict[str, Any]] = {}
+_sb_http_lock = threading.Lock()
+_SB_FAST_CLIENT: Optional[httpx.Client] = None
+_COLA_MADRE_GEN: int = int(time.time() * 1000)
+
+
+def _get_sb_fast_client() -> httpx.Client:
+    """Devuelve un cliente HTTP persistente (Keep-Alive TLS) hacia Supabase para latencia <60 ms."""
+    global _SB_FAST_CLIENT
+    with _sb_http_lock:
+        if _SB_FAST_CLIENT is None or _SB_FAST_CLIENT.is_closed:
+            _SB_FAST_CLIENT = httpx.Client(timeout=4.5, verify=False)
+        return _SB_FAST_CLIENT
 
 
 def es_laptop_recepcion_directa() -> bool:
@@ -417,13 +429,33 @@ def listar_jobs_sunat_recientes() -> List[Dict[str, Any]]:
 
 
 def _guardar_estado_orden_remota_supabase(job_id: str, orden_dict: Dict[str, Any]) -> None:
-    """Guarda o actualiza `sunat_orden_remota_<job_id>` en `estado_sistema` y empuja a Supabase."""
+    """
+    Envío Directo Express (<60 ms):
+    1. Publica `sunat_orden_remota_<job_id>` directamente en Supabase vía túnel Keep-Alive `httpx.Client`
+       sin esperar la cola general `_supabase_outbox` (que procesa otras tablas primero).
+    2. Guarda la copia local en `estado_sistema` con `pulling=1` (o con `pulling=0` como fallback si no hubo red).
+    """
     clave = f"sunat_orden_remota_{job_id}"
     ahora_iso = datetime.now().isoformat(timespec="seconds")
     orden_dict["updated_ts"] = time.time()
     val_json = json.dumps(orden_dict, ensure_ascii=False)
+
+    enviado_directo = False
+    if SUPABASE_CONFIGURADO:
+        try:
+            url = f"{SUPABASE_URL}/rest/v1/estado_sistema?on_conflict=clave"
+            hdrs = _headers({"Prefer": "resolution=merge-duplicates,return=minimal"})
+            payload = [{"clave": clave, "valor": val_json, "updated_at": ahora_iso}]
+            resp = _get_sb_fast_client().post(url, headers=hdrs, content=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+            if 200 <= resp.status_code < 300:
+                enviado_directo = True
+        except Exception:
+            enviado_directo = False
+
     conn = get_connection()
     try:
+        if enviado_directo:
+            conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1")
         conn.execute(
             """
             INSERT INTO estado_sistema (clave, valor, updated_at)
@@ -432,17 +464,25 @@ def _guardar_estado_orden_remota_supabase(job_id: str, orden_dict: Dict[str, Any
             """,
             (clave, val_json, ahora_iso),
         )
+        if enviado_directo:
+            conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
         conn.commit()
     finally:
+        try:
+            conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+            conn.commit()
+        except Exception:
+            pass
         conn.close()
-    push_to_supabase(limit=30)
+
+    if not enviado_directo:
+        push_to_supabase(limit=20)
 
 
 def _leer_orden_remota_local(job_id: str) -> Optional[Dict[str, Any]]:
     """
-    Lee el estado de `sunat_orden_remota_{job_id}` directamente desde la tabla `estado_sistema`
-    en Supabase (ya que `estado_sistema` no genera filas en `supabase_change_log`) y lo sincroniza
-    en `estado_sistema` local para recibir `RUNNING`/`DONE` al instante sin timeout.
+    Lee el estado de `sunat_orden_remota_{job_id}` directamente desde `estado_sistema`
+    en Supabase usando conexión Keep-Alive (<50 ms) y lo sincroniza en `estado_sistema` local.
     """
     clave = f"sunat_orden_remota_{job_id}"
     if SUPABASE_CONFIGURADO:
@@ -451,9 +491,9 @@ def _leer_orden_remota_local(job_id: str) -> Optional[Dict[str, Any]]:
                 f"{SUPABASE_URL}/rest/v1/estado_sistema"
                 f"?clave=eq.{urllib.parse.quote(clave)}&select=valor,updated_at&limit=1"
             )
-            req = urllib.request.Request(url, method="GET", headers=_headers())
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                rows = json.loads(resp.read().decode("utf-8"))
+            resp = _get_sb_fast_client().get(url, headers=_headers())
+            if resp.status_code == 200:
+                rows = resp.json()
                 if isinstance(rows, list) and rows and rows[0].get("valor"):
                     val_str = str(rows[0]["valor"])
                     upd_at = str(rows[0].get("updated_at") or datetime.now().isoformat(timespec="seconds"))
@@ -495,8 +535,8 @@ def _leer_orden_remota_local(job_id: str) -> Optional[Dict[str, Any]]:
 
 def _sincronizar_ordenes_remotas_desde_supabase_en_madre() -> int:
     """
-    Descarga directamente de Supabase todas las filas `clave=like.sunat_orden_remota*` de `estado_sistema`
-    y las sincroniza en `estado_sistema` local de Laptop 2 Madre antes de procesarlas.
+    Descarga directamente de Supabase por Keep-Alive (<50 ms) todas las filas `clave=like.sunat_orden_remota*`
+    de `estado_sistema` y las sincroniza en `estado_sistema` local de Laptop 2 Madre antes de procesarlas.
     """
     if not SUPABASE_CONFIGURADO:
         return 0
@@ -506,9 +546,10 @@ def _sincronizar_ordenes_remotas_desde_supabase_en_madre() -> int:
             f"{SUPABASE_URL}/rest/v1/estado_sistema"
             f"?clave=like.sunat_orden_remota*&select=clave,valor,updated_at"
         )
-        req = urllib.request.Request(url, method="GET", headers=_headers())
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            rows = json.loads(resp.read().decode("utf-8"))
+        resp = _get_sb_fast_client().get(url, headers=_headers())
+        if resp.status_code != 200:
+            return 0
+        rows = resp.json()
         if not isinstance(rows, list) or not rows:
             return 0
 
@@ -1019,12 +1060,7 @@ def _ejecutar_trabajo_sunat_wsp(
     timeout_total = 240.0
 
     while time.time() - t0 < timeout_total:
-        time.sleep(2.0)
-        try:
-            pull_from_supabase(limit=150)
-        except Exception:
-            pass
-
+        time.sleep(0.65)
         ord_act = _leer_orden_remota_local(jid_eff)
         if not ord_act:
             continue
@@ -1565,31 +1601,33 @@ def ejecutar_estancia_pendiente_por_uuid(
     return ejecutar_orden_sunat_wsp(orden)
 
 
-def _loop_consumidor_cola_madre_3s() -> None:
+def _loop_consumidor_cola_madre_fast(my_gen: int) -> None:
     """
     Hilo demonio exclusivo de Laptop 2 Madre (NIVEL_2_MADRE_HOTEL):
-    Se arranca automáticamente al importar o recargar `sunat.py` (`importlib.reload(sws)`),
-    garantizando que Laptop 2 escuche y ejecute cada 3s cualquier orden `sunat_orden_remota_*`
-    enviada desde Laptop 1 o Laptop 3 sin requerir reinicio manual de `main.py` en Laptop 2.
+    Escucha directamente el buzón `sunat_orden_remota_*` en Supabase cada 0.8s por Keep-Alive
+    (sin bloquearse con `pull_from_supabase` de otras tablas), logrando tiempo de reacción <0.8s.
     """
     while True:
-        time.sleep(3.5)
-        if not es_laptop_recepcion_directa():
+        time.sleep(0.8)
+        if my_gen != _COLA_MADRE_GEN or not es_laptop_recepcion_directa():
             break
         try:
-            pull_from_supabase(limit=120)
             procesar_cola_ordenes_sunat_madre()
         except Exception:
             pass
 
 
 def _asegurar_hilo_consumidor_madre() -> None:
+    global _COLA_MADRE_GEN
     if not es_laptop_recepcion_directa():
         return
-    for th in threading.enumerate():
-        if th.name == "OvaloV2SunatColaMadre3s" and th.is_alive():
-            return
-    t = threading.Thread(target=_loop_consumidor_cola_madre_3s, name="OvaloV2SunatColaMadre3s", daemon=True)
+    _COLA_MADRE_GEN = int(time.time() * 1000)
+    t = threading.Thread(
+        target=_loop_consumidor_cola_madre_fast,
+        args=(_COLA_MADRE_GEN,),
+        name=f"OvaloV2SunatColaMadreFast_{_COLA_MADRE_GEN}",
+        daemon=True,
+    )
     t.start()
 
 

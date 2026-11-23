@@ -1292,8 +1292,8 @@
 
   function _iniciarPollingJobsSunat() {
     if (_pollTimer) return;
-    _pollTimer = setInterval(_tickPollingJobsSunat, 1800);
-    setTimeout(_tickPollingJobsSunat, 400);
+    _pollTimer = setInterval(_tickPollingJobsSunat, 750);
+    setTimeout(_tickPollingJobsSunat, 200);
   }
 
   // Al cargar la página, verificar una vez si había una emisión en curso (ej. tras F5)
