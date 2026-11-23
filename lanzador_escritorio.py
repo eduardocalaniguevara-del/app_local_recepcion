@@ -87,8 +87,33 @@ def _auto_git_pull_silencioso() -> None:
         pass
 
 
+def detener_servidor_anterior() -> None:
+    try:
+        my_pid = os.getpid()
+        ps_cmd = (
+            f"Get-NetTCPConnection -LocalPort {PORT} -State Listen -ErrorAction SilentlyContinue | "
+            f"Select-Object -ExpandProperty OwningProcess -Unique | "
+            f"Where-Object {{ $_ -ne {my_pid} -and $_ -gt 0 }} | "
+            f"ForEach-Object {{ Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }}"
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            capture_output=True,
+            timeout=6,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+        )
+        for _ in range(15):
+            if not servidor_activo():
+                break
+            time.sleep(0.2)
+    except Exception:
+        pass
+
+
 def main() -> None:
     _auto_git_pull_silencioso()
+    if "--restart" in sys.argv:
+        detener_servidor_anterior()
     if servidor_activo():
         abrir_google_chrome_app()
         return

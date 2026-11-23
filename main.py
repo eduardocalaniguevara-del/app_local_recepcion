@@ -89,6 +89,25 @@ def _auto_git_pull_y_recargar() -> bool:
                     importlib.reload(mod)
                 except Exception:
                     pass
+            try:
+                diff_files = subprocess.run(
+                    ["git", "diff", "--name-only", before, after],
+                    cwd=str(BASE_DIR),
+                    capture_output=True,
+                    text=True,
+                    timeout=4,
+                    creationflags=flags,
+                ).stdout
+                if "main.py" in (diff_files or ""):
+                    pyw = Path(sys.executable).with_name("pythonw.exe")
+                    exe = str(pyw if pyw.exists() else sys.executable)
+                    subprocess.Popen(
+                        [exe, str(BASE_DIR / "lanzador_escritorio.py"), "--no-browser", "--restart"],
+                        cwd=str(BASE_DIR),
+                        creationflags=flags,
+                    )
+            except Exception:
+                pass
             return True
     except Exception:
         pass
