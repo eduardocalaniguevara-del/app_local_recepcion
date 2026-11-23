@@ -182,11 +182,13 @@ def publicar_seguidor_carpetas_supabase() -> dict:
     muestre en tiempo real los cambios en Laptop 2 (Zona 5) y Laptops Terciarias (Zona 6).
     """
     payload = escanear_carpetas_nodo_local()
-    clave = f"seguidor_v2_{ROL_NODO}"
+    clave_rol = f"seguidor_v2_{ROL_NODO}"
+    eq_clean = "".join(c if (c.isalnum() or c in "-_") else "_" for c in str(EQUIPO_ID or ROL_NODO).upper())
+    clave_equipo = f"seguidor_v2_nodo_{eq_clean}"
     ahora_iso = payload["timestamp"]
     valor_json = json.dumps(payload, ensure_ascii=False)
 
-    # 1. Guardar en SQLite local (estado_sistema)
+    # 1. Guardar en SQLite local (estado_sistema) tanto por rol como por equipo individual
     try:
         if DB_PATH.exists():
             with sqlite3.connect(str(DB_PATH), timeout=5) as conn:
@@ -199,10 +201,11 @@ def publicar_seguidor_carpetas_supabase() -> dict:
                     );
                     """
                 )
-                conn.execute(
-                    "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES (?, ?, ?)",
-                    (clave, valor_json, ahora_iso),
-                )
+                for ck in (clave_rol, clave_equipo):
+                    conn.execute(
+                        "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES (?, ?, ?)",
+                        (ck, valor_json, ahora_iso),
+                    )
                 conn.commit()
     except Exception:
         pass
@@ -211,7 +214,11 @@ def publicar_seguidor_carpetas_supabase() -> dict:
     subido_nube = False
     if SUPABASE_CONFIGURADO:
         url = f"{SUPABASE_URL}/rest/v1/estado_sistema?on_conflict=clave"
-        body = json.dumps([{"clave": clave, "valor": valor_json, "updated_at": ahora_iso}], ensure_ascii=False).encode("utf-8")
+        rows_post = [
+            {"clave": clave_rol, "valor": valor_json, "updated_at": ahora_iso},
+            {"clave": clave_equipo, "valor": valor_json, "updated_at": ahora_iso},
+        ]
+        body = json.dumps(rows_post, ensure_ascii=False).encode("utf-8")
         headers = {
             "apikey": SUPABASE_KEY,
             "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -227,7 +234,7 @@ def publicar_seguidor_carpetas_supabase() -> dict:
         except Exception:
             subido_nube = False
 
-    return {"ok": True, "clave": clave, "subido_supabase": subido_nube, "seguidor": payload}
+    return {"ok": True, "clave": clave_rol, "clave_equipo": clave_equipo, "subido_supabase": subido_nube, "seguidor": payload}
 
 
 def reporte_salud() -> dict:
