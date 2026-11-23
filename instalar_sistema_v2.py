@@ -29,12 +29,15 @@ def instalar(modo: str = "TERCIARIA") -> None:
             os.path.expandvars(r"%LocalAppData%\Programs\Git\cmd\git.exe"),
             r"C:\Hostal_Sistema\tools\mingit\cmd\git.exe",
         ]
+        import glob as _glob
+        cands.extend(_glob.glob(os.path.expandvars(r"%LocalAppData%\Microsoft\WinGet\Packages\Git.MinGit*\cmd\git.exe")))
+        cands.extend(_glob.glob(os.path.expandvars(r"%LocalAppData%\Microsoft\WinGet\Links\git.exe")))
         for c in cands:
             if os.path.exists(c):
                 git_exe = c
                 break
     if not git_exe:
-        raise RuntimeError("Git no está instalado en el PATH. Instálalo con: winget install --id Git.Git -e")
+        raise RuntimeError("Git no está instalado en el PATH. Instálalo con: winget install --id Git.MinGit -e")
 
     DEST.mkdir(parents=True, exist_ok=True)
     print("[1/4] Conectando C:\\Ovalo_Sistema_v2 directo con GitHub (rama main)...")
