@@ -128,12 +128,20 @@ ERRORES_RED = ("net::ERR_", "ERR_CONNECTION", "ERR_TIMED_OUT", "ERR_NAME_NOT_RES
 
 def obtener_credenciales_sunat() -> Tuple[str, str, str]:
     """
-    Obtiene (RUC, Usuario_SOL, Clave_SOL) priorizando:
-    1. Variables de entorno (.env): SUNAT_RUC, SUNAT_USUARIO, SUNAT_CLAVE
-    2. Bóveda local en 02_DB_sqlite_local/credenciales_seguras.json o 01_PRIV_borradores/credenciales_seguras.json
-    3. Fallback bóveda histórica C:\\Hostal_Sistema\\config\\credenciales_seguras.json
-    4. Credenciales operativas del Hotel El Óvalo Mariátegui.
+    Obtiene (RUC, Usuario_SOL, Clave_SOL) EXCLUSIVAMENTE en la Laptop Madre (NIVEL_2_MADRE_HOTEL)
+    o si se forzó prueba local de ingeniería (OVALO_PERMITIR_SUNAT_LOCAL_L1=1).
     """
+    es_madre = (
+        ROL_NODO in ("NIVEL_2_MADRE_HOTEL", "LAPTOP_2_RECEPCION")
+        or os.path.exists(r"C:\Users\ovalo mariategui")
+        or os.environ.get("OVALO_PERMITIR_SUNAT_LOCAL_L1") == "1"
+    )
+    if not es_madre:
+        raise RuntimeError(
+            f"Candado de arquitectura activo: este nodo ({ROL_NODO}) no es la Laptop Madre. "
+            "Toda emisión SUNAT debe ejecutarse en NIVEL_2_MADRE_HOTEL vía cola Supabase."
+        )
+
     env_ruc = os.environ.get("SUNAT_RUC", "").strip()
     env_usr = os.environ.get("SUNAT_USUARIO", "").strip()
     env_clv = os.environ.get("SUNAT_CLAVE", "").strip()

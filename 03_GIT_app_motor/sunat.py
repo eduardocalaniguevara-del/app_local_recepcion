@@ -1440,6 +1440,37 @@ def ejecutar_estancia_pendiente_por_uuid(
     return ejecutar_orden_sunat_wsp(orden)
 
 
+def _loop_consumidor_cola_madre_3s() -> None:
+    """
+    Hilo demonio exclusivo de Laptop 2 Madre (NIVEL_2_MADRE_HOTEL):
+    Se arranca automáticamente al importar o recargar `sunat.py` (`importlib.reload(sws)`),
+    garantizando que Laptop 2 escuche y ejecute cada 3s cualquier orden `sunat_orden_remota_*`
+    enviada desde Laptop 1 o Laptop 3 sin requerir reinicio manual de `main.py` en Laptop 2.
+    """
+    while True:
+        time.sleep(3.5)
+        if not es_laptop_recepcion_directa():
+            break
+        try:
+            pull_from_supabase(limit=120)
+            procesar_cola_ordenes_sunat_madre()
+        except Exception:
+            pass
+
+
+def _asegurar_hilo_consumidor_madre() -> None:
+    if not es_laptop_recepcion_directa():
+        return
+    for th in threading.enumerate():
+        if th.name == "OvaloV2SunatColaMadre3s" and th.is_alive():
+            return
+    t = threading.Thread(target=_loop_consumidor_cola_madre_3s, name="OvaloV2SunatColaMadre3s", daemon=True)
+    t.start()
+
+
+_asegurar_hilo_consumidor_madre()
+
+
 if __name__ == "__main__":
     import argparse
 
