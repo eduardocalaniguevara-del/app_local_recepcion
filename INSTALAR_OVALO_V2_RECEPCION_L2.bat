@@ -23,15 +23,17 @@ if exist "%~dp003_GIT_app_motor\config.py" (
 
 cd /d "%DEST%"
 if not exist "%DEST%\.git" (
-    echo [1/5] Conectando %DEST% con GitHub en modo SOLO LECTURA ^(rama sistema-v2^)...
-    git init -b sistema-v2 >nul 2>&1
+    echo [1/5] Conectando %DEST% con GitHub en modo SOLO LECTURA...
+    git init -b main >nul 2>&1
     git remote add origin "%REPO_URL%" >nul 2>&1
+    git fetch origin main >nul 2>&1
     git fetch origin sistema-v2 >nul 2>&1
-    git reset --hard origin/sistema-v2 >nul 2>&1
+    git reset --hard origin/main >nul 2>&1
 ) else (
-    echo [1/5] Actualizando codigo desde GitHub ^(rama sistema-v2^)...
+    echo [1/5] Actualizando codigo desde GitHub ^(rama main^)...
+    git fetch origin main >nul 2>&1
     git fetch origin sistema-v2 >nul 2>&1
-    git reset --hard origin/sistema-v2 >nul 2>&1
+    git reset --hard origin/main >nul 2>&1
 )
 
 REM 2. Crear carpetas locales 01_PRIV_borradores y 02_DB_sqlite_local

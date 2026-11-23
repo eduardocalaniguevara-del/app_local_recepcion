@@ -146,6 +146,38 @@
       line-height: 1.35;
     }
     /* =========================================================================
+       REGISTROS BD — TABLA COMPLETA DE 53 COLUMNAS (Sticky + Scroll Fluido)
+       ========================================================================= */
+    #panelTablaEstanciasBD table {
+      table-layout: auto !important;
+      width: max-content;
+      min-width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    #panelTablaEstanciasBD thead {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background-color: #2D2623;
+    }
+    #panelTablaEstanciasBD th {
+      padding: 4px 6px !important;
+      font-size: 10px !important;
+      overflow: visible !important;
+    }
+    #panelTablaEstanciasBD td {
+      padding: 3px 6px !important;
+      font-size: 11px;
+      line-height: 1.25;
+      max-width: 240px;
+    }
+    #panelTablaEstanciasBD td.bd-cell-edit:hover {
+      background-color: #FEF3C7;
+      box-shadow: inset 0 0 0 1px #D97706;
+    }
+    /* =========================================================================
        VISOR WSP SOLO LECTURA (barra superior) + MODAL RESUMEN EJECUTIVO IA
        ========================================================================= */
     #wspBarraPestanas > button,
@@ -681,9 +713,12 @@
         <div class="flex flex-wrap items-center gap-1.5">
           <button type="button" onclick="bdLimpiarFiltros()" class="px-2 py-1 rounded font-bold bg-white hover:bg-slate-100 text-slate-700 border border-[#D8C7B8] text-[11px] cursor-pointer">🧹 Limpiar</button>
           <button type="button" onclick="cargarVistaEstanciasBD()" class="px-2 py-1 rounded font-bold bg-slate-700 hover:bg-slate-800 text-white text-[11px] cursor-pointer">🔄 Actualizar</button>
+          <button type="button" id="btnBdSyncSheets" onclick="bdSincronizarCopiaSheetsUI()"
+                  title="Sube cualquier cambio pendiente de SQLite hacia la copia de Google Sheets sin dañar su formato ni fórmulas"
+                  class="px-2 py-1 rounded font-bold bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] cursor-pointer">📗 Sincronizar Copia Sheets</button>
           <label id="btnToggleAdminBD" onclick="toggleModoEdicionBDUI(event)"
                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded font-extrabold bg-amber-900 hover:bg-amber-950 text-amber-50 border border-amber-950 text-xs shadow-xs cursor-pointer transition-colors select-none"
-                 title="Recepcionista: solo lectura. Marcar con contraseña de Administrador para habilitar edición en las 4 bases de datos.">
+                 title="Recepcionista: solo lectura. Marcar con contraseña de Administrador para habilitar edición directa en SQLite → Supabase y Google Sheets.">
             <input type="checkbox" id="chkAdminBD" class="accent-emerald-400 pointer-events-none w-3.5 h-3.5">
             <span id="lblBtnAdminBD">🔒 Modo Edición (Admin)</span>
           </label>
@@ -699,11 +734,12 @@
     <div id="panelTablaEstanciasBD" tabindex="0" role="region" aria-label="Base de datos histórica"
           class="flex-1 min-h-0 overflow-x-auto overflow-y-auto rounded-lg shadow-xs border"
           style="background-color: #FAF6F3; border-color: #DFD2C5;">
-      <table class="w-full text-left text-[11px] select-none border-collapse">
-        <thead id="bdHead" class="sticky top-0 text-white font-bold uppercase tracking-tight z-10" style="background-color: #2D2623;"></thead>
+      <table class="w-full text-left text-[11px] select-none">
+        <thead id="bdHead" class="sticky top-0 text-white font-bold uppercase tracking-tight z-20" style="background-color: #2D2623;"></thead>
         <tbody id="bdBody" class="divide-y divide-[#E6DCD2]"></tbody>
       </table>
     </div>
+    <div id="bdColFilterPopover" class="hidden fixed z-50 w-64 rounded-lg border border-slate-300 bg-white shadow-2xl p-2 text-xs text-slate-800"></div>
   </div>
 
 <!-- ======================= HOJA 6: 📊 CONTABILIDAD Y CONCILIACIÓN (SUNAT ↔ BCP/YAPE) ======================= -->
@@ -6174,6 +6210,16 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  function escAttr(s) {
+    return esc(s).replace(/[\r\n]/g, ' ');
+  }
+  function escJsAttr(s) {
+    return esc(String(s === null || s === undefined ? '' : s)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'")
+      .replace(/\r/g, '\\r')
+      .replace(/\n/g, '\\n'));
+  }
   function hoyISO() { return (typeof fechaHoyServidorISO !== 'undefined' && fechaHoyServidorISO) ? fechaHoyServidorISO : new Date().toISOString().split('T')[0]; }
   function sumarDiasISO(iso, n) {
     var p = String(iso).split('-').map(Number);
@@ -6966,11 +7012,17 @@
   var BDE = {
     subtab: 'ESTANCIAS',
     filas: [],
+    filasVisibles: [],
     data: {},
     clave: '',
     adminActivo: false,
     mostrar3roForzado: false,
     mostrarPersGastoForzado: false,
+    colFilters: {},
+    sortCol: '',
+    sortDir: 'asc',
+    maxRender: 250,
+    popoverCol: '',
     timerQ: null,
     editando: null
   };
@@ -6987,6 +7039,7 @@
 
   window.bdCambiarSubTab = function (tab) {
     BDE.subtab = tab || 'ESTANCIAS';
+    bdCerrarMenuFiltroCol();
     var act = 'px-2.5 py-1 text-xs font-black bg-slate-800 text-white cursor-pointer transition-colors';
     var ina = 'px-2.5 py-1 text-xs font-black bg-white text-slate-800 hover:bg-amber-50 cursor-pointer transition-colors';
     var bE = document.getElementById('subTabBDEstancias');
@@ -7022,6 +7075,31 @@
     cargarVistaEstanciasBD();
   };
 
+  window.bdSincronizarCopiaSheetsUI = function () {
+    var btn = document.getElementById('btnBdSyncSheets');
+    var prevTxt = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Sincronizando...'; }
+    runGas('sincronizarCopiaSheets', [], function (res) {
+      if (btn) { btn.disabled = false; btn.textContent = prevTxt || '📗 Sincronizar Copia Sheets'; }
+      var r = res || {};
+      if (!r.ok && r.error) {
+        bdBanner('error', '❌ Error al sincronizar copia Google Sheets: ' + r.error);
+        return;
+      }
+      var msg = '📗 Copia Google Sheets al día: ' +
+        (r.estancias_insertadas || 0) + ' estancias nuevas, ' +
+        (r.estancias_actualizadas || 0) + ' actualizadas, ' +
+        (r.pagos_sync || 0) + ' pagos, ' +
+        (r.tienda_sync || 0) + ' ventas tienda, ' +
+        (r.gastos_sync || 0) + ' gastos (fórmulas =MAP protegidas).';
+      bdBanner('ok', msg);
+      cargarVistaEstanciasBD();
+    }, function (err) {
+      if (btn) { btn.disabled = false; btn.textContent = prevTxt || '📗 Sincronizar Copia Sheets'; }
+      bdBanner('error', '❌ ' + ((err && err.message) || err));
+    });
+  };
+
   window.bdRangoRapido = function (modo) {
     var dEl = document.getElementById('bdDesde'), hEl = document.getElementById('bdHasta');
     var hIso = hoyISO();
@@ -7051,6 +7129,11 @@
     ].forEach(function (id) {
       var el = document.getElementById(id); if (el) el.value = '';
     });
+    BDE.colFilters = {};
+    BDE.sortCol = '';
+    BDE.sortDir = 'asc';
+    BDE.maxRender = 250;
+    bdCerrarMenuFiltroCol();
     bdRangoRapido('MES');
   };
 
@@ -7081,7 +7164,7 @@
         hab: (document.getElementById('bdPagoHab') || {}).value || '',
         medioPago: (document.getElementById('bdPagoMed') || {}).value || '',
         tipoPago: (document.getElementById('bdPagoTip') || {}).value || '',
-        limite: 1000
+        limite: 1500
       };
       runGas('obtenerRegistroPagosBD', [payloadP], function (res) {
         BDE.data = res || {};
@@ -7103,7 +7186,7 @@
         metodoPago: (document.getElementById('bdGastoMet') || {}).value || '',
         responsable: (document.getElementById('bdGastoResp') || {}).value || '',
         personal: (document.getElementById('bdGastoPers') || {}).value || '',
-        limite: 1000
+        limite: 1500
       };
       runGas('obtenerRegistroGastosBD', [payloadG], function (res) {
         BDE.data = res || {};
@@ -7125,7 +7208,7 @@
         metodoPago: (document.getElementById('bdTiendaMet') || {}).value || '',
         hab: (document.getElementById('bdTiendaHab') || {}).value || '',
         personal: (document.getElementById('bdTiendaPers') || {}).value || '',
-        limite: 1000
+        limite: 1500
       };
       runGas('obtenerRegistroVentasTiendaBD', [payloadT], function (res) {
         BDE.data = res || {};
@@ -7138,6 +7221,8 @@
       return;
     }
 
+    var hayFiltroCol = Object.keys(BDE.colFilters || {}).length > 0;
+    var limE = (desdeVal || hastaVal) ? 2000 : (hayFiltroCol ? 6500 : 6500);
     var payloadE = {
       desde: desdeVal,
       hasta: hastaVal,
@@ -7146,11 +7231,12 @@
       tipoHab: (document.getElementById('bdTipoHab') || {}).value || '',
       empresa: (document.getElementById('bdEmpresa') || {}).value || '',
       estadoPago: (document.getElementById('bdEstadoPago') || {}).value || '',
-      limite: 800
+      limite: limE
     };
     runGas('obtenerRegistroEstanciasBD', [payloadE], function (res) {
       BDE.data = res || {};
       BDE.filas = (res && res.filas) || [];
+      BDE.maxRender = 250;
       bdPoblarSelectoresEstancias(res || {});
       bdRenderTabla();
     }, function (err) {
@@ -7284,143 +7370,630 @@
     bdRenderTablaEstancias();
   }
 
-  // -------------------- 1. RENDER TABLA ESTANCIAS (con columnas W, X, Y, Z separadas) --------------------
-  function bdRenderTablaEstancias() {
-    var res = BDE.data || {};
-    var R = res.resumen || {};
-    var expandir3ro = !!(res.hayTercerHuesped || BDE.mostrar3roForzado);
-    var admin = !!BDE.adminActivo;
+  // -------------------- 1. CATÁLOGO DE LAS 53 COLUMNAS (A..BA), FILTROS EN CADA ETIQUETA Y EDICIÓN DIRECTA --------------------
+  var BD_COLS_ESTANCIAS = [
+    { col: 'A',  key: 'id',             pk: null,             label: 'ID / Hora Anot.',    w: 'min-w-[125px]', align: 'left',   edit: false, type: 'text' },
+    { col: 'B',  key: 'fechaIn',        pk: 'fechaIn',        label: 'Check-In',           w: 'min-w-[82px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'C',  key: 'fechaOut',       pk: 'fechaOut',       label: 'Check-Out',          w: 'min-w-[82px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'D',  key: 'huesped',        pk: 'nombre',         label: 'Nombres Huésped',    w: 'min-w-[185px]', align: 'left',   edit: true,  type: 'text' },
+    { col: 'E',  key: 'dni',            pk: 'dni',            label: 'DNI Huésped',        w: 'min-w-[78px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'F',  key: 'sexo',           pk: 'sexo',           label: 'Sexo',               w: 'min-w-[54px]',  align: 'center', edit: true,  type: 'select', opts: ['M', 'F'] },
+    { col: 'G',  key: 'nAcomp',         pk: 'nAcomp',         label: '2° Huésped (Doble)', w: 'min-w-[155px]', align: 'left',   edit: true,  type: 'text' },
+    { col: 'H',  key: 'dniAcomp',       pk: 'dniAcomp',       label: 'DNI 2° Huésped',     w: 'min-w-[82px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'I',  key: 'nac',            pk: 'nac',            label: 'Nacionalidad',       w: 'min-w-[88px]',  align: 'left',   edit: true,  type: 'text' },
+    { col: 'J',  key: 'reg',            pk: 'reg',            label: 'Región',             w: 'min-w-[90px]',  align: 'left',   edit: true,  type: 'text' },
+    { col: 'K',  key: 'mot',            pk: 'mot',            label: 'Motivo de viaje',    w: 'min-w-[150px]', align: 'left',   edit: true,  type: 'text' },
+    { col: 'L',  key: 'hab',            pk: 'hab',            label: 'Hab.',               w: 'min-w-[58px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'M',  key: 'tipoHab',        pk: 'tipoHab',        label: 'Tipo Habitación',    w: 'min-w-[130px]', align: 'left',   edit: true,  type: 'text' },
+    { col: 'N',  key: 'visita',         pk: 'visita',         label: 'Visita',             w: 'min-w-[86px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'O',  key: 'horaRegistro',   pk: 'horaRegistro',   label: 'Hora Reg.',          w: 'min-w-[70px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'P',  key: 'noches',         pk: null,             label: 'Noches',             w: 'min-w-[56px]',  align: 'center', edit: false, type: 'number', fx: true },
+    { col: 'Q',  key: 'tarifa',         pk: 'tarifa',         label: 'Tarifa',             w: 'min-w-[68px]',  align: 'right',  edit: true,  type: 'number' },
+    { col: 'R',  key: 'subtotal',       pk: null,             label: 'Subtotal',           w: 'min-w-[74px]',  align: 'right',  edit: false, type: 'number', fx: true, bg: 'bg-amber-50/40 font-black' },
+    { col: 'S',  key: 'snacks',         pk: 'snacks',         label: 'Snacks',             w: 'min-w-[64px]',  align: 'right',  edit: true,  type: 'number' },
+    { col: 'T',  key: 'servicios',      pk: 'servicios',      label: 'Servicios',          w: 'min-w-[66px]',  align: 'right',  edit: true,  type: 'number' },
+    { col: 'U',  key: 'adicComp',       pk: 'adicComp',       label: 'Adic. Comp',         w: 'min-w-[68px]',  align: 'right',  edit: true,  type: 'number' },
+    { col: 'V',  key: 'totalCuenta',    pk: null,             label: 'Total Cta.',         w: 'min-w-[78px]',  align: 'right',  edit: false, type: 'number', fx: true, bg: 'bg-amber-100/40 font-black' },
+    { col: 'W',  key: 'pEfecIni',       pk: 'pEfecIni',       label: 'P.Ini Efec',         w: 'min-w-[74px]',  align: 'right',  edit: true,  type: 'number', color: 'text-emerald-800 font-extrabold' },
+    { col: 'X',  key: 'pElecIni',       pk: 'pElecIni',       label: 'P.Ini Elec',         w: 'min-w-[74px]',  align: 'right',  edit: true,  type: 'number', color: 'text-purple-800 font-extrabold' },
+    { col: 'Y',  key: 'pEfecPost',      pk: 'pEfecPost',      label: 'P.Post Efec',        w: 'min-w-[76px]',  align: 'right',  edit: true,  type: 'number', color: 'text-emerald-800 font-extrabold' },
+    { col: 'Z',  key: 'pYapePost',      pk: 'pYapePost',      label: 'P.Post Yape',        w: 'min-w-[76px]',  align: 'right',  edit: true,  type: 'number', color: 'text-purple-800 font-extrabold' },
+    { col: 'AA', key: 'totalEfec',      pk: null,             label: 'Tot. Efec',          w: 'min-w-[72px]',  align: 'right',  edit: false, type: 'number', fx: true },
+    { col: 'AB', key: 'totalYape',      pk: null,             label: 'Tot. Yape',          w: 'min-w-[72px]',  align: 'right',  edit: false, type: 'number', fx: true },
+    { col: 'AC', key: 'totalPagado',    pk: null,             label: 'Tot. Pagado',        w: 'min-w-[78px]',  align: 'right',  edit: false, type: 'number', fx: true, bg: 'bg-emerald-50/40 font-black text-emerald-900' },
+    { col: 'AD', key: 'saldoFinal',     pk: null,             label: 'Saldo Final',        w: 'min-w-[74px]',  align: 'right',  edit: false, type: 'number', fx: true },
+    { col: 'AE', key: 'cuentaDestino',  pk: 'cuentaDestino',  label: 'Cta. Destino',       w: 'min-w-[92px]',  align: 'left',   edit: true,  type: 'text' },
+    { col: 'AF', key: 'solicitaComp',   pk: 'solicitaComp',   label: 'Solicita Comp',      w: 'min-w-[82px]',  align: 'center', edit: true,  type: 'select', opts: ['Sí', 'No', ''] },
+    { col: 'AG', key: 'tipoComp',       pk: 'tipoComp',       label: 'Tipo Comp.',         w: 'min-w-[78px]',  align: 'center', edit: true,  type: 'select', opts: ['', 'Boleta', 'Factura', 'Ninguno'] },
+    { col: 'AH', key: 'estadoComp',     pk: 'estadoComp',     label: 'Est. Comp.',         w: 'min-w-[82px]',  align: 'center', edit: true,  type: 'select', opts: ['', 'Pendiente', 'Emitido', 'Ninguno'] },
+    { col: 'AI', key: 'nroComp',        pk: 'nroComp',        label: 'Nro Comp.',          w: 'min-w-[92px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'AJ', key: 'montoFact',      pk: 'montoFact',      label: 'Monto Fact.',        w: 'min-w-[76px]',  align: 'right',  edit: true,  type: 'number' },
+    { col: 'AK', key: 'estadoEstancia', pk: 'estadoEstancia', label: 'Est. Estancia',      w: 'min-w-[116px]', align: 'center', edit: true,  type: 'select', opts: ['En Curso', 'Finalizado', 'Finalizado - Continúa', 'Cancelado'] },
+    { col: 'AL', key: 'deudaAnt',       pk: 'deudaAnt',       label: 'Deuda Ant.',         w: 'min-w-[72px]',  align: 'right',  edit: true,  type: 'number', color: 'text-red-800 font-bold' },
+    { col: 'AM', key: 'pVisa',          pk: 'pVisa',          label: 'Pagos VISA',         w: 'min-w-[72px]',  align: 'right',  edit: true,  type: 'number', color: 'text-blue-800 font-bold' },
+    { col: 'AN', key: 'estadoPagoAN',   pk: null,             label: 'Estado Pagos',       w: 'min-w-[130px]', align: 'center', edit: false, type: 'text', fx: true },
+    { col: 'AO', key: 'clienteFiel',    pk: null,             label: 'Cliente Fiel',       w: 'min-w-[68px]',  align: 'center', edit: false, type: 'text', fx: true },
+    { col: 'AP', key: 'facturacionTotal', pk: null,           label: 'Fact. Total',        w: 'min-w-[74px]',  align: 'center', edit: false, type: 'text' },
+    { col: 'AQ', key: 'empresa',        pk: 'empresa',        label: 'Empresa',            w: 'min-w-[155px]', align: 'left',   edit: true,  type: 'text' },
+    { col: 'AR', key: 'proyecto',       pk: 'proyecto',       label: 'Proyecto',           w: 'min-w-[100px]', align: 'left',   edit: true,  type: 'text' },
+    { col: 'AS', key: 'triple1',        pk: 'triple1',        label: '3° Huésped',         w: 'min-w-[140px]', align: 'left',   edit: true,  type: 'text' },
+    { col: 'AT', key: 'triple2',        pk: 'triple2',        label: 'DNI 3° Huésped',     w: 'min-w-[82px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'AU', key: 'hotelApoyo',     pk: 'hotelApoyo',     label: 'Hotel Apoyo',        w: 'min-w-[92px]',  align: 'left',   edit: true,  type: 'text' },
+    { col: 'AV', key: 'observaciones',  pk: 'observaciones',  label: 'Observaciones',      w: 'min-w-[165px]', align: 'left',   edit: true,  type: 'text' },
+    { col: 'AW', key: 'nroOpYape',      pk: 'nroOpYape',      label: 'N° Operación',       w: 'min-w-[96px]',  align: 'left',   edit: true,  type: 'text' },
+    { col: 'AX', key: 'celular',        pk: 'celular',        label: 'Celular',            w: 'min-w-[84px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'AY', key: 'ruc',            pk: 'ruc',            label: 'RUC',                w: 'min-w-[92px]',  align: 'center', edit: true,  type: 'text' },
+    { col: 'AZ', key: 'excedenteEfec',  pk: 'excedenteEfec',  label: 'Exc. Efec.',         w: 'min-w-[74px]',  align: 'right',  edit: true,  type: 'number' },
+    { col: 'BA', key: 'tipoAdicional',  pk: 'tipoAdicional',  label: 'Tipo Adic.',         w: 'min-w-[100px]', align: 'left',   edit: true,  type: 'text' }
+  ];
 
-    var bar = document.getElementById('bdResumenBar');
-    if (bar) {
-      bar.innerHTML =
-        '<div class="flex flex-wrap items-center gap-1.5 font-extrabold">' +
-          '<span class="px-2 py-0.5 rounded bg-slate-800 text-white">🛏️ ' + (R.cantidad || 0) + ' estancias <span class="font-normal opacity-80">(de ' + (res.totalEnBD || 0) + ' • ⬇️ última anotación en Fila 1)</span></span>' +
-          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">Subtotal: ' + soles(R.subtotalAloj) + '</span>' +
-          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">➕ Adic.: ' + soles(R.totalAdic) + '</span>' +
-          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-900">💰 Total Cuenta: ' + soles(R.totalCuenta) + '</span>' +
-          '<span class="px-2 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-950">✅ Pagado: ' + soles(R.totalPagado) + '</span>' +
-          '<span class="px-2 py-0.5 rounded ' + ((R.saldoPendiente || 0) > 0 ? 'bg-red-100 border border-red-300 text-red-900' : 'bg-slate-100 border border-slate-300 text-slate-600') + '">⚠️ Saldo Pendiente: ' + soles(R.saldoPendiente) + '</span>' +
-        '</div>' +
-        '<span class="text-[10.5px] font-bold ' + (admin ? 'text-emerald-800' : 'text-slate-500') + '">' +
-          (admin ? '🔓 Modo Admin activo: clic en «✏️» o directamente en las celdas W, X, Y, Z para modificar.' : '👁️ Vista Recepcionista (solo lectura).') +
-        '</span>';
+  function bdGetColDef(key) {
+    for (var i = 0; i < BD_COLS_ESTANCIAS.length; i++) {
+      if (BD_COLS_ESTANCIAS[i].key === key) return BD_COLS_ESTANCIAS[i];
     }
+    return null;
+  }
 
+  function bdBuscarEstanciaPorUuid(uuidOIdx) {
+    if (typeof uuidOIdx === 'number') return BDE.filas[uuidOIdx] || null;
+    var s = String(uuidOIdx || '');
+    for (var i = 0; i < BDE.filas.length; i++) {
+      if (String(BDE.filas[i].estanciaUuid || '') === s) return BDE.filas[i];
+    }
+    return BDE.filas[Number(uuidOIdx)] || null;
+  }
+
+  function bdYmdSortable(val) {
+    var s = String(val || '').trim();
+    var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+    if (!m) return null;
+    var yy = m[3].length === 2 ? Number('20' + m[3]) : Number(m[3]);
+    var mm = Number(m[2]);
+    var dd = Number(m[1]);
+    var base = yy * 10000 + mm * 100 + dd;
+    if (m[4] !== undefined) {
+      return base * 1000000 + Number(m[4]) * 10000 + Number(m[5] || 0) * 100 + Number(m[6] || 0);
+    }
+    return base;
+  }
+
+  function bdFiltrarYOrdenarEstancias() {
+    var cf = BDE.colFilters || {};
+    var keysAct = Object.keys(cf);
+    var lista = (BDE.filas || []).filter(function (f) {
+      for (var i = 0; i < keysAct.length; i++) {
+        var k = keysAct[i];
+        var flt = cf[k];
+        if (!flt) continue;
+        var raw = f[k] == null ? '' : String(f[k]).trim();
+        var rawLow = raw.toLowerCase();
+        if (flt.mode === 'EMPTY' && raw !== '' && raw !== '0') return false;
+        if (flt.mode === 'NONEMPTY' && (raw === '' || raw === '0')) return false;
+        if (flt.text) {
+          var q = String(flt.text).toLowerCase().trim();
+          if (q && rawLow.indexOf(q) < 0) return false;
+        }
+        if (flt.selected && flt.selected.length > 0) {
+          var found = false;
+          for (var j = 0; j < flt.selected.length; j++) {
+            if (flt.selected[j] === raw) { found = true; break; }
+          }
+          if (!found) return false;
+        }
+      }
+      return true;
+    });
+
+    if (BDE.sortCol) {
+      var colDef = bdGetColDef(BDE.sortCol);
+      var dir = BDE.sortDir === 'desc' ? -1 : 1;
+      var kSort = BDE.sortCol;
+      lista = lista.slice().sort(function (a, b) {
+        var va = a[kSort] == null ? '' : a[kSort];
+        var vb = b[kSort] == null ? '' : b[kSort];
+        if (colDef && colDef.type === 'number') {
+          return ((Number(va) || 0) - (Number(vb) || 0)) * dir;
+        }
+        if (kSort === 'id' || kSort === 'fechaIn' || kSort === 'fechaOut') {
+          var da = bdYmdSortable(va);
+          var db = bdYmdSortable(vb);
+          if (da !== null && db !== null && da !== db) return (da - db) * dir;
+        }
+        return String(va).localeCompare(String(vb), 'es', { numeric: true, sensitivity: 'base' }) * dir;
+      });
+    }
+    return lista;
+  }
+
+  function bdActualizarEstilosCabeceraFiltros() {
     var head = document.getElementById('bdHead');
-    if (head) {
-      head.innerHTML =
-        '<tr class="h-8 text-[10px]">' +
-          (admin ? '<th class="px-1.5 w-[44px] text-center border-r border-[#433A36] bg-emerald-900">Editar</th>' : '') +
-          '<th class="px-1.5 w-[118px] border-r border-[#433A36]" title="Ordenado de más reciente (arriba) a más antiguo (abajo)">⬇️ ID / Hora Anot.</th>' +
-          '<th class="px-1.5 w-[74px] text-center border-r border-[#433A36]">Check-In</th>' +
-          '<th class="px-1.5 w-[74px] text-center border-r border-[#433A36]">Check-Out</th>' +
-          '<th class="px-2 min-w-[175px] border-r border-[#433A36]">Huésped 1 + DNI</th>' +
-          '<th class="px-2 min-w-[140px] border-r border-[#433A36]">2° Huésped + DNI</th>' +
-          (expandir3ro
-            ? '<th class="px-2 min-w-[130px] border-r border-[#433A36] cursor-pointer" onclick="bdToggleCol3ro()" title="Clic para encoger columna 3° Huésped">3° Huésped + DNI ▾</th>'
-            : '<th class="px-0.5 w-[24px] max-w-[24px] text-center border-r border-[#433A36] cursor-pointer opacity-75 hover:opacity-100" onclick="bdToggleCol3ro()" title="Sin 3° huésped (clic para expandir)">3°</th>') +
-          '<th class="px-1.5 w-[48px] text-center border-r border-[#433A36]">Hab.</th>' +
-          '<th class="px-1.5 w-[90px] border-r border-[#433A36]">Tipo Hab.</th>' +
-          '<th class="px-1 w-[42px] text-center border-r border-[#433A36]">Noc.</th>' +
-          '<th class="px-1.5 w-[60px] text-right border-r border-[#433A36]">Tarifa</th>' +
-          '<th class="px-1.5 w-[66px] text-right border-r border-[#433A36] bg-slate-900/50">Subtotal</th>' +
-          '<th class="px-1.5 w-[56px] text-right border-r border-[#433A36]" title="Adicional Tienda / Snacks (Col S)">Snacks</th>' +
-          '<th class="px-1.5 w-[56px] text-right border-r border-[#433A36]" title="Adicional Servicios (Col T)">Serv.</th>' +
-          '<th class="px-1.5 w-[56px] text-right border-r border-[#433A36]" title="Adicional Comprobante (Col U)">A.Comp</th>' +
-          '<th class="px-1.5 w-[92px] border-r border-[#433A36]" title="Tipo de Adicional (Col BA)">Tipo Adic.</th>' +
-          '<th class="px-1.5 w-[72px] text-right border-r border-[#433A36] bg-amber-950/60">Total Cta.</th>' +
-          '<th class="px-1.5 w-[68px] text-right border-r border-[#433A36] bg-emerald-950/40" title="Columna W: Pago Inicial Efectivo">P.Ini Efec (W)</th>' +
-          '<th class="px-1.5 w-[68px] text-right border-r border-[#433A36] bg-purple-950/40" title="Columna X: Pago Inicial Electrónico (Yape/Plin)">P.Ini Elec (X)</th>' +
-          '<th class="px-1.5 w-[68px] text-right border-r border-[#433A36] bg-emerald-950/40" title="Columna Y: Pago Posterior Efectivo">P.Post Efec (Y)</th>' +
-          '<th class="px-1.5 w-[68px] text-right border-r border-[#433A36] bg-purple-950/40" title="Columna Z: Pago Posterior Electrónico (Yape/Plin)">P.Post Elec (Z)</th>' +
-          '<th class="px-1.5 w-[62px] text-right border-r border-[#433A36]" title="Cargo Deuda Anterior (Col AL)">Deuda Ant.</th>' +
-          '<th class="px-1.5 w-[58px] text-right border-r border-[#433A36]" title="Pagos VISA (Col AM)">VISA</th>' +
-          '<th class="px-1.5 w-[72px] text-right border-r border-[#433A36] bg-emerald-950/50">Tot. Pagado</th>' +
-          '<th class="px-1.5 w-[68px] text-right border-r border-[#433A36]">Saldo Final</th>' +
-          '<th class="px-1.5 w-[118px] text-center border-r border-[#433A36]" title="Columna AN: Estado de Pagos">Pagos (AN)</th>' +
-          '<th class="px-2 min-w-[125px] border-r border-[#433A36]" title="Columna AQ: Empresa">Empresa (AQ)</th>' +
-          '<th class="px-1.5 w-[86px] border-r border-[#433A36]" title="Columna AW: N° de Operación Yape/Banco">N° Op. (AW)</th>' +
-          '<th class="px-1.5 w-[78px] border-r border-[#433A36]" title="Columna AX: Celular">Celular</th>' +
-          '<th class="px-1.5 w-[86px] border-r border-[#433A36]" title="Columna AY: RUC">RUC</th>' +
-          '<th class="px-1.5 w-[68px] text-right" title="Columna AZ: Excedente Efectivo">Exc. Efec.</th>' +
-        '</tr>';
+    if (!head) return;
+    var btns = head.querySelectorAll('[data-filter-btn]');
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      var k = b.getAttribute('data-filter-btn');
+      var flt = (BDE.colFilters || {})[k];
+      var activo = !!(flt && (flt.text || flt.mode || (flt.selected && flt.selected.length))) || BDE.sortCol === k;
+      b.className = 'shrink-0 px-1 py-0.2 rounded text-[9px] font-black cursor-pointer ' +
+        (activo ? 'bg-amber-400 text-slate-950' : 'bg-[#433A36] text-amber-100 hover:bg-amber-700');
+      b.textContent = BDE.sortCol === k ? (BDE.sortDir === 'asc' ? '▲' : '▼') : '⏷';
     }
+  }
 
-    var body = document.getElementById('bdBody');
-    if (!body) return;
-    if (!BDE.filas.length) {
-      body.innerHTML = '<tr><td colspan="31" class="px-4 py-8 text-center text-slate-400 font-bold">No se encontraron estancias con estos filtros.</td></tr>';
+  window.bdOnInputFiltroCol = function (inp) {
+    var k = inp.getAttribute('data-col-key');
+    if (!k) return;
+    var v = String(inp.value || '');
+    if (!BDE.colFilters[k]) BDE.colFilters[k] = {};
+    BDE.colFilters[k].text = v;
+    if (!v && !BDE.colFilters[k].mode && !(BDE.colFilters[k].selected && BDE.colFilters[k].selected.length)) {
+      delete BDE.colFilters[k];
+    }
+    BDE.maxRender = 250;
+    bdActualizarEstilosCabeceraFiltros();
+    bdRefrescarCuerpoEstancias();
+  };
+
+  window.bdQuitarFiltroCol = function (k) {
+    if (k === '__SORT__') {
+      BDE.sortCol = '';
+      BDE.sortDir = 'asc';
+    } else {
+      delete BDE.colFilters[k];
+      var inp = document.querySelector('#bdHead input[data-col-key="' + k + '"]');
+      if (inp) inp.value = '';
+    }
+    BDE.maxRender = 250;
+    bdActualizarEstilosCabeceraFiltros();
+    bdRefrescarCuerpoEstancias();
+  };
+
+  window.bdMostrarMasFilas = function (todas) {
+    BDE.maxRender = todas ? (BDE.filasVisibles || []).length : (BDE.maxRender + 250);
+    bdRefrescarCuerpoEstancias();
+  };
+
+  window.bdCerrarMenuFiltroCol = function () {
+    var pop = document.getElementById('bdColFilterPopover');
+    if (pop) pop.classList.add('hidden');
+    BDE.popoverCol = '';
+  };
+
+  document.addEventListener('click', function (ev) {
+    var pop = document.getElementById('bdColFilterPopover');
+    if (!pop || pop.classList.contains('hidden')) return;
+    if (pop.contains(ev.target)) return;
+    if (ev.target && ev.target.closest && ev.target.closest('[data-filter-trigger]')) return;
+    bdCerrarMenuFiltroCol();
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') {
+      var pop = document.getElementById('bdColFilterPopover');
+      if (pop && !pop.classList.contains('hidden')) bdCerrarMenuFiltroCol();
+    }
+  });
+
+  window.bdAbrirMenuFiltroCol = function (e, colKey) {
+    if (e) e.stopPropagation();
+    var pop = document.getElementById('bdColFilterPopover');
+    if (!pop) return;
+    if (BDE.popoverCol === colKey && !pop.classList.contains('hidden')) {
+      bdCerrarMenuFiltroCol();
       return;
     }
+    var colDef = bdGetColDef(colKey);
+    if (!colDef) return;
+    BDE.popoverCol = colKey;
 
-    var m = function (v) { var n = Number(v) || 0; return n ? n.toFixed(2) : '<span class="text-slate-300">—</span>'; };
-    var celdaWXYZ = function (val, clsColor, idx, idCampo, titulo) {
-      var n = Number(val) || 0;
-      var txt = n ? '<span class="' + clsColor + ' font-extrabold">' + n.toFixed(2) + '</span>' : '<span class="text-slate-300">—</span>';
-      if (admin) {
-        return '<td onclick="bdAbrirModalEditar(' + idx + ', \'' + idCampo + '\')" class="px-1.5 text-right border-r border-[#E6DCD2] whitespace-nowrap cursor-pointer hover:bg-amber-100/80" title="Clic para editar ' + titulo + '">' + txt + '</td>';
+    var conteos = {};
+    (BDE.filas || []).forEach(function (f) {
+      var val = f[colKey] == null ? '' : String(f[colKey]).trim();
+      conteos[val] = (conteos[val] || 0) + 1;
+    });
+    var unicos = Object.keys(conteos).sort(function (a, b) {
+      if (colDef.type === 'number') return (Number(a) || 0) - (Number(b) || 0);
+      return a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' });
+    });
+
+    var flt = BDE.colFilters[colKey] || {};
+    var selMap = {};
+    if (flt.selected) flt.selected.forEach(function (v) { selMap[v] = true; });
+
+    var htmlLista = unicos.slice(0, 120).map(function (v) {
+      var checked = selMap[v] ? ' checked' : '';
+      var lbl = v === '' ? '(Vacío)' : v;
+      return '<div class="flex items-center justify-between gap-1 px-1.5 py-0.5 rounded hover:bg-amber-50 text-[11px]">' +
+        '<label class="flex items-center gap-1.5 flex-1 min-w-0 cursor-pointer">' +
+          '<input type="checkbox" class="bd-pop-chk accent-amber-700" value="' + escAttr(v) + '"' + checked + '>' +
+          '<span class="truncate font-semibold text-slate-800" title="' + escAttr(lbl) + '">' + esc(lbl) + '</span>' +
+        '</label>' +
+        '<button type="button" onclick="bdFiltroSoloValorCol(\'' + escAttr(colKey) + '\', \'' + escJsAttr(v) + '\')" class="shrink-0 px-1 rounded bg-slate-100 hover:bg-amber-200 text-[9.5px] font-black text-slate-600 cursor-pointer" title="Filtrar solo este valor">Solo (' + conteos[v] + ')</button>' +
+      '</div>';
+    }).join('');
+
+    pop.innerHTML =
+      '<div class="flex items-center justify-between border-b border-slate-200 pb-1.5 mb-1.5">' +
+        '<span class="font-black text-xs text-slate-900 truncate">' + esc(colDef.col + ' · ' + colDef.label) + '</span>' +
+        '<button type="button" onclick="bdCerrarMenuFiltroCol()" class="text-slate-400 hover:text-slate-800 font-black cursor-pointer">✕</button>' +
+      '</div>' +
+      '<div class="grid grid-cols-2 gap-1 mb-1.5">' +
+        '<button type="button" onclick="bdOrdenarCol(\'' + escAttr(colKey) + '\', \'asc\')" class="px-2 py-1 rounded border text-[10.5px] font-black cursor-pointer ' + (BDE.sortCol === colKey && BDE.sortDir === 'asc' ? 'bg-amber-700 text-white border-amber-800' : 'bg-slate-50 hover:bg-amber-50 text-slate-800 border-slate-300') + '">⬆️ Ordenar A → Z</button>' +
+        '<button type="button" onclick="bdOrdenarCol(\'' + escAttr(colKey) + '\', \'desc\')" class="px-2 py-1 rounded border text-[10.5px] font-black cursor-pointer ' + (BDE.sortCol === colKey && BDE.sortDir === 'desc' ? 'bg-amber-700 text-white border-amber-800' : 'bg-slate-50 hover:bg-amber-50 text-slate-800 border-slate-300') + '">⬇️ Ordenar Z → A</button>' +
+      '</div>' +
+      '<div class="flex flex-wrap gap-1 mb-1.5">' +
+        '<button type="button" onclick="bdFiltroModoCol(\'' + escAttr(colKey) + '\', \'\')" class="px-1.5 py-0.5 rounded border text-[10px] font-bold cursor-pointer ' + (!flt.mode ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-700 border-slate-300') + '">Todos</button>' +
+        '<button type="button" onclick="bdFiltroModoCol(\'' + escAttr(colKey) + '\', \'NONEMPTY\')" class="px-1.5 py-0.5 rounded border text-[10px] font-bold cursor-pointer ' + (flt.mode === 'NONEMPTY' ? 'bg-emerald-700 text-white border-emerald-800' : 'bg-white text-slate-700 border-slate-300') + '">Con dato</button>' +
+        '<button type="button" onclick="bdFiltroModoCol(\'' + escAttr(colKey) + '\', \'EMPTY\')" class="px-1.5 py-0.5 rounded border text-[10px] font-bold cursor-pointer ' + (flt.mode === 'EMPTY' ? 'bg-amber-700 text-white border-amber-800' : 'bg-white text-slate-700 border-slate-300') + '">Vacíos</button>' +
+      '</div>' +
+      '<input type="text" id="bdPopSearch" value="' + escAttr(flt.text || '') + '" oninput="bdFiltrarListaPopover(this.value, \'' + escAttr(colKey) + '\')" placeholder="🔍 Filtrar texto..." class="w-full px-2 py-1 mb-1.5 rounded border border-slate-300 text-xs font-bold bg-white">' +
+      '<div id="bdPopValores" class="max-h-44 overflow-y-auto border border-slate-200 rounded p-1 bg-slate-50/40 space-y-0.5">' + htmlLista + '</div>' +
+      (unicos.length > 120 ? '<div class="text-[9.5px] text-slate-400 mt-0.5">Mostrando primeros 120 de ' + unicos.length + ' valores (usa el buscador).</div>' : '') +
+      '<div class="flex items-center justify-between gap-1.5 pt-2 mt-1.5 border-t border-slate-200">' +
+        '<button type="button" onclick="bdLimpiarPopoverCol(\'' + escAttr(colKey) + '\')" class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 text-[10.5px] font-bold text-slate-700 cursor-pointer">Limpiar</button>' +
+        '<button type="button" onclick="bdAplicarPopoverCol(\'' + escAttr(colKey) + '\')" class="px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[10.5px] font-black cursor-pointer">✅ Aplicar</button>' +
+      '</div>';
+
+    var rect = (e && e.currentTarget) ? e.currentTarget.getBoundingClientRect() : { left: 100, bottom: 150 };
+    var left = Math.min(window.innerWidth - 270, Math.max(8, rect.left));
+    var top = Math.min(window.innerHeight - 340, rect.bottom + 4);
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+    pop.classList.remove('hidden');
+    setTimeout(function () { var ps = document.getElementById('bdPopSearch'); if (ps) ps.focus(); }, 30);
+  };
+
+  window.bdFiltrarListaPopover = function (txt, colKey) {
+    var box = document.getElementById('bdPopValores');
+    var colDef = bdGetColDef(colKey);
+    if (!box || !colDef) return;
+    var q = String(txt || '').toLowerCase().trim();
+    var conteos = {};
+    (BDE.filas || []).forEach(function (f) {
+      var val = f[colKey] == null ? '' : String(f[colKey]).trim();
+      if (!q || val.toLowerCase().indexOf(q) >= 0) conteos[val] = (conteos[val] || 0) + 1;
+    });
+    var unicos = Object.keys(conteos).sort(function (a, b) {
+      if (colDef.type === 'number') return (Number(a) || 0) - (Number(b) || 0);
+      return a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' });
+    });
+    var selMap = {};
+    var flt = BDE.colFilters[colKey] || {};
+    if (flt.selected) flt.selected.forEach(function (v) { selMap[v] = true; });
+    box.innerHTML = unicos.slice(0, 120).map(function (v) {
+      var lbl = v === '' ? '(Vacío)' : v;
+      return '<div class="flex items-center justify-between gap-1 px-1.5 py-0.5 rounded hover:bg-amber-50 text-[11px]">' +
+        '<label class="flex items-center gap-1.5 flex-1 min-w-0 cursor-pointer">' +
+          '<input type="checkbox" class="bd-pop-chk accent-amber-700" value="' + escAttr(v) + '"' + (selMap[v] ? ' checked' : '') + '>' +
+          '<span class="truncate font-semibold text-slate-800">' + esc(lbl) + '</span>' +
+        '</label>' +
+        '<button type="button" onclick="bdFiltroSoloValorCol(\'' + escAttr(colKey) + '\', \'' + escJsAttr(v) + '\')" class="shrink-0 px-1 rounded bg-slate-100 hover:bg-amber-200 text-[9.5px] font-black text-slate-600 cursor-pointer">Solo (' + conteos[v] + ')</button>' +
+      '</div>';
+    }).join('') || '<div class="text-[11px] text-slate-400 p-2 text-center">Sin coincidencias</div>';
+  };
+
+  window.bdOrdenarCol = function (colKey, dir) {
+    BDE.sortCol = colKey;
+    BDE.sortDir = dir || 'asc';
+    BDE.maxRender = 250;
+    bdCerrarMenuFiltroCol();
+    bdActualizarEstilosCabeceraFiltros();
+    bdRefrescarCuerpoEstancias();
+  };
+
+  window.bdFiltroModoCol = function (colKey, mode) {
+    if (!BDE.colFilters[colKey]) BDE.colFilters[colKey] = {};
+    BDE.colFilters[colKey].mode = mode || '';
+    if (!BDE.colFilters[colKey].text && !mode && !(BDE.colFilters[colKey].selected && BDE.colFilters[colKey].selected.length)) {
+      delete BDE.colFilters[colKey];
+    }
+    BDE.maxRender = 250;
+    bdCerrarMenuFiltroCol();
+    bdActualizarEstilosCabeceraFiltros();
+    bdRefrescarCuerpoEstancias();
+  };
+
+  window.bdFiltroSoloValorCol = function (colKey, val) {
+    BDE.colFilters[colKey] = { selected: [val] };
+    var inp = document.querySelector('#bdHead input[data-col-key="' + colKey + '"]');
+    if (inp) inp.value = '';
+    BDE.maxRender = 250;
+    bdCerrarMenuFiltroCol();
+    bdActualizarEstilosCabeceraFiltros();
+    bdRefrescarCuerpoEstancias();
+  };
+
+  window.bdAplicarPopoverCol = function (colKey) {
+    var pop = document.getElementById('bdColFilterPopover');
+    var ps = document.getElementById('bdPopSearch');
+    var chks = pop ? pop.querySelectorAll('.bd-pop-chk:checked') : [];
+    var sel = [];
+    for (var i = 0; i < chks.length; i++) sel.push(chks[i].value);
+    var txt = ps ? String(ps.value || '') : '';
+    var prevMode = (BDE.colFilters[colKey] && BDE.colFilters[colKey].mode) || '';
+    if (!txt && sel.length === 0 && !prevMode) {
+      delete BDE.colFilters[colKey];
+    } else {
+      BDE.colFilters[colKey] = { text: txt, selected: sel, mode: prevMode };
+    }
+    var inp = document.querySelector('#bdHead input[data-col-key="' + colKey + '"]');
+    if (inp) inp.value = txt;
+    BDE.maxRender = 250;
+    bdCerrarMenuFiltroCol();
+    bdActualizarEstilosCabeceraFiltros();
+    bdRefrescarCuerpoEstancias();
+  };
+
+  window.bdLimpiarPopoverCol = function (colKey) {
+    if (BDE.sortCol === colKey) { BDE.sortCol = ''; BDE.sortDir = 'asc'; }
+    bdQuitarFiltroCol(colKey);
+    bdCerrarMenuFiltroCol();
+  };
+
+  window.bdClickCeldaEstancia = function (e, estanciaUuid, colKey) {
+    if (!BDE.adminActivo) return;
+    var colDef = bdGetColDef(colKey);
+    if (!colDef || !colDef.edit || !colDef.pk) return;
+    var td = e.currentTarget;
+    if (!td || td.querySelector('input, select')) return;
+    var f = bdBuscarEstanciaPorUuid(estanciaUuid);
+    if (!f) return;
+
+    var origVal = f[colKey] == null ? '' : String(f[colKey]);
+    var editor;
+    if (colDef.type === 'select' && colDef.opts) {
+      editor = document.createElement('select');
+      editor.className = 'w-full px-1 py-0.5 rounded border-2 border-amber-600 bg-amber-50 text-slate-950 font-extrabold text-[11px] focus:outline-hidden';
+      var tieneOrig = false;
+      colDef.opts.forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op;
+        o.textContent = op === '' ? '(Vacío)' : op;
+        if (op === origVal) { o.selected = true; tieneOrig = true; }
+        editor.appendChild(o);
+      });
+      if (!tieneOrig && origVal) {
+        var oExtra = document.createElement('option');
+        oExtra.value = origVal; oExtra.textContent = origVal; oExtra.selected = true;
+        editor.insertBefore(oExtra, editor.firstChild);
       }
-      return '<td class="px-1.5 text-right border-r border-[#E6DCD2] whitespace-nowrap" title="' + titulo + '">' + txt + '</td>';
+    } else {
+      editor = document.createElement('input');
+      editor.type = colDef.type === 'number' ? 'number' : 'text';
+      if (colDef.type === 'number') editor.step = 'any';
+      editor.value = origVal;
+      editor.className = 'w-full min-w-[60px] px-1 py-0.5 rounded border-2 border-amber-600 bg-amber-50 text-slate-950 font-extrabold text-[11px] focus:outline-hidden';
+    }
+
+    var finalizado = false;
+    var cancelar = function () {
+      if (finalizado) return;
+      finalizado = true;
+      bdRefrescarCuerpoEstancias();
+    };
+    var confirmar = function () {
+      if (finalizado) return;
+      finalizado = true;
+      var nuevoVal = String(editor.value == null ? '' : editor.value).trim();
+      var esNum = colDef.type === 'number';
+      var igual = esNum ? (Math.abs((Number(nuevoVal) || 0) - (Number(origVal) || 0)) < 0.001 && nuevoVal !== '' === (origVal !== '')) : (nuevoVal === origVal);
+      if (igual) {
+        bdRefrescarCuerpoEstancias();
+        return;
+      }
+      var valEnvio = esNum && nuevoVal === '' ? 0 : nuevoVal;
+      td.innerHTML = '<span class="text-[10px] font-black text-amber-800">⏳...</span>';
+      var payload = {
+        clave: BDE.clave,
+        estanciaUuid: f.estanciaUuid,
+        fila: f.fila,
+        id: f.id,
+        habOriginal: f.hab
+      };
+      payload[colDef.pk] = valEnvio;
+      runGas('editarEstanciaBDAdmin', [payload], function (resEdit) {
+        if (resEdit && resEdit.filaActualizada) {
+          for (var i = 0; i < BDE.filas.length; i++) {
+            if (String(BDE.filas[i].estanciaUuid) === String(f.estanciaUuid)) {
+              BDE.filas[i] = resEdit.filaActualizada;
+              break;
+            }
+          }
+          bdRefrescarCuerpoEstancias();
+          bdBanner('ok', '✅ Celda ' + colDef.col + ' (' + colDef.label + ') guardada en SQLite → Supabase y cola Sheets.');
+        } else {
+          bdBanner('ok', '✅ Cambio guardado en SQLite → Supabase.');
+          cargarVistaEstanciasBD();
+        }
+      }, function (err) {
+        bdBanner('error', '❌ ' + ((err && errorMsg(err)) || err));
+        bdRefrescarCuerpoEstancias();
+      });
     };
 
-    body.innerHTML = BDE.filas.map(function (f, idx) {
-      var canc = f.codPagoAN === 'CANCELADO';
-      var rowCls = canc ? 'bg-slate-100 text-slate-400 line-through' : 'bg-white hover:bg-amber-50/60';
+    td.innerHTML = '';
+    td.appendChild(editor);
+    editor.focus();
+    if (editor.select) editor.select();
+    editor.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    editor.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); confirmar(); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); cancelar(); }
+    });
+    if (editor.tagName === 'SELECT') {
+      editor.addEventListener('change', confirmar);
+    }
+    editor.addEventListener('blur', confirmar);
+  };
+
+  function bdFormatearCeldaEstancia(f, c, admin) {
+    var raw = f[c.key];
+    var editCls = (admin && c.edit) ? ' bd-cell-edit cursor-pointer' : '';
+    var clickAttr = (admin && c.edit)
+      ? ' onclick="bdClickCeldaEstancia(event, \'' + escAttr(f.estanciaUuid) + '\', \'' + escAttr(c.key) + '\')" title="Clic para editar ' + escAttr(c.col + ' · ' + c.label) + ' directo en SQLite → Supabase"'
+      : '';
+    var alignCls = c.align === 'right' ? 'text-right' : (c.align === 'center' ? 'text-center' : 'text-left');
+    var baseTd = '<td class="px-1.5 border-r border-[#E6DCD2] whitespace-nowrap ' + alignCls + ' ' + c.w + ' ' + (c.bg || '') + editCls + '"' + clickAttr + '>';
+
+    if (c.key === 'id') {
+      return '<td class="px-1.5 py-1 border-r border-[#E6DCD2] whitespace-nowrap ' + c.w + '">' +
+        '<div class="font-bold text-slate-800 text-[10.5px]">' + esc(f.id) + '</div>' +
+        '<div class="text-[9.5px] text-slate-400">Fila #' + f.fila + (f.dirty ? ' • ⏳' : '') + '</div>' +
+      '</td>';
+    }
+    if (c.key === 'estadoPagoAN') {
       var badgeAN = '';
       if (f.codPagoAN === 'COMPLETADO') badgeAN = '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">✅ Completado</span>';
       else if (f.codPagoAN === 'PENDIENTE') badgeAN = '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-800 border border-red-300">⚠️ ' + esc(f.estadoPagoAN) + '</span>';
       else if (f.codPagoAN === 'EXCESO') badgeAN = '<span class="px-1.5 py-0.5 rounded text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300">' + esc(f.estadoPagoAN) + '</span>';
       else badgeAN = '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">' + esc(f.estadoPagoAN) + '</span>';
+      return baseTd + badgeAN + '</td>';
+    }
+    if (c.key === 'clienteFiel') {
+      var cfCls = f.clienteFiel === '-C-' ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-slate-100 text-slate-600';
+      return baseTd + '<span class="px-1.5 py-0.5 rounded text-[10px] font-black ' + cfCls + '">' + esc(f.clienteFiel || '-N-') + '</span></td>';
+    }
+    if (c.key === 'saldoFinal') {
+      var sf = Number(raw) || 0;
+      return baseTd + (sf ? '<span class="font-black ' + (sf > 0.05 ? 'text-red-700' : 'text-emerald-800') + '">' + sf.toFixed(2) + '</span>' : '<span class="text-slate-300">—</span>') + '</td>';
+    }
+    if (c.key === 'hab') {
+      return baseTd + '<span class="font-black text-slate-900">' + (esc(raw) || '<span class="text-slate-300">—</span>') + '</span></td>';
+    }
+    if (c.key === 'huesped') {
+      return baseTd + '<span class="font-black text-slate-900" title="' + escAttr(raw || '') + '">' + (esc(raw) || '<span class="text-slate-300">—</span>') + '</span></td>';
+    }
+    if (c.key === 'noches') {
+      return baseTd + '<span class="font-bold text-slate-800">' + (Number(raw) || 1) + '</span></td>';
+    }
+    if (c.type === 'number') {
+      var n = Number(raw) || 0;
+      return baseTd + (n ? '<span class="' + (c.color || 'text-slate-800 font-semibold') + '">' + n.toFixed(2) + '</span>' : '<span class="text-slate-300">—</span>') + '</td>';
+    }
+    var txtS = raw == null ? '' : String(raw).trim();
+    return baseTd + (txtS ? '<span class="' + (c.color || 'text-slate-800 font-semibold') + '" title="' + escAttr(txtS) + '">' + esc(txtS) + '</span>' : '<span class="text-slate-300">—</span>') + '</td>';
+  }
 
-      var h1 = '<div class="font-black text-slate-900 truncate max-w-[210px]" title="' + esc(f.huesped) + '">' + esc(f.huesped || '—') + '</div>' +
-               (f.dni ? '<div class="text-[10px] font-bold text-slate-500">DNI: ' + esc(f.dni) + '</div>' : '');
-      var h2 = (f.nAcomp || f.dniAcomp)
-        ? ('<div class="font-bold text-slate-800 truncate max-w-[165px]" title="' + esc(f.nAcomp) + '">' + esc(f.nAcomp || '—') + '</div>' +
-           (f.dniAcomp ? '<div class="text-[10px] text-slate-500">DNI: ' + esc(f.dniAcomp) + '</div>' : ''))
-        : '<span class="text-slate-300">—</span>';
-      var h3 = expandir3ro
-        ? '<td class="px-2 py-1 border-r border-[#E6DCD2]">' +
-            ((f.triple1 || f.triple2)
-              ? ('<div class="font-bold text-slate-800 truncate max-w-[140px]">' + esc(f.triple1) + '</div>' + (f.triple2 ? '<div class="text-[10px] text-slate-500">' + esc(f.triple2) + '</div>' : ''))
-              : '<span class="text-slate-300">—</span>') +
+  function bdRefrescarCuerpoEstancias() {
+    var res = BDE.data || {};
+    var admin = !!BDE.adminActivo;
+    var filtradas = bdFiltrarYOrdenarEstancias();
+    BDE.filasVisibles = filtradas;
+
+    var totAloj = 0, totAdic = 0, totCuenta = 0, totPagado = 0, totSaldo = 0;
+    for (var i = 0; i < filtradas.length; i++) {
+      var it = filtradas[i];
+      totAloj += Number(it.subtotal || 0);
+      totAdic += Number(it.snacks || 0) + Number(it.servicios || 0) + Number(it.adicComp || 0);
+      totCuenta += Number(it.totalCuenta || 0);
+      totPagado += Number(it.totalPagado || 0);
+      if (Number(it.saldoFinal || 0) > 0.05 && it.codPagoAN !== 'CANCELADO') totSaldo += Number(it.saldoFinal || 0);
+    }
+
+    var chips = [];
+    Object.keys(BDE.colFilters || {}).forEach(function (k) {
+      var flt = BDE.colFilters[k];
+      if (!flt) return;
+      var cd = bdGetColDef(k);
+      var nom = cd ? (cd.col + '·' + cd.label) : k;
+      var desc = flt.text ? ('"' + flt.text + '"') : (flt.mode === 'EMPTY' ? 'Vacíos' : (flt.mode === 'NONEMPTY' ? 'Con dato' : ((flt.selected || []).slice(0, 2).join(', ') + ((flt.selected || []).length > 2 ? '…' : ''))));
+      if (desc) {
+        chips.push('<button type="button" onclick="bdQuitarFiltroCol(\'' + escAttr(k) + '\')" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 border border-amber-400 text-amber-950 text-[10px] font-black cursor-pointer" title="Quitar filtro">' + esc(nom + ': ' + desc) + ' ✕</button>');
+      }
+    });
+    if (BDE.sortCol) {
+      var cds = bdGetColDef(BDE.sortCol);
+      chips.push('<button type="button" onclick="bdQuitarFiltroCol(\'__SORT__\')" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-100 hover:bg-sky-200 border border-sky-400 text-sky-950 text-[10px] font-black cursor-pointer">Orden: ' + esc((cds ? cds.label : BDE.sortCol) + (BDE.sortDir === 'asc' ? ' ▲' : ' ▼')) + ' ✕</button>');
+    }
+
+    var bar = document.getElementById('bdResumenBar');
+    if (bar) {
+      bar.innerHTML =
+        '<div class="flex flex-wrap items-center gap-1.5 font-extrabold">' +
+          '<span class="px-2 py-0.5 rounded bg-slate-800 text-white">🛏️ ' + filtradas.length + ' estancias <span class="font-normal opacity-80">(de ' + (res.totalEnBD || 0) + ' • 53 cols A..BA)</span></span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">Subtotal: ' + soles(totAloj) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-800">➕ Adic.: ' + soles(totAdic) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-white border border-[#D8C7B8] text-slate-900">💰 Total Cuenta: ' + soles(totCuenta) + '</span>' +
+          '<span class="px-2 py-0.5 rounded bg-emerald-100 border border-emerald-300 text-emerald-950">✅ Pagado: ' + soles(totPagado) + '</span>' +
+          '<span class="px-2 py-0.5 rounded ' + (totSaldo > 0 ? 'bg-red-100 border border-red-300 text-red-900' : 'bg-slate-100 border border-slate-300 text-slate-600') + '">⚠️ Saldo Pendiente: ' + soles(totSaldo) + '</span>' +
+          chips.join('') +
+        '</div>' +
+        '<span class="text-[10.5px] font-bold ' + (admin ? 'text-emerald-800' : 'text-slate-500') + '">' +
+          (admin ? '🔓 Modo Edición activo: clic directo en cualquier celda editable o en «✏️» (guarda en SQLite → Supabase + Copia Sheets).' : '👁️ Solo lectura · Filtra haciendo clic en cualquier etiqueta ⏷ o escribiendo debajo.') +
+        '</span>';
+    }
+
+    var body = document.getElementById('bdBody');
+    if (!body) return;
+    var totalCols = BD_COLS_ESTANCIAS.length + (admin ? 1 : 0);
+    if (!filtradas.length) {
+      body.innerHTML = '<tr><td colspan="' + totalCols + '" class="px-4 py-8 text-center text-slate-400 font-bold">No se encontraron estancias con estos filtros.</td></tr>';
+      return;
+    }
+
+    var visibles = filtradas.slice(0, BDE.maxRender);
+    var rowsHtml = visibles.map(function (f) {
+      var canc = f.codPagoAN === 'CANCELADO';
+      var rowCls = canc ? 'bg-slate-100 text-slate-400 line-through' : 'bg-white hover:bg-amber-50/50';
+      var tdAccion = admin
+        ? '<td class="px-1 text-center border-r border-[#E6DCD2] whitespace-nowrap">' +
+            '<button type="button" onclick="bdAbrirModalEditar(\'' + escAttr(f.estanciaUuid) + '\')" class="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-[10.5px] border border-amber-300 cursor-pointer mr-0.5" title="Editar todo en formulario (Fila #' + f.fila + ')">✏️</button>' +
+            '<button type="button" onclick="bdEliminarRegistroUI(\'' + escAttr(f.estanciaUuid) + '\')" class="px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-900 font-black text-[10.5px] border border-red-300 cursor-pointer" title="Eliminar registro">🗑️</button>' +
           '</td>'
-        : '<td class="px-0.5 w-[24px] max-w-[24px] text-center border-r border-[#E6DCD2] text-slate-300 text-[9px]">' + ((f.triple1 || f.triple2) ? '●' : '') + '</td>';
-
-      return '<tr class="h-8 ' + rowCls + '">' +
-        (admin ? '<td class="px-1 text-center border-r border-[#E6DCD2] whitespace-nowrap"><button type="button" onclick="bdAbrirModalEditar(' + idx + ')" class="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-[10.5px] border border-amber-300 cursor-pointer mr-0.5" title="Editar fila #' + f.fila + '">✏️</button><button type="button" onclick="bdEliminarRegistroUI(' + idx + ')" class="px-1.5 py-0.5 rounded bg-red-100 hover:bg-red-200 text-red-900 font-black text-[10.5px] border border-red-300 cursor-pointer" title="Eliminar fila #' + f.fila + ' en WebApp y Google Sheets">🗑️</button></td>' : '') +
-        '<td class="px-1.5 py-1 border-r border-[#E6DCD2] whitespace-nowrap"><div class="font-bold text-slate-800 text-[10.5px]">' + esc(f.id) + '</div><div class="text-[9.5px] text-slate-400">Fila #' + f.fila + (f.dirty ? ' • ⏳' : '') + '</div></td>' +
-        '<td class="px-1.5 text-center font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + esc(f.fechaIn) + '</td>' +
-        '<td class="px-1.5 text-center font-bold border-r border-[#E6DCD2] whitespace-nowrap">' + esc(f.fechaOut) + '</td>' +
-        '<td class="px-2 py-1 border-r border-[#E6DCD2]">' + h1 + '</td>' +
-        '<td class="px-2 py-1 border-r border-[#E6DCD2]">' + h2 + '</td>' +
-        h3 +
-        '<td class="px-1.5 text-center font-black text-slate-900 border-r border-[#E6DCD2]">' + esc(f.hab) + '</td>' +
-        '<td class="px-1.5 text-slate-700 border-r border-[#E6DCD2] truncate max-w-[95px]">' + esc(f.tipoHab) + '</td>' +
-        '<td class="px-1 text-center font-bold border-r border-[#E6DCD2]">' + f.noches + '</td>' +
-        '<td class="px-1.5 text-right font-bold border-r border-[#E6DCD2]">' + m(f.tarifa) + '</td>' +
-        '<td class="px-1.5 text-right font-black text-slate-900 border-r border-[#E6DCD2] bg-amber-50/40">' + m(f.subtotal) + '</td>' +
-        '<td class="px-1.5 text-right border-r border-[#E6DCD2]">' + m(f.snacks) + '</td>' +
-        '<td class="px-1.5 text-right border-r border-[#E6DCD2]">' + m(f.servicios) + '</td>' +
-        '<td class="px-1.5 text-right border-r border-[#E6DCD2]">' + m(f.adicComp) + '</td>' +
-        '<td class="px-1.5 text-[10px] font-bold text-slate-600 border-r border-[#E6DCD2] truncate max-w-[95px]" title="' + esc(f.tipoAdicional) + '">' + (esc(f.tipoAdicional) || '<span class="text-slate-300">—</span>') + '</td>' +
-        '<td class="px-1.5 text-right font-black text-slate-900 border-r border-[#E6DCD2] bg-amber-100/40">' + m(f.totalCuenta) + '</td>' +
-        celdaWXYZ(f.pEfecIni, 'text-emerald-800', idx, 'bdePEfecIni', 'Pago Inicial Efectivo (Col W)') +
-        celdaWXYZ(f.pElecIni, 'text-purple-800', idx, 'bdePElecIni', 'Pago Inicial Electrónico (Col X)') +
-        celdaWXYZ(f.pEfecPost, 'text-emerald-800', idx, 'bdePEfecPost', 'Pago Posterior Efectivo (Col Y)') +
-        celdaWXYZ(f.pYapePost, 'text-purple-800', idx, 'bdePYapePost', 'Pago Posterior Electrónico (Col Z)') +
-        '<td class="px-1.5 text-right font-bold text-red-800 border-r border-[#E6DCD2]">' + m(f.deudaAnt) + '</td>' +
-        '<td class="px-1.5 text-right font-bold text-blue-800 border-r border-[#E6DCD2]">' + m(f.pVisa) + '</td>' +
-        '<td class="px-1.5 text-right font-black text-emerald-900 border-r border-[#E6DCD2] bg-emerald-50/40">' + m(f.totalPagado) + '</td>' +
-        '<td class="px-1.5 text-right font-black ' + (f.saldoFinal > 0.05 ? 'text-red-700' : 'text-slate-600') + ' border-r border-[#E6DCD2]">' + m(f.saldoFinal) + '</td>' +
-        '<td class="px-1.5 text-center border-r border-[#E6DCD2] whitespace-nowrap">' + badgeAN + '</td>' +
-        '<td class="px-2 font-bold text-slate-800 border-r border-[#E6DCD2] truncate max-w-[140px]" title="' + esc(f.empresa) + '">' + (esc(f.empresa) || '<span class="text-slate-300">—</span>') + '</td>' +
-        '<td class="px-1.5 font-mono text-[10.5px] text-slate-700 border-r border-[#E6DCD2] truncate max-w-[90px]" title="' + esc(f.nroOpYape) + '">' + (esc(f.nroOpYape) || '<span class="text-slate-300">—</span>') + '</td>' +
-        '<td class="px-1.5 text-[10.5px] text-slate-700 border-r border-[#E6DCD2] whitespace-nowrap">' + (esc(f.celular) || '<span class="text-slate-300">—</span>') + '</td>' +
-        '<td class="px-1.5 text-[10.5px] text-slate-700 border-r border-[#E6DCD2] whitespace-nowrap">' + (esc(f.ruc) || '<span class="text-slate-300">—</span>') + '</td>' +
-        '<td class="px-1.5 text-right font-bold text-slate-700">' + m(f.excedenteEfec) + '</td>' +
-      '</tr>';
+        : '';
+      return '<tr class="h-8 ' + rowCls + '">' + tdAccion + BD_COLS_ESTANCIAS.map(function (c) {
+        return bdFormatearCeldaEstancia(f, c, admin);
+      }).join('') + '</tr>';
     }).join('');
+
+    if (filtradas.length > visibles.length) {
+      var restantes = filtradas.length - visibles.length;
+      rowsHtml += '<tr class="bg-amber-50"><td colspan="' + totalCols + '" class="px-4 py-2 text-left">' +
+        '<button type="button" onclick="bdMostrarMasFilas(false)" class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-900 text-white text-xs font-black cursor-pointer mr-2">➕ Mostrar 250 más (' + restantes + ' restantes)</button>' +
+        '<button type="button" onclick="bdMostrarMasFilas(true)" class="px-3 py-1 rounded border border-slate-400 bg-white hover:bg-slate-100 text-slate-800 text-xs font-bold cursor-pointer">👁️ Ver todas (' + filtradas.length + ')</button>' +
+      '</td></tr>';
+    }
+    body.innerHTML = rowsHtml;
+  }
+
+  function bdRenderTablaEstancias() {
+    var admin = !!BDE.adminActivo;
+    var head = document.getElementById('bdHead');
+    if (head) {
+      var rowLabels = '<tr class="h-7 text-[10px]">' +
+        (admin ? '<th class="px-1.5 w-[64px] text-center border-r border-[#433A36] bg-emerald-900">Editar</th>' : '') +
+        BD_COLS_ESTANCIAS.map(function (c) {
+          var flt = (BDE.colFilters || {})[c.key];
+          var act = !!(flt && (flt.text || flt.mode || (flt.selected && flt.selected.length))) || BDE.sortCol === c.key;
+          var btnCls = 'shrink-0 px-1 py-0.2 rounded text-[9px] font-black cursor-pointer ' +
+            (act ? 'bg-amber-400 text-slate-950' : 'bg-[#433A36] text-amber-100 hover:bg-amber-700');
+          var btnTxt = BDE.sortCol === c.key ? (BDE.sortDir === 'asc' ? '▲' : '▼') : '⏷';
+          var fxTag = c.fx ? ' <span class="px-1 rounded bg-slate-700 text-amber-300 text-[8px]">fx</span>' : '';
+          return '<th class="border-r border-[#433A36] ' + c.w + ' bg-[#2D2623]">' +
+            '<div class="flex items-center justify-between gap-1">' +
+              '<span data-filter-trigger="1" onclick="bdAbrirMenuFiltroCol(event, \'' + escAttr(c.key) + '\')" class="cursor-pointer hover:text-amber-200 truncate" title="Filtrar u ordenar por ' + escAttr(c.col + ' · ' + c.label) + '">' + esc(c.col + '·' + c.label) + fxTag + '</span>' +
+              '<button type="button" data-filter-trigger="1" data-filter-btn="' + escAttr(c.key) + '" onclick="bdAbrirMenuFiltroCol(event, \'' + escAttr(c.key) + '\')" class="' + btnCls + '" title="Filtro en ' + escAttr(c.label) + '">' + btnTxt + '</button>' +
+            '</div>' +
+          '</th>';
+        }).join('') +
+      '</tr>';
+
+      var rowInputs = '<tr id="bdHeadFilterRow" class="h-6 bg-[#3B322E]">' +
+        (admin ? '<th class="border-r border-[#554944] bg-emerald-950 text-[9px] text-emerald-200 text-center">Admin</th>' : '') +
+        BD_COLS_ESTANCIAS.map(function (c) {
+          var valQ = (BDE.colFilters[c.key] && BDE.colFilters[c.key].text) || '';
+          return '<th class="border-r border-[#554944] bg-[#3B322E] px-1 py-0.5">' +
+            '<input type="text" data-col-key="' + escAttr(c.key) + '" value="' + escAttr(valQ) + '" oninput="bdOnInputFiltroCol(this)" ' +
+                   'placeholder="🔍 ' + escAttr(c.col) + '..." aria-label="Filtrar ' + escAttr(c.label) + '" ' +
+                   'class="w-full px-1 py-0.5 rounded bg-[#FAF6F3] text-slate-900 font-bold text-[10px] border border-[#6E5F58] focus:outline-hidden focus:ring-1 focus:ring-amber-400">' +
+          '</th>';
+        }).join('') +
+      '</tr>';
+
+      head.innerHTML = rowLabels + rowInputs;
+    }
+
+    bdRefrescarCuerpoEstancias();
   }
 
   // -------------------- 2. RENDER TABLA PAGOS (Registro_Pagos A:J + Vínculo W, X, Y, Z) --------------------
@@ -7727,8 +8300,8 @@
   };
 
   // ---------------------------- Editar y Eliminar Registros (Admin) ----------------------------
-  window.bdAbrirModalEditar = function (idx, campoFoco) {
-    var f = BDE.filas[idx];
+  window.bdAbrirModalEditar = function (idxOrUuid, campoFoco) {
+    var f = (BDE.subtab === 'ESTANCIAS') ? bdBuscarEstanciaPorUuid(idxOrUuid) : BDE.filas[idxOrUuid];
     if (!f) return;
     BDE.editando = f;
     var t = document.getElementById('tituloEditarFilaBD');
@@ -7736,6 +8309,14 @@
     var ci = 'w-full px-2 py-1 rounded border border-slate-300 font-bold text-xs text-slate-900 bg-white';
     var campo = function (lbl, id, val, colSpan) {
       return '<div class="' + (colSpan || '') + '"><label class="block text-[10px] font-black text-slate-500 mb-0.5">' + lbl + '</label><input type="text" id="' + id + '" value="' + esc(val == null ? '' : val) + '" class="' + ci + '"></div>';
+    };
+    var selCampo = function (lbl, id, val, opts) {
+      var vS = val == null ? '' : String(val);
+      var hasV = opts.indexOf(vS) >= 0;
+      var listO = hasV ? opts : [vS].concat(opts);
+      return '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">' + lbl + '</label><select id="' + id + '" class="' + ci + '">' +
+        listO.map(function (o) { return '<option value="' + escAttr(o) + '"' + (o === vS ? ' selected' : '') + '>' + esc(o === '' ? '(Vacío)' : o) + '</option>'; }).join('') +
+      '</select></div>';
     };
 
     if (BDE.subtab === 'PAGOS') {
@@ -7782,36 +8363,50 @@
         campo('Personal (G)', 'bdtPers', f.personal, 'col-span-2') +
         campo('N° Operación Yape (L)', 'bdtNroOp', f.nroOpYape, 'col-span-2');
     } else {
-      if (t) t.textContent = '✏️ Editar Estancia — Hab. ' + f.hab + ' (' + f.id + ' • Fila #' + f.fila + ')';
+      if (t) t.textContent = '✏️ Editar Estancia Completa (53 Cols) — Hab. ' + f.hab + ' (' + f.id + ' • Fila #' + f.fila + ')';
       box.innerHTML =
-        campo('Check-In (DD/MM/AAAA)', 'bdeFechaIn', f.fechaIn) +
-        campo('Check-Out (DD/MM/AAAA)', 'bdeFechaOut', f.fechaOut) +
-        campo('Habitación', 'bdeHab', f.hab) +
-        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">Estado Estancia</label><select id="bdeEstadoEst" class="' + ci + '">' +
-          ['En Curso', 'Finalizado', 'Finalizado - Continúa', 'Cancelado'].map(function (s) { return '<option' + (f.estadoEstancia === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') +
-        '</select></div>' +
-        campo('Huésped 1 (Nombre completo)', 'bdeHuesped', f.huesped, 'col-span-2') +
-        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">DNI / Doc. Huésped 1</label><div class="flex items-stretch gap-1"><input id="bdeDni" type="text" value="' + escAttr(f.dni) + '" oninput="autoBuscarDniEnPanel(\'bdeDni\',\'bdeHuesped\',\'lblBdeDni1\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarDniEnPanel(\'bdeDni\',\'bdeHuesped\',\'lblBdeDni1\');}" class="' + ci + ' flex-1 min-w-0"><button type="button" onclick="buscarDniEnPanel(\'bdeDni\',\'bdeHuesped\',\'lblBdeDni1\')" class="shrink-0 px-2 py-1 rounded bg-sky-800 text-white text-xs font-bold" title="Buscar en RENIEC">🔍</button></div><div id="lblBdeDni1" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div></div>' +
+        campo('Check-In (B)', 'bdeFechaIn', f.fechaIn) +
+        campo('Check-Out (C)', 'bdeFechaOut', f.fechaOut) +
+        campo('Habitación (L)', 'bdeHab', f.hab) +
+        selCampo('Estado Estancia (AK)', 'bdeEstadoEst', f.estadoEstancia, ['En Curso', 'Finalizado', 'Finalizado - Continúa', 'Cancelado']) +
+        campo('Nombres Huésped (D)', 'bdeHuesped', f.huesped, 'col-span-2') +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">DNI Huésped (E)</label><div class="flex items-stretch gap-1"><input id="bdeDni" type="text" value="' + escAttr(f.dni) + '" oninput="autoBuscarDniEnPanel(\'bdeDni\',\'bdeHuesped\',\'lblBdeDni1\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarDniEnPanel(\'bdeDni\',\'bdeHuesped\',\'lblBdeDni1\');}" class="' + ci + ' flex-1 min-w-0"><button type="button" onclick="buscarDniEnPanel(\'bdeDni\',\'bdeHuesped\',\'lblBdeDni1\')" class="shrink-0 px-2 py-1 rounded bg-sky-800 text-white text-xs font-bold" title="Buscar en RENIEC">🔍</button></div><div id="lblBdeDni1" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div></div>' +
+        selCampo('Sexo (F)', 'bdeSexo', f.sexo, ['M', 'F', '']) +
+        campo('2° Huésped (G)', 'bdeNAcomp', f.nAcomp, 'col-span-2') +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">DNI 2° Huésped (H)</label><div class="flex items-stretch gap-1"><input id="bdeDniAcomp" type="text" value="' + escAttr(f.dniAcomp) + '" oninput="autoBuscarDniEnPanel(\'bdeDniAcomp\',\'bdeNAcomp\',\'lblBdeDni2\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarDniEnPanel(\'bdeDniAcomp\',\'bdeNAcomp\',\'lblBdeDni2\');}" class="' + ci + ' flex-1 min-w-0"><button type="button" onclick="buscarDniEnPanel(\'bdeDniAcomp\',\'bdeNAcomp\',\'lblBdeDni2\')" class="shrink-0 px-2 py-1 rounded bg-sky-800 text-white text-xs font-bold" title="Buscar en RENIEC">🔍</button></div><div id="lblBdeDni2" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div></div>' +
         campo('Celular (AX)', 'bdeCelular', f.celular) +
-        campo('2° Huésped', 'bdeNAcomp', f.nAcomp, 'col-span-2') +
-        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">DNI 2° Huésped</label><div class="flex items-stretch gap-1"><input id="bdeDniAcomp" type="text" value="' + escAttr(f.dniAcomp) + '" oninput="autoBuscarDniEnPanel(\'bdeDniAcomp\',\'bdeNAcomp\',\'lblBdeDni2\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarDniEnPanel(\'bdeDniAcomp\',\'bdeNAcomp\',\'lblBdeDni2\');}" class="' + ci + ' flex-1 min-w-0"><button type="button" onclick="buscarDniEnPanel(\'bdeDniAcomp\',\'bdeNAcomp\',\'lblBdeDni2\')" class="shrink-0 px-2 py-1 rounded bg-sky-800 text-white text-xs font-bold" title="Buscar en RENIEC">🔍</button></div><div id="lblBdeDni2" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div></div>' +
-        campo('3° Huésped (Triple)', 'bdeTriple1', f.triple1) +
-        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">DNI 3° Huésped</label><div class="flex items-stretch gap-1"><input id="bdeTriple2" type="text" value="' + escAttr(f.triple2) + '" oninput="autoBuscarDniEnPanel(\'bdeTriple2\',\'bdeTriple1\',\'lblBdeDni3\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarDniEnPanel(\'bdeTriple2\',\'bdeTriple1\',\'lblBdeDni3\');}" class="' + ci + ' flex-1 min-w-0"><button type="button" onclick="buscarDniEnPanel(\'bdeTriple2\',\'bdeTriple1\',\'lblBdeDni3\')" class="shrink-0 px-2 py-1 rounded bg-sky-800 text-white text-xs font-bold" title="Buscar en RENIEC">🔍</button></div><div id="lblBdeDni3" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div></div>' +
-        campo('Tarifa por noche (S/)', 'bdeTarifa', f.tarifa) +
-        campo('Adic. Snacks / Tienda (S/)', 'bdeSnacks', f.snacks) +
-        campo('Adic. Servicios (S/)', 'bdeServicios', f.servicios) +
-        campo('Adic. Comprobante (S/)', 'bdeAdicComp', f.adicComp) +
+        campo('Nacionalidad (I)', 'bdeNac', f.nac) +
+        campo('Región (J)', 'bdeReg', f.reg) +
+        campo('Motivo de viaje (K)', 'bdeMot', f.mot, 'col-span-2') +
+        campo('Tipo Habitación (M)', 'bdeTipoHab', f.tipoHab, 'col-span-2') +
+        campo('Cliente Recurrente (N)', 'bdeVisita', f.visita) +
+        campo('Hora Registro (O)', 'bdeHoraReg', f.horaRegistro) +
+        campo('3° Huésped Triple (AS)', 'bdeTriple1', f.triple1, 'col-span-2') +
+        '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">DNI 3° Huésped (AT)</label><div class="flex items-stretch gap-1"><input id="bdeTriple2" type="text" value="' + escAttr(f.triple2) + '" oninput="autoBuscarDniEnPanel(\'bdeTriple2\',\'bdeTriple1\',\'lblBdeDni3\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarDniEnPanel(\'bdeTriple2\',\'bdeTriple1\',\'lblBdeDni3\');}" class="' + ci + ' flex-1 min-w-0"><button type="button" onclick="buscarDniEnPanel(\'bdeTriple2\',\'bdeTriple1\',\'lblBdeDni3\')" class="shrink-0 px-2 py-1 rounded bg-sky-800 text-white text-xs font-bold" title="Buscar en RENIEC">🔍</button></div><div id="lblBdeDni3" class="text-[9.5px] font-bold text-sky-700 mt-0.5"></div></div>' +
+        campo('Cuenta Destino (AE)', 'bdeCuentaDest', f.cuentaDestino) +
+        campo('Tarifa Noche (Q)', 'bdeTarifa', f.tarifa) +
+        campo('Adic. Snacks (S)', 'bdeSnacks', f.snacks) +
+        campo('Adic. Servicios (T)', 'bdeServicios', f.servicios) +
+        campo('Adic. Comp. (U)', 'bdeAdicComp', f.adicComp) +
         campo('Tipo de Adicional (BA)', 'bdeTipoAdic', f.tipoAdicional, 'col-span-2') +
-        campo('Cargo Deuda Anterior (AL)', 'bdeDeudaAnt', f.deudaAnt) +
-        campo('Pago Inicial Efectivo (W)', 'bdePEfecIni', f.pEfecIni) +
-        campo('Pago Inicial Electrónico (X)', 'bdePElecIni', f.pElecIni) +
-        campo('Pago Posterior Efectivo (Y)', 'bdePEfecPost', f.pEfecPost) +
-        campo('Pago Posterior Electrónico (Z)', 'bdePYapePost', f.pYapePost) +
+        campo('Cargo Deuda Ant. (AL)', 'bdeDeudaAnt', f.deudaAnt) +
+        campo('Exc. Efectivo (AZ)', 'bdeExcedente', f.excedenteEfec) +
+        campo('P.Ini Efectivo (W)', 'bdePEfecIni', f.pEfecIni) +
+        campo('P.Ini Electrónico (X)', 'bdePElecIni', f.pElecIni) +
+        campo('P.Post Efectivo (Y)', 'bdePEfecPost', f.pEfecPost) +
+        campo('P.Post Yape (Z)', 'bdePYapePost', f.pYapePost) +
         campo('Pagos VISA (AM)', 'bdePVisa', f.pVisa) +
+        selCampo('Solicita Comp. (AF)', 'bdeSolicitaComp', f.solicitaComp, ['Sí', 'No', '']) +
+        selCampo('Tipo Comp. (AG)', 'bdeTipoComp', f.tipoComp, ['', 'Boleta', 'Factura', 'Ninguno']) +
+        selCampo('Estado Comp. (AH)', 'bdeEstadoComp', f.estadoComp, ['', 'Pendiente', 'Emitido', 'Ninguno']) +
+        campo('Nro Comp. (AI)', 'bdeNroComp', f.nroComp) +
+        campo('Monto Factura (AJ)', 'bdeMontoFact', f.montoFact) +
+        campo('N° Op. Yape (AW)', 'bdeNroOp', f.nroOpYape) +
         campo('Empresa (AQ)', 'bdeEmpresa', f.empresa, 'col-span-2') +
         '<div><label class="block text-[10px] font-black text-slate-500 mb-0.5">RUC (AY)</label><div class="flex items-stretch gap-1"><input id="bdeRuc" type="text" maxlength="11" value="' + escAttr(f.ruc) + '" oninput="autoBuscarRucEnPanel(\'bdeRuc\',\'bdeEmpresa\',\'\',\'lblBdeRuc\')" onkeydown="if(event.key===\'Enter\'){event.preventDefault();buscarRucEnPanel(\'bdeRuc\',\'bdeEmpresa\',\'\',\'lblBdeRuc\');}" class="' + ci + ' flex-1 min-w-0 font-mono"><button type="button" onclick="buscarRucEnPanel(\'bdeRuc\',\'bdeEmpresa\',\'\',\'lblBdeRuc\')" class="shrink-0 px-2 py-1 rounded bg-amber-700 text-white text-xs font-bold" title="Buscar RUC en SUNAT">🔍</button></div><div id="lblBdeRuc" class="text-[9.5px] font-bold text-emerald-700 mt-0.5"></div></div>' +
-        campo('N° Operación Yape/Banco (AW)', 'bdeNroOp', f.nroOpYape) +
-        campo('Observaciones', 'bdeObs', f.observaciones, 'col-span-2 sm:col-span-4');
+        campo('Proyecto (AR)', 'bdeProyecto', f.proyecto) +
+        campo('Hotel Apoyo (AU)', 'bdeHotelApoyo', f.hotelApoyo) +
+        campo('Observaciones (AV)', 'bdeObs', f.observaciones, 'col-span-2');
     }
 
     var dlg = document.getElementById('dialogEditarFilaBD');
@@ -7854,7 +8449,7 @@
       runGas('editarPagoBDAdmin', [payloadP], function () {
         if (btn) btn.disabled = false;
         cerrarModalEditarFilaBD();
-        bdBanner('ok', '✅ Pago actualizado en la Base Interna, sincronizado con W/X/Y/Z de su estancia y encolado a Google Sheets.');
+        bdBanner('ok', '✅ Pago actualizado en SQLite → Supabase y Google Sheets.');
         cargarVistaEstanciasBD();
       }, function (err) {
         if (btn) btn.disabled = false;
@@ -7880,7 +8475,7 @@
       runGas('editarGastoBDAdmin', [payloadG], function () {
         if (btn) btn.disabled = false;
         cerrarModalEditarFilaBD();
-        bdBanner('ok', '✅ Gasto actualizado en la Base Interna y sincronizado con Google Sheets.');
+        bdBanner('ok', '✅ Gasto actualizado en SQLite → Supabase y Google Sheets.');
         cargarVistaEstanciasBD();
       }, function (err) {
         if (btn) btn.disabled = false;
@@ -7906,7 +8501,7 @@
       runGas('editarVentaTiendaBDAdmin', [payloadT], function () {
         if (btn) btn.disabled = false;
         cerrarModalEditarFilaBD();
-        bdBanner('ok', '✅ Venta de tienda actualizada en la Base Interna y sincronizada con Google Sheets.');
+        bdBanner('ok', '✅ Venta de tienda actualizada en SQLite → Supabase y Google Sheets.');
         cargarVistaEstanciasBD();
       }, function (err) {
         if (btn) btn.disabled = false;
@@ -7924,12 +8519,19 @@
       fechaIn: gv('bdeFechaIn'),
       fechaOut: gv('bdeFechaOut'),
       hab: gv('bdeHab'),
+      tipoHab: gv('bdeTipoHab'),
       estadoEstancia: gv('bdeEstadoEst'),
       nombre: gv('bdeHuesped'),
       dni: gv('bdeDni'),
+      sexo: gv('bdeSexo'),
       celular: gv('bdeCelular'),
       nAcomp: gv('bdeNAcomp'),
       dniAcomp: gv('bdeDniAcomp'),
+      nac: gv('bdeNac'),
+      reg: gv('bdeReg'),
+      mot: gv('bdeMot'),
+      visita: gv('bdeVisita'),
+      horaRegistro: gv('bdeHoraReg'),
       triple1: gv('bdeTriple1'),
       triple2: gv('bdeTriple2'),
       tarifa: gv('bdeTarifa'),
@@ -7938,21 +8540,40 @@
       adicComp: gv('bdeAdicComp'),
       tipoAdicional: gv('bdeTipoAdic'),
       deudaAnt: gv('bdeDeudaAnt'),
+      excedenteEfec: gv('bdeExcedente'),
       pEfecIni: gv('bdePEfecIni'),
       pElecIni: gv('bdePElecIni'),
       pEfecPost: gv('bdePEfecPost'),
       pYapePost: gv('bdePYapePost'),
       pVisa: gv('bdePVisa'),
+      cuentaDestino: gv('bdeCuentaDest'),
+      solicitaComp: gv('bdeSolicitaComp'),
+      tipoComp: gv('bdeTipoComp'),
+      estadoComp: gv('bdeEstadoComp'),
+      nroComp: gv('bdeNroComp'),
+      montoFact: gv('bdeMontoFact'),
       empresa: gv('bdeEmpresa'),
       ruc: gv('bdeRuc'),
+      proyecto: gv('bdeProyecto'),
+      hotelApoyo: gv('bdeHotelApoyo'),
       nroOpYape: gv('bdeNroOp'),
       observaciones: gv('bdeObs')
     };
-    runGas('editarEstanciaBDAdmin', [payloadE], function () {
+    runGas('editarEstanciaBDAdmin', [payloadE], function (resEdit) {
       if (btn) btn.disabled = false;
       cerrarModalEditarFilaBD();
-      bdBanner('ok', '✅ Estancia actualizada en la Base Interna y encolada hacia Google Sheets (respetando fórmulas).');
-      cargarVistaEstanciasBD();
+      if (resEdit && resEdit.filaActualizada) {
+        for (var i = 0; i < BDE.filas.length; i++) {
+          if (String(BDE.filas[i].estanciaUuid) === String(f.estanciaUuid)) {
+            BDE.filas[i] = resEdit.filaActualizada;
+            break;
+          }
+        }
+        bdRefrescarCuerpoEstancias();
+      } else {
+        cargarVistaEstanciasBD();
+      }
+      bdBanner('ok', '✅ Estancia actualizada en SQLite → Supabase y copia Google Sheets (respetando fórmulas).');
     }, function (err) {
       if (btn) btn.disabled = false;
       bdBanner('error', '❌ ' + ((err && errorMsg(err)) || err));
@@ -7963,8 +8584,8 @@
     return (err && err.message) ? err.message : String(err || '');
   }
 
-  window.bdEliminarRegistroUI = function (idx) {
-    var f = BDE.filas[idx];
+  window.bdEliminarRegistroUI = function (idxOrUuid) {
+    var f = (BDE.subtab === 'ESTANCIAS') ? bdBuscarEstanciaPorUuid(idxOrUuid) : BDE.filas[idxOrUuid];
     if (!f) return;
     if (BDE.subtab === 'ESTANCIAS') {
       if (!confirm('¿Eliminar definitivamente esta estancia (Hab. ' + f.hab + ' — ' + (f.huesped || '') + ' • Fila #' + f.fila + ') de la Base Interna y borrar su fila en Registro_Estancias de Google Sheets?')) return;

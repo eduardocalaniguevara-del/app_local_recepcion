@@ -36,7 +36,12 @@ sys.modules["wsp_inteligencia"] = wi
 from config import APP_HOST, APP_PORT, MODO_PRUEBA, NOMBRE_HOTEL, ROL_NODO, STATIC_DIR, WEB_DIR
 from db import get_connection, init_db
 from salud import publicar_seguidor_carpetas_supabase, reporte_salud
-from sync_nube import instalar_triggers_outbox, pull_from_supabase, push_to_supabase
+from sync_nube import (
+    instalar_triggers_outbox,
+    pull_from_supabase,
+    push_to_supabase,
+    sincronizar_espejo_sheets,
+)
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,6 +50,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 _sync_wakeup_event = threading.Event()
+_sheets_wakeup_event = threading.Event()
 _sync_stop_event = threading.Event()
 
 
@@ -54,12 +60,15 @@ def _background_supabase_worker() -> None:
         publicar_seguidor_carpetas_supabase()
         push_to_supabase()
         pull_from_supabase()
+        sincronizar_espejo_sheets()
     except Exception as exc:
         print(f"[OvaloV2-Sync] Inicio: {exc}")
+    ciclo_n = 0
     while not _sync_stop_event.is_set():
         triggered = _sync_wakeup_event.wait(timeout=25)
         if _sync_stop_event.is_set():
             break
+        ciclo_n += 1
         if triggered:
             _sync_wakeup_event.clear()
             time.sleep(0.25)
@@ -67,6 +76,10 @@ def _background_supabase_worker() -> None:
             publicar_seguidor_carpetas_supabase()
             push_to_supabase()
             pull_from_supabase()
+            if _sheets_wakeup_event.is_set() or (ciclo_n % 2 == 0):
+                _sheets_wakeup_event.clear()
+                sincronizar_espejo_sheets()
+                push_to_supabase()
         except Exception as exc:
             print(f"[OvaloV2-Sync] Ciclo: {exc}")
 
@@ -204,6 +217,7 @@ def api_sync_status():
 
 @app.post("/api/sync/trigger")
 def api_sync_trigger():
+    _sheets_wakeup_event.set()
     _sync_wakeup_event.set()
     return {"status": "TRIGGERED", "syncStatus": dl.obtener_estado_red_cola()}
 
@@ -263,33 +277,41 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             res = consultar_ruc_local_o_sunat(args[0] if args else "")
         elif method_name in ("guardarCheckInDesdeApp", "procesarCheckInApp"):
             res = dl.guardar_checkin_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name in ("obtenerDatosPagosPosteriores", "obtenerEstanciasConDeuda"):
             res = dl.obtener_datos_pagos_posteriores_local()
         elif method_name in ("guardarPagoPosteriorDesdeApp", "procesarPagoPosteriorApp"):
             res = dl.guardar_pago_posterior_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "obtenerDatosTienda":
             res = dl.obtener_datos_tienda_local()
         elif method_name in ("guardarVentaTiendaDesdeApp", "procesarVentaTiendaApp"):
             res = dl.guardar_venta_tienda_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "obtenerDatosGastos":
             res = dl.obtener_datos_gastos_local()
         elif method_name in ("guardarGastoDesdeApp", "procesarGastoApp"):
             res = dl.guardar_gasto_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name in ("continuarEstanciaDesdeApp", "continuarEstanciaRapida"):
             res = dl.continuar_estancia_local(args[0] if args else "")
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "liberarHabitacionDesdeApp":
             res = dl.liberar_habitacion_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "cancelarEstanciaDesdeApp":
             res = dl.cancelar_estancia_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "restaurarEstanciaDesdeApp":
             res = dl.restaurar_estancia_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "obtenerEstanciaParaModificar":
             hab = args[0] if len(args) > 0 else ""
@@ -297,9 +319,11 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             res = dl.obtener_estancia_para_modificar_local(hab, fila)
         elif method_name in ("modificarEstanciaDesdeApp", "guardarModificacionEstancia"):
             res = dl.modificar_estancia_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "actualizarEstadoComprobanteDesdePanel":
             res = dl.actualizar_comprobante_desde_panel_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "obtenerRegistroPagos":
             res = dl.obtener_registro_pagos_local(args[0] if args else {})
@@ -316,60 +340,78 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             res = dl.obtener_datos_vitrina_local()
         elif method_name == "guardarConteoVitrina":
             res = dl.guardar_conteo_vitrina_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "verificarClaveGestionTienda":
             res = dl.verificar_clave_gestion_tienda_local(args[0] if args else {})
         elif method_name == "registrarCompraTienda":
             res = dl.registrar_compra_tienda_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "cerrarCompraPendienteTienda":
             res = dl.cerrar_compra_pendiente_tienda_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "registrarMovimientoTienda":
             res = dl.registrar_movimiento_tienda_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "anularMovimientoAlmacen":
             res = dl.anular_movimiento_almacen_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "obtenerRegistroEstanciasBD":
             res = dl.obtener_registro_estancias_bd_local(args[0] if args else {})
         elif method_name == "editarEstanciaBDAdmin":
             res = dl.editar_estancia_bd_admin_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "eliminarEstanciaBDAdmin":
             res = dl.eliminar_estancia_bd_admin_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "obtenerRegistroGastosBD":
             res = dl.obtener_registro_gastos_bd_local(args[0] if args else {})
         elif method_name == "editarGastoBDAdmin":
             res = dl.editar_gasto_bd_admin_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "eliminarGastoBDAdmin":
             res = dl.eliminar_gasto_bd_admin_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "obtenerRegistroVentasTiendaBD":
             res = dl.obtener_registro_ventas_tienda_bd_local(args[0] if args else {})
         elif method_name == "editarVentaTiendaBDAdmin":
             res = dl.editar_venta_tienda_bd_admin_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "eliminarVentaTiendaBDAdmin":
-            res = dl.eliminar_venta_tienda_bd_local(args[0] if args else {})
+            res = dl.eliminar_venta_tienda_bd_admin_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "obtenerRegistroPagosBD":
             res = dl.obtener_registro_pagos_bd_local(args[0] if args else {})
         elif method_name == "editarPagoBDAdmin":
             res = dl.editar_pago_bd_admin_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "eliminarPagoBDAdmin":
             res = dl.eliminar_pago_bd_admin_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "guardarCheckInGrupalEmpresa":
             res = dl.guardar_checkin_grupal_empresa_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
             _sync_wakeup_event.set()
         elif method_name == "obtenerEstanciasPagoMasivo":
             res = dl.obtener_estancias_pago_masivo_local(args[0] if args else {})
         elif method_name == "guardarPagoMasivo":
             res = dl.guardar_pago_masivo_local(args[0] if args else {})
+            _sheets_wakeup_event.set()
+            _sync_wakeup_event.set()
+        elif method_name == "sincronizarCopiaSheets":
+            res = sincronizar_espejo_sheets(forzar=True)
             _sync_wakeup_event.set()
         elif method_name == "obtenerEstanciaFacturacionPorUuid":
             a0 = args[0] if args else ""
