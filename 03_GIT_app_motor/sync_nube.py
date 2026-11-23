@@ -6,6 +6,7 @@
 """
 import json
 import re
+import sqlite3
 import sys
 import threading
 import urllib.error
@@ -326,7 +327,7 @@ def bootstrap_initial_from_supabase() -> dict:
                         continue
                     if tabla == "estado_sistema" and row.get("clave") in ("sb_last_log_id", "network_online", "offline_since_iso"):
                         continue
-                    datos = {k: v for k, v in row.items() if k in cols_locales}
+                    datos = {k: v for k, v in row.items() if k in cols_locales and v is not None}
                     if not datos:
                         continue
                     cols_q = ", ".join(f'"{k}"' for k in datos.keys())
@@ -445,7 +446,7 @@ def pull_from_supabase(limit: int = 400) -> dict:
             cols_locales = {
                 r[1] for r in conn_apply.execute(f'PRAGMA table_info("{tabla}")').fetchall()
             }
-            datos_filtrados = {k: v for k, v in payload.items() if k in cols_locales}
+            datos_filtrados = {k: v for k, v in payload.items() if k in cols_locales and v is not None}
             if not datos_filtrados:
                 continue
 
@@ -1300,14 +1301,13 @@ def sincronizar_espejo_sheets(solo_recientes: bool = False, forzar: bool = False
             except Exception:
                 pass
 
-        # Leer caja_sheets_g1 actualizado desde Panel_Disponibilidad!G1 si hubo movimientos
+        # Leer siempre caja_sheets_g1 actualizado desde Panel_Disponibilidad!G1
         caja_g1_txt = None
-        if estancias_ins_count or estancias_upd_count or pagos_ins_count or tienda_ins_count or gastos_ins_count or qids_ok or forzar:
-            try:
-                ws_disp = sh.worksheet("Panel_Disponibilidad")
-                caja_g1_txt = f"{_parse_moneda_simple(ws_disp.acell('G1').value):.2f}"
-            except Exception:
-                pass
+        try:
+            ws_disp = sh.worksheet("Panel_Disponibilidad")
+            caja_g1_txt = f"{_parse_moneda_simple(ws_disp.acell('G1').value):.2f}"
+        except Exception:
+            pass
 
         # FASE C: Actualizar SQLite cleanly
         ahora_iso = datetime.now().isoformat()
@@ -1360,16 +1360,26 @@ def sincronizar_espejo_sheets(solo_recientes: bool = False, forzar: bool = False
                 ("last_sync_error", "; ".join(errores_q)[:240] if errores_q else ""),
                 ("last_sheets_mirror_ts", ahora_iso),
             ]
-            if caja_g1_txt is not None:
-                pares_estado.append(("caja_sheets_g1", caja_g1_txt))
-            if col_a_bd:
-                pares_estado.append(("last_row_estancias", str(len(col_a_bd))))
             for cl_e, vl_e in pares_estado:
                 conn_fin.execute(
                     "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES (?, ?, ?)",
                     (cl_e, vl_e, ahora_iso),
                 )
             conn_fin.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+
+            # Guardar caja_sheets_g1 y last_row_estancias con pulling=0 (solo si cambiaron) para que el trigger los suba a Supabase
+            pares_compartidos = []
+            if caja_g1_txt is not None:
+                pares_compartidos.append(("caja_sheets_g1", caja_g1_txt))
+            if col_a_bd:
+                pares_compartidos.append(("last_row_estancias", str(len(col_a_bd))))
+            for cl_s, vl_s in pares_compartidos:
+                prev_row = conn_fin.execute("SELECT valor FROM estado_sistema WHERE clave = ?", (cl_s,)).fetchone()
+                if not prev_row or str(prev_row[0]) != str(vl_s):
+                    conn_fin.execute(
+                        "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES (?, ?, ?)",
+                        (cl_s, str(vl_s), ahora_iso),
+                    )
             conn_fin.commit()
         finally:
             try:
