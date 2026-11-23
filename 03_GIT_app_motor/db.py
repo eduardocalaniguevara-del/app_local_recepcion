@@ -534,11 +534,18 @@ def init_db() -> dict:
             );
 
             CREATE TABLE IF NOT EXISTS aprendizaje_compartido_hostal (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                fecha            TEXT DEFAULT (datetime('now', 'localtime')),
-                origen_nodo      TEXT DEFAULT '',
+                id               TEXT PRIMARY KEY,
+                fecha_hora       TEXT DEFAULT (datetime('now', 'localtime')),
+                origen_equipo    TEXT DEFAULT '',
+                actor            TEXT DEFAULT '',
                 categoria        TEXT DEFAULT '',
-                titulo           TEXT UNIQUE,
+                pregunta_o_evento TEXT DEFAULT '',
+                patron_detectado TEXT DEFAULT '',
+                regla_aprendida  TEXT DEFAULT '',
+                updated_at       TEXT DEFAULT (datetime('now', 'localtime')),
+                fecha            TEXT DEFAULT '',
+                origen_nodo      TEXT DEFAULT '',
+                titulo           TEXT DEFAULT '',
                 contenido        TEXT DEFAULT ''
             );
 
@@ -638,6 +645,35 @@ def init_db() -> dict:
                 conn.execute(f"ALTER TABLE {tbl_name} ADD COLUMN {col_def};")
             except sqlite3.OperationalError:
                 pass
+
+        # Migrar aprendizaje_compartido_hostal si fue creada con id INTEGER PRIMARY KEY en vez de TEXT PRIMARY KEY
+        try:
+            ap_cols = conn.execute("PRAGMA table_info(aprendizaje_compartido_hostal)").fetchall()
+            id_col = next((c for c in ap_cols if c[1] == "id"), None)
+            if id_col and "INT" in str(id_col[2] or "").upper():
+                conn.execute("DROP TABLE IF EXISTS aprendizaje_compartido_hostal;")
+                conn.execute(
+                    """
+                    CREATE TABLE aprendizaje_compartido_hostal (
+                        id               TEXT PRIMARY KEY,
+                        fecha_hora       TEXT DEFAULT (datetime('now', 'localtime')),
+                        origen_equipo    TEXT DEFAULT '',
+                        actor            TEXT DEFAULT '',
+                        categoria        TEXT DEFAULT '',
+                        pregunta_o_evento TEXT DEFAULT '',
+                        patron_detectado TEXT DEFAULT '',
+                        regla_aprendida  TEXT DEFAULT '',
+                        updated_at       TEXT DEFAULT (datetime('now', 'localtime')),
+                        fecha            TEXT DEFAULT '',
+                        origen_nodo      TEXT DEFAULT '',
+                        titulo           TEXT DEFAULT '',
+                        contenido        TEXT DEFAULT ''
+                    );
+                    """
+                )
+                conn.commit()
+        except Exception:
+            pass
 
         # Limpiar de _supabase_outbox cualquier tabla de TABLAS_SOLO_LOCAL_CACHE (ej. auditoria_audio_noche)
         for t_cache in TABLAS_SOLO_LOCAL_CACHE:

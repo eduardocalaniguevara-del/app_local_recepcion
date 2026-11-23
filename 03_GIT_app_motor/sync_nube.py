@@ -329,8 +329,11 @@ def bootstrap_initial_from_supabase() -> dict:
                         continue
                     cols_q = ", ".join(f'"{k}"' for k in datos.keys())
                     ph = ", ".join("?" for _ in datos)
-                    conn_w.execute(f'INSERT OR REPLACE INTO "{tabla}" ({cols_q}) VALUES ({ph})', tuple(datos.values()))
-                    t_count += 1
+                    try:
+                        conn_w.execute(f'INSERT OR REPLACE INTO "{tabla}" ({cols_q}) VALUES ({ph})', tuple(datos.values()))
+                        t_count += 1
+                    except sqlite3.IntegrityError:
+                        continue
                 if len(rows) < page_size:
                     break
                 offset += page_size
