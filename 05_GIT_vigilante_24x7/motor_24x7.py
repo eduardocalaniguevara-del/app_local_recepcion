@@ -11,11 +11,15 @@ REGLA ARQUITECTÓNICA:
 """
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# Evita que motor_24x7.py arranque un segundo hilo rápido de consumo SUNAT en paralelo al servidor :8080
+os.environ["OVALO_PROCESO_ROL"] = "MOTOR_24X7"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MOTOR_DIR = BASE_DIR / "03_GIT_app_motor"
@@ -30,6 +34,15 @@ from sync_nube import instalar_triggers_outbox, pull_from_supabase, push_to_supa
 import sunat as sunat_svc
 import whatsapp as wsp
 import yape_bcp as ym
+
+
+def _servidor_8080_activo() -> bool:
+    """Devuelve True si el servidor web de recepción (:8080) está activo y consumiendo la cola rápida SUNAT."""
+    try:
+        with socket.create_connection(("127.0.0.1", 8080), timeout=0.4):
+            return True
+    except Exception:
+        return False
 
 
 def actualizar_codigo_git_solo_lectura() -> dict:
@@ -132,7 +145,7 @@ def ejecutar_ronda_integral() -> dict:
         wsp.tick_resumen_programado()
         if TIENE_QR_WSP_FISICO:
             wsp.vigilar_daemon()
-        if ES_NIVEL_2_MADRE_HOTEL:
+        if ES_NIVEL_2_MADRE_HOTEL and not _servidor_8080_activo():
             sunat_svc.procesar_cola_ordenes_sunat_madre()
     except Exception as exc:
         res_wsp = {"ok": False, "error": str(exc)}
@@ -177,7 +190,7 @@ def iniciar_vigilante_24x7(modo_prueba_unica: bool = False) -> None:
         try:
             push_to_supabase()
             pull_from_supabase()
-            if ES_NIVEL_2_MADRE_HOTEL:
+            if ES_NIVEL_2_MADRE_HOTEL and not _servidor_8080_activo():
                 sunat_svc.procesar_cola_ordenes_sunat_madre()
             wsp.tick_resumen_programado()
             if TIENE_QR_WSP_FISICO:

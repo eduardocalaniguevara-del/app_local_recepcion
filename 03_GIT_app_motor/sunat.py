@@ -923,21 +923,82 @@ def _ejecutar_trabajo_sunat_wsp_local(
         }
 
 
+def _verificar_estancia_ya_emitida_local(data_norm: Dict[str, Any]) -> Optional[str]:
+    """
+    Si una orden EMITIR / EMITIR_Y_WSP (modoBorrador=False) corresponde a una estancia que ya
+    fue marcada como 'Emitido' con `nro_comp != ''` en SQLite local `estancias`, devuelve ese `nro_comp`
+    para evitar doble emisión en SUNAT.
+    """
+    accion = str(data_norm.get("accion") or "").upper()
+    if accion not in ("EMITIR", "EMITIR_Y_WSP") or bool(data_norm.get("modoBorrador")):
+        return None
+    est_uuid = str(data_norm.get("estanciaUuid") or "").strip()
+    id_est = int(data_norm.get("id_estancia") or 0)
+    if not est_uuid and not id_est:
+        return None
+    conn = get_connection()
+    try:
+        if est_uuid:
+            row = conn.execute(
+                "SELECT estado_comp, nro_comp FROM estancias WHERE estancia_uuid = ? LIMIT 1",
+                (est_uuid,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT estado_comp, nro_comp FROM estancias WHERE id = ? LIMIT 1",
+                (id_est,),
+            ).fetchone()
+        if row:
+            est_c = str(row["estado_comp"] or "").strip().lower()
+            nro_c = str(row["nro_comp"] or "").strip()
+            if est_c == "emitido" and nro_c:
+                return nro_c
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return None
+
+
 def procesar_cola_ordenes_sunat_madre(wakeup_cb: Optional[Callable[[], None]] = None) -> Dict[str, Any]:
     """
     Corre en la Laptop Madre (NIVEL_2_MADRE_HOTEL):
-    1. Revisa si alguna otra laptop (Laptop 3 Terciaria o Laptop 1) envió una orden en
+    1. Adquiere candado de hilo (`_remote_consumer_lock`) y candado inter-proceso en disco
+       (`02_DB_sqlite_local/sunat_cola_madre.lock`) para que NUNCA dos procesos (servidor `:8080` y `motor_24x7.py`)
+       consuman ni abran Playwright en SUNAT al mismo tiempo.
+    2. Revisa si alguna otra laptop (Laptop 3 Terciaria o Laptop 1) envió una orden en
        `estado_sistema` (`clave LIKE 'sunat_orden_remota_%'`) con `state == 'PENDIENTE'`.
-    2. La reclama (`state = 'RUNNING'`), ejecuta la emisión SUNAT + guardado de PDF local en L2 +
+    3. La reclama (`state = 'RUNNING'`), ejecuta la emisión SUNAT + guardado de PDF local en L2 +
        conversión a `sunat_ventas` + envío por WhatsApp de Recepción, y publica `state = 'DONE'` en Supabase.
     """
     if not es_laptop_recepcion_directa():
         return {"ok": True, "procesadas": 0, "motivo": "NO_ES_LAPTOP_MADRE"}
     if not _remote_consumer_lock.acquire(blocking=False):
-        return {"ok": True, "procesadas": 0, "motivo": "YA_EN_EJECUCION"}
+        return {"ok": True, "procesadas": 0, "motivo": "YA_EN_EJECUCION_HILO"}
 
-    procesadas = 0
+    lock_file_handle = None
     try:
+        if os.name == "nt":
+            try:
+                import msvcrt
+                DATA_DIR.mkdir(parents=True, exist_ok=True)
+                lock_path = DATA_DIR / "sunat_cola_madre.lock"
+                lock_file_handle = open(lock_path, "a+b")
+                lock_file_handle.seek(0)
+                if lock_path.stat().st_size == 0:
+                    lock_file_handle.write(b"0")
+                    lock_file_handle.flush()
+                    lock_file_handle.seek(0)
+                msvcrt.locking(lock_file_handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                if lock_file_handle is not None:
+                    try:
+                        lock_file_handle.close()
+                    except Exception:
+                        pass
+                return {"ok": True, "procesadas": 0, "motivo": "YA_EN_EJECUCION_PROCESO"}
+
+        procesadas = 0
         _sincronizar_ordenes_remotas_desde_supabase_en_madre()
         conn = get_connection()
         try:
@@ -973,6 +1034,32 @@ def procesar_cola_ordenes_sunat_madre(wakeup_cb: Optional[Callable[[], None]] = 
             if not data_norm:
                 continue
 
+            # Re-lectura fresca de Supabase por si otro proceso ya la reclamó o completó
+            ord_fresca = _leer_orden_remota_local(job_id)
+            if ord_fresca and str(ord_fresca.get("state") or "").upper() != "PENDIENTE":
+                continue
+
+            # Guardia de idempotencia: si la estancia ya fue emitida en SQLite local, devolver DONE sin re-abrir SUNAT
+            nro_ya_emitido = _verificar_estancia_ya_emitida_local(data_norm)
+            if nro_ya_emitido:
+                res_idemp = {
+                    "status": "OK",
+                    "accion": data_norm.get("accion"),
+                    "hab": data_norm.get("hab", ""),
+                    "tipo": data_norm.get("tipo", "BOLETA"),
+                    "nro_comprobante": nro_ya_emitido,
+                    "monto": data_norm.get("total_monto", 0),
+                    "mensaje": f"✅ {nro_ya_emitido} ya se encuentra emitido y sincronizado en Supabase.",
+                }
+                orden["state"] = "DONE"
+                orden["atendido_por"] = ROL_NODO
+                orden["etapa"] = res_idemp["mensaje"]
+                orden["finished_ts"] = time.time()
+                orden["result"] = res_idemp
+                _guardar_estado_orden_remota_supabase(job_id, orden)
+                procesadas += 1
+                continue
+
             # 1. Reclamar la orden en Supabase
             orden["state"] = "RUNNING"
             orden["atendido_por"] = ROL_NODO
@@ -986,7 +1073,25 @@ def procesar_cola_ordenes_sunat_madre(wakeup_cb: Optional[Callable[[], None]] = 
             # 2. Ejecutar la orden en Laptop Madre reportando cada fase en vivo a Supabase
             res = _ejecutar_trabajo_sunat_wsp_local(None, data_norm, wakeup_cb=wakeup_cb, etapa_cb=_reportar_etapa_remota)
 
-            # 3. Publicar resultado final en Supabase
+            # 3. Guardia anti-sobreescritura: nunca pisar un DONE exitoso con un ERROR tardío
+            if res.get("status") != "OK":
+                ord_post = _leer_orden_remota_local(job_id)
+                if ord_post and str(ord_post.get("state") or "").upper() == "DONE":
+                    procesadas += 1
+                    continue
+                nro_post = _verificar_estancia_ya_emitida_local(data_norm)
+                if nro_post:
+                    res = {
+                        "status": "OK",
+                        "accion": data_norm.get("accion"),
+                        "hab": data_norm.get("hab", ""),
+                        "tipo": data_norm.get("tipo", "BOLETA"),
+                        "nro_comprobante": nro_post,
+                        "monto": data_norm.get("total_monto", 0),
+                        "mensaje": f"✅ {nro_post} emitido y sincronizado con Supabase.",
+                    }
+
+            # 4. Publicar resultado final en Supabase
             orden["state"] = "DONE" if res.get("status") == "OK" else "ERROR"
             orden["etapa"] = res.get("mensaje") or res.get("error") or "Completado en Laptop Madre"
             orden["finished_ts"] = time.time()
@@ -1006,6 +1111,17 @@ def procesar_cola_ordenes_sunat_madre(wakeup_cb: Optional[Callable[[], None]] = 
 
         return {"ok": True, "procesadas": procesadas}
     finally:
+        if lock_file_handle is not None:
+            try:
+                import msvcrt
+                lock_file_handle.seek(0)
+                msvcrt.locking(lock_file_handle.fileno(), msvcrt.LK_UNLCK, 1)
+            except Exception:
+                pass
+            try:
+                lock_file_handle.close()
+            except Exception:
+                pass
         _remote_consumer_lock.release()
 
 
@@ -1622,6 +1738,10 @@ def _loop_consumidor_cola_madre_fast(my_gen: int) -> None:
 def _asegurar_hilo_consumidor_madre() -> None:
     global _COLA_MADRE_GEN
     if not es_laptop_recepcion_directa():
+        return
+    # Si este módulo es importado dentro de motor_24x7.py, NO arrancar un segundo hilo consumidor cada 0.8s;
+    # el servidor web principal (:8080) es el único dueño del hilo consumidor rápido.
+    if os.environ.get("OVALO_PROCESO_ROL") == "MOTOR_24X7":
         return
     _COLA_MADRE_GEN = int(time.time() * 1000)
     t = threading.Thread(
