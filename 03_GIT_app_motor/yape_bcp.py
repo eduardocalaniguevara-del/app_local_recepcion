@@ -269,6 +269,19 @@ def _hora_str_a_minutos(hora_str: str) -> Optional[int]:
     return None
 
 
+def _hora_str_a_segundos(hora_str: str) -> Optional[int]:
+    if not hora_str:
+        return None
+    s = str(hora_str).strip()
+    m = re.match(r"^(\d{1,2}):(\d{2})(?::(\d{2}))?$", s)
+    if m:
+        h, mi, sec = int(m.group(1)), int(m.group(2)), int(m.group(3) or 0)
+        if 0 <= h <= 23 and 0 <= mi <= 59 and 0 <= sec <= 59:
+            return h * 3600 + mi * 60 + sec
+    mins = _hora_str_a_minutos(s)
+    return mins * 60 if mins is not None else None
+
+
 def _hora_str_a_12h_corta(hora_str: str) -> str:
     mins = _hora_str_a_minutos(hora_str)
     if mins is None:
@@ -376,6 +389,66 @@ def _cargar_anotaciones_recepcion(conn) -> Tuple[List[Dict[str, Any]], List[Dict
         elif monto_val > 0 and any(k in medio_up for k in ("YAPE", "PLIN", "TRANS", "BCP")):
             pagos_chicas.append(d)
 
+    # Incluir también servicios adicionales pagados con Yape/Plin (servicios_detalle) que no tengan fila individual en `pagos`
+    try:
+        serv_rows = conn.execute(
+            """
+            SELECT s.serv_uuid, s.estancia_uuid, s.id_estancia, s.fecha_dmy, s.hora, s.hab,
+                   s.tipo_servicio, s.metodo_pago, s.monto,
+                   COALESCE(e.huesped, '') AS huesped,
+                   COALESCE(e.nro_op_yape, '') AS nro_op_yape,
+                   COALESCE(e.empresa, '') AS empresa,
+                   COALESCE(e.ruc, '') AS ruc
+            FROM servicios_detalle s
+            LEFT JOIN estancias e ON (e.estancia_uuid = s.estancia_uuid OR e.id_timestamp_str = s.id_estancia)
+            WHERE upper(s.metodo_pago) LIKE '%YAPE%' OR upper(s.metodo_pago) LIKE '%PLIN%'
+            """
+        ).fetchall()
+        for sr in serv_rows:
+            ds = dict(sr)
+            m_s = round(float(ds.get("monto") or 0), 2)
+            if m_s <= 0:
+                continue
+            f_dmy_s = _normalizar_fecha_dmy(ds.get("fecha_dmy") or "")
+            # Si ya existe un pago en `pagos_chicas` para la misma estancia y mismo monto exacto, no duplicar
+            ya_en_pagos = any(
+                (p.get("estancia_uuid") == ds.get("estancia_uuid") or p.get("id_estancia") == ds.get("id_estancia"))
+                and abs(round(float(p.get("monto") or 0), 2) - m_s) < 0.01
+                for p in pagos_chicas
+            )
+            if ya_en_pagos:
+                continue
+            # Extraer de nro_op_yape de la estancia el segmento que corresponde a este monto (ej. '0.5 9:57am / 0.3 10:31am')
+            glosa_s = str(ds.get("nro_op_yape") or "").strip()
+            partes_glosa = [pt.strip() for pt in re.split(r"[/|\n]+", glosa_s) if pt.strip()]
+            glosa_elegida = glosa_s
+            for pt in partes_glosa:
+                m_pt = _parse_monto_glosa(pt)
+                if m_pt is not None and abs(m_pt - m_s) < 0.01:
+                    glosa_elegida = pt
+                    break
+            hora_s = str(ds.get("hora") or "").strip()
+            pagos_chicas.append(
+                {
+                    "pago_id": f"SERV-{ds['serv_uuid']}",
+                    "estancia_uuid": ds.get("estancia_uuid") or "",
+                    "id_estancia": ds.get("id_estancia") or "",
+                    "fecha_iso": f"{f_dmy_s} {hora_s}".strip(),
+                    "fecha_dmy": f_dmy_s,
+                    "hora_reg": hora_s,
+                    "hab": ds.get("hab") or "",
+                    "huesped": ds.get("huesped") or "",
+                    "monto": m_s,
+                    "medio_pago": ds.get("metodo_pago") or "Yape",
+                    "concepto": f"Servicio Adicional ({ds.get('tipo_servicio') or 'Adicional'})",
+                    "nro_operacion": glosa_elegida,
+                    "empresa": ds.get("empresa") or "",
+                    "ruc": ds.get("ruc") or "",
+                }
+            )
+    except Exception:
+        pass
+
     ventas_rows = conn.execute(
         """
         SELECT venta_uuid, fecha_dmy, fecha_iso, producto, cantidad, hab, personal, subtotal, metodo_pago, nro_op_yape
@@ -418,6 +491,57 @@ def _cargar_anotaciones_recepcion(conn) -> Tuple[List[Dict[str, Any]], List[Dict
     return pagos_chicas, ventas_chicas, vueltos_chicas, gastos_chicas
 
 
+def _deduplicar_yapes_celular_vs_drive(conn) -> int:
+    """
+    Elimina filas duplicadas 'SIN ANOTAR' o 'PENDIENTE' cuando ya existe una fila 'COMPROBADO'/'CALZADO'/'EXCEDENTE'
+    del mismo día, mismo monto, remitente equivalente y diferencia de hora <= 90 segundos (típico desfase de 30-40s
+    entre la notificación del celular ya cuadrada y el reporte Excel de Drive, o diferencia de cero inicial 9:12:22 vs 09:12:22).
+    """
+    rows = [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT id, fecha_operacion, hora_operacion, remitente_bcp, ROUND(monto_bcp, 2) AS m,
+                   estado_auditoria, observacion
+            FROM yape_conciliacion_hostal
+            WHERE monto_bcp > 0 AND estado_auditoria NOT LIKE 'SALIDA%'
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    ]
+    comprobados = [r for r in rows if r["estado_auditoria"] in ("COMPROBADO", "CALZADO", "EXCEDENTE")]
+    pendientes = [r for r in rows if r["estado_auditoria"] in ("SIN ANOTAR", "PENDIENTE")]
+    if not comprobados or not pendientes:
+        return 0
+
+    usados_comp = set()
+    ids_a_borrar = []
+    for p in pendientes:
+        f_p = _normalizar_fecha_dmy(str(p["fecha_operacion"] or ""))
+        m_p = float(p["m"] or 0)
+        sec_p = _hora_str_a_segundos(str(p["hora_operacion"] or ""))
+        rem_p = str(p["remitente_bcp"] or "")
+        for c in comprobados:
+            if c["id"] in usados_comp:
+                continue
+            if _normalizar_fecha_dmy(str(c["fecha_operacion"] or "")) != f_p:
+                continue
+            if abs(float(c["m"] or 0) - m_p) > 0.01:
+                continue
+            sec_c = _hora_str_a_segundos(str(c["hora_operacion"] or ""))
+            diff_sec = abs(sec_c - sec_p) if (sec_c is not None and sec_p is not None) else 9999
+            sim_rem = _similitud_nombres(rem_p, str(c["remitente_bcp"] or ""))
+            if diff_sec <= 90 and (sim_rem >= 0.45 or "CLIENTE YAPE" in rem_p or "CLIENTE YAPE" in str(c["remitente_bcp"] or "")):
+                usados_comp.add(c["id"])
+                ids_a_borrar.append(p["id"])
+                break
+
+    if ids_a_borrar:
+        placeholders = ",".join("?" for _ in ids_a_borrar)
+        conn.execute(f"DELETE FROM yape_conciliacion_hostal WHERE id IN ({placeholders})", ids_a_borrar)
+    return len(ids_a_borrar)
+
+
 def comprobar_yapes_con_anotaciones_chicas(conn=None, recalcular_todo: bool = False) -> Dict[str, int]:
     """
     Motor de conciliación multipasada en SQLite (equivalente completo de `CONCILIACION PAGOS YAPE`):
@@ -448,6 +572,8 @@ def comprobar_yapes_con_anotaciones_chicas(conn=None, recalcular_todo: bool = Fa
                 WHERE estado_auditoria IN ('PENDIENTE', 'SIN ANOTAR', 'COMPROBADO', 'CALZADO', 'EXCEDENTE', 'SALIDA')
                 """
             )
+
+        _deduplicar_yapes_celular_vs_drive(conn)
 
         pendientes = [
             dict(r)
@@ -582,14 +708,18 @@ def comprobar_yapes_con_anotaciones_chicas(conn=None, recalcular_todo: bool = Fa
                                 }
                 if match_sal:
                     ya_usados.add(match_sal["id_calzado"])
-                    conn.execute(
-                        """
-                        UPDATE yape_conciliacion_hostal
-                        SET id_estancia_calzada = ?, hab_calzada = ?, huesped_calzado = ?, observacion = ?, updated_at = ?
-                        WHERE id = ?
-                        """,
-                        (match_sal["id_calzado"], match_sal["hab"], match_sal["huesped"], match_sal["obs"], ahora_iso, y_id),
-                    )
+                    if (
+                        str(y.get("id_estancia_calzada") or "") != str(match_sal["id_calzado"])
+                        or str(y.get("observacion") or "") != str(match_sal["obs"])
+                    ):
+                        conn.execute(
+                            """
+                            UPDATE yape_conciliacion_hostal
+                            SET id_estancia_calzada = ?, hab_calzada = ?, huesped_calzado = ?, observacion = ?, updated_at = ?
+                            WHERE id = ?
+                            """,
+                            (match_sal["id_calzado"], match_sal["hab"], match_sal["huesped"], match_sal["obs"], ahora_iso, y_id),
+                        )
                 continue
 
             mejor_match = None
@@ -805,10 +935,13 @@ def comprobar_yapes_con_anotaciones_chicas(conn=None, recalcular_todo: bool = Fa
                 if not obs_base or obs_base.startswith("✅") or obs_base.startswith("⚠️"):
                     obs_base = "Extraído de Drive (ReporteTransacciones+51964139749.xlsx)"
                 nueva_obs = obs_base + sug_txt if sug_txt else obs_base
-                conn.execute(
-                    "UPDATE yape_conciliacion_hostal SET estado_auditoria = 'SIN ANOTAR', observacion = ?, updated_at = ? WHERE id = ?",
-                    (nueva_obs, ahora_iso, y_id),
-                )
+                if str(y.get("estado_auditoria") or "") != "SIN ANOTAR" or str(y.get("observacion") or "") != nueva_obs:
+                    conn.execute(
+                        "UPDATE yape_conciliacion_hostal SET estado_auditoria = 'SIN ANOTAR', observacion = ?, updated_at = ? WHERE id = ?",
+                        (nueva_obs, ahora_iso, y_id),
+                    )
+
+        _deduplicar_yapes_celular_vs_drive(conn)
 
         if own_conn:
             conn.commit()
@@ -971,8 +1104,12 @@ def sincronizar_yapes_desde_drive_a_sqlite(forzar: bool = False) -> Dict[str, An
                 "SELECT id, fecha_operacion, hora_operacion, remitente_bcp, ROUND(monto_bcp, 2) AS m, observacion FROM yape_conciliacion_hostal"
             ).fetchall():
                 d_r = dict(r)
-                existentes.add((_normalizar_fecha_dmy(d_r["fecha_operacion"]), d_r["hora_operacion"], d_r["remitente_bcp"], float(d_r["m"] or 0)))
-                if "Notificación celular" in str(d_r.get("observacion") or "") and "Corroborado con Drive" not in str(d_r.get("observacion") or ""):
+                h_raw = str(d_r["hora_operacion"] or "").strip()
+                h_norm = ("0" + h_raw) if (len(h_raw) == 7 and h_raw[1] == ":") else h_raw
+                existentes.add((_normalizar_fecha_dmy(d_r["fecha_operacion"]), h_norm, d_r["remitente_bcp"], float(d_r["m"] or 0)))
+                existentes.add((_normalizar_fecha_dmy(d_r["fecha_operacion"]), h_raw, d_r["remitente_bcp"], float(d_r["m"] or 0)))
+                obs_r = str(d_r.get("observacion") or "")
+                if "Extraído de Drive" not in obs_r and "Corroborado con Drive" not in obs_r:
                     filas_celular_pendientes.append(d_r)
 
             ids_celular_corroborados = set()
@@ -1008,6 +1145,7 @@ def sincronizar_yapes_desde_drive_a_sqlite(forzar: bool = False) -> Dict[str, An
                 match_cel = None
                 if not es_salida:
                     min_excel = _hora_str_a_minutos(hora_op)
+                    sec_excel = _hora_str_a_segundos(hora_op)
                     for fc in filas_celular_pendientes:
                         if fc["id"] in ids_celular_corroborados:
                             continue
@@ -1015,10 +1153,14 @@ def sincronizar_yapes_desde_drive_a_sqlite(forzar: bool = False) -> Dict[str, An
                             continue
                         if abs(float(fc["m"] or 0) - monto_val) > 0.01:
                             continue
+                        obs_fc = str(fc.get("observacion") or "")
                         min_cel = _hora_str_a_minutos(str(fc["hora_operacion"] or ""))
+                        sec_cel = _hora_str_a_segundos(str(fc["hora_operacion"] or ""))
                         diff_min = abs(min_excel - min_cel) if (min_excel is not None and min_cel is not None) else 999
+                        diff_sec = abs(sec_excel - sec_cel) if (sec_excel is not None and sec_cel is not None) else 9999
                         sim_rem = _similitud_nombres(remitente, str(fc["remitente_bcp"] or ""))
-                        if diff_min <= 10 and (sim_rem >= 0.45 or "CLIENTE YAPE" in str(fc["remitente_bcp"] or "")):
+                        es_mismo_rem = sim_rem >= 0.45 or "CLIENTE YAPE" in str(fc["remitente_bcp"] or "")
+                        if es_mismo_rem and (("Notificación celular" in obs_fc and diff_min <= 10) or diff_sec <= 90):
                             match_cel = fc
                             break
 
@@ -1511,10 +1653,12 @@ def sincronizar_transferencias_maelen_correo(forzar: bool = False) -> Dict[str, 
                             n_obs = (obs_p + f" | ✉️ Correo BCP Maelen").strip(" |")
                             conn.execute("UPDATE yape_conciliacion_hostal SET observacion = ?, updated_at = ? WHERE id = ?", (n_obs, ahora_iso, match_y["id"]))
                             corroborados_yape += 1
-                        conn.execute(
-                            "UPDATE maelen_transferencias_correo SET estado_cruce = 'EN_REPORTE_YAPE', id_cruce_recepcion = ?, detalle_cruce = ? WHERE msg_id = ?",
-                            (str(match_y["id"]), f"Corroborado con Yape #{match_y['id']} ({match_y['remitente_bcp']})", mv["msg_id"]),
-                        )
+                        det_exp = f"Corroborado con Yape #{match_y['id']} ({match_y['remitente_bcp']})"
+                        if str(mv.get("estado_cruce") or "") != "EN_REPORTE_YAPE" or str(mv.get("id_cruce_recepcion") or "") != str(match_y["id"]):
+                            conn.execute(
+                                "UPDATE maelen_transferencias_correo SET estado_cruce = 'EN_REPORTE_YAPE', id_cruce_recepcion = ?, detalle_cruce = ? WHERE msg_id = ?",
+                                (str(match_y["id"]), det_exp, mv["msg_id"]),
+                            )
                     elif not match_y:
                         # Solo insertar a `yape_conciliacion_hostal` si está dentro del rango de fechas operativo en BD (>= fecha mínima)
                         ymds_y = [_dmy_a_ymd(_normalizar_fecha_dmy(fy["fecha_operacion"])) for fy in filas_yape_actuales if fy.get("fecha_operacion")]
@@ -1570,20 +1714,23 @@ def sincronizar_transferencias_maelen_correo(forzar: bool = False) -> Dict[str, 
                     es_traspaso_propio = "CALANI GUEVARA" in dest and not g_match
 
                     if g_match:
-                        conn.execute(
-                            "UPDATE maelen_transferencias_correo SET estado_cruce = 'CRUZADO_GASTO', id_cruce_recepcion = ?, detalle_cruce = ? WHERE msg_id = ?",
-                            (str(g_match.get("gasto_uuid") or g_match.get("id_gasto") or ""), f"Gasto: {g_match.get('descripcion') or ''} ({g_match.get('fecha_dmy_norm')})", mv["msg_id"]),
-                        )
+                        if str(mv.get("estado_cruce") or "") != "CRUZADO_GASTO":
+                            conn.execute(
+                                "UPDATE maelen_transferencias_correo SET estado_cruce = 'CRUZADO_GASTO', id_cruce_recepcion = ?, detalle_cruce = ? WHERE msg_id = ?",
+                                (str(g_match.get("gasto_uuid") or g_match.get("id_gasto") or ""), f"Gasto: {g_match.get('descripcion') or ''} ({g_match.get('fecha_dmy_norm')})", mv["msg_id"]),
+                            )
                     elif ya_sal_yape:
-                        conn.execute(
-                            "UPDATE maelen_transferencias_correo SET estado_cruce = 'EN_REPORTE_YAPE', detalle_cruce = 'Incluido en Reporte Yape/SQLite como SALIDA' WHERE msg_id = ?",
-                            (mv["msg_id"],),
-                        )
+                        if str(mv.get("estado_cruce") or "") != "EN_REPORTE_YAPE":
+                            conn.execute(
+                                "UPDATE maelen_transferencias_correo SET estado_cruce = 'EN_REPORTE_YAPE', detalle_cruce = 'Incluido en Reporte Yape/SQLite como SALIDA' WHERE msg_id = ?",
+                                (mv["msg_id"],),
+                            )
                     elif es_traspaso_propio:
-                        conn.execute(
-                            "UPDATE maelen_transferencias_correo SET estado_cruce = 'TRASPASO_TITULAR', detalle_cruce = 'Transferencia interna Maelen -> Cuenta Gerencia' WHERE msg_id = ?",
-                            (mv["msg_id"],),
-                        )
+                        if str(mv.get("estado_cruce") or "") != "TRASPASO_TITULAR":
+                            conn.execute(
+                                "UPDATE maelen_transferencias_correo SET estado_cruce = 'TRASPASO_TITULAR', detalle_cruce = 'Transferencia interna Maelen -> Cuenta Gerencia' WHERE msg_id = ?",
+                                (mv["msg_id"],),
+                            )
 
                     # Si no figura aún en `yape_conciliacion_hostal` (ej. Transferencia a terceros BCP) y es >= Oct 2026 y no es traspaso interno sin gasto, agregarlo como SALIDA MAELEN BCP
                     if not ya_sal_yape and not es_traspaso_propio and _dmy_a_ymd(f_op) >= "2026-10-01":
