@@ -42,3 +42,52 @@
 - **✅ Fase 9 — Reconexión Automática de WhatsApp Recepción (`db.js` → `ovalo.db` v2) y Filtro Oficial de Reenvío BCP (`8023`) a `hostal.ovalo@gmail.com`:** COMPLETADA
   - **Auto-reconexión de `wsp_daemon.js` en Laptop 2 (`03_GIT_app_motor/whatsapp.py`):** `vigilar_daemon()` redirige automáticamente `db.js` del daemon de WhatsApp en Recepción hacia `C:\Ovalo_Sistema_v2\02_DB_sqlite_local\ovalo.db` y lo reinicia sin tocar `auth_info` (cero QR nuevo). Rescatados y sincronizados los `91 chats` y `446 mensajes` de WhatsApp.
   - **Filtro de Correo BCP (`8023` Maelen) Activo en Gmail:** Configurado en el Gmail personal (`Disable forwarding` global activo + filtro exclusivo `from:(notificacionesbcp.com.pe) 8023` -> `Forward it to: hostal.ovalo@gmail.com` + `Never send it to Spam`). Así la Laptop 2 lee 24/7 únicamente las transferencias de la cuenta del hotel sin exponer ningún correo personal.
+- **✅ Fase 10 — Purga Total de la Versión 1 (Disco + GitHub) y Despliegue Desde Cero 100% Git + Supabase (Cero ZIPs):** COMPLETADA (22/11/2026)
+  - **1. Eliminación de Versiones Anteriores (V1) en Disco y GitHub:**
+    - **Disco `C:\` limpio:** Eliminadas `C:\ovalo_mariategui_prueba`, `C:\Recepcion_Ovalo_Local`, `C:\sistema ovalo laptop 3` y las subcarpetas de backups V1 dentro de `C:\Hostal_Sistema` (`respaldos_promocion`, `actualizacion_webapp_local`, `PARA_ANTIGRAVITY_LAPTOP2`, `diagnosticos_14nov_archivo` y `vigilante_boletas.py`). Solo se conservan en `C:\Hostal_Sistema` los activos de Syncthing (PDFs SUNAT, `config\credentials.json`, audios y los scripts Playwright invocados por `sunat.py`).
+    - **GitHub unificado (`eduardocalaniguevara-del/app_local_recepcion`):** Eliminada la Versión 1 de la rama `main` y borrada la rama basura `--push`. Ahora `main` y `sistema-v2` son **100% idénticas** (ambas contienen exclusivamente las 5 carpetas `01..05` del Sistema v2 y `publicar_github.py` actualiza ambas ramas en cada publicación). El antiguo repo `ovalo_mariategui_prueba` quedó archivado como `[OBSOLETO]`.
+  - **2. Espejo Unidireccional hacia Google Sheets (`sincronizar_espejo_sheets` en `03_GIT_app_motor/sync_nube.py`):**
+    - La fuente maestra es `02_DB_sqlite_local\ovalo.db ↔ Supabase`. Google Sheets funciona únicamente como **copia espejo unidireccional (`SQLite ➔ Sheets`)**: lo que se edita en la aplicación se refleja en Sheets respetando las fórmulas `=MAP(...)`, y jamás a la inversa.
+  - **3. Hidratación Completa Automática para Laptops Nuevas (`bootstrap_initial_from_supabase`):**
+    - Cuando una computadora nueva se instala desde cero (`< 500 estancias`), descarga automáticamente el **100% de las tablas maestras desde Supabase** (`5,762+ estancias`, `3,108+ pagos`, `29 habitaciones`, tienda y gastos), crea `sync_queue` en `init_db()`, ignora cualquier BOM UTF-8 en `.env` y marca `network_online = 1` (`🟢 En vivo`).
+
+---
+
+## 🚀 Protocolo Oficial para Pasar el Sistema a Otra Computadora Desde Cero (100% Git + Supabase, Cero ZIPs)
+
+> **Regla de Oro:** Nunca se pasan carpetas ni bases `.db` por `.zip`. Toda computadora nueva (sea **Madre Recepción 24/7** o **Terciaria / Laptop 3+**) descarga el código con **`git clone`** directo desde GitHub y descarga toda la base de datos directo desde **Supabase**.
+> En `Descargas` tienes también el botón visual **[INSTALAR_DESDE_CERO_LAPTOP_NUEVA.html](file:///C:/Users/josec/Downloads/INSTALAR_DESDE_CERO_LAPTOP_NUEVA.html)** que ejecuta exactamente este flujo con 1 clic.
+
+### 💻 CASO A: Instalar en una **Laptop Terciaria / Visor / Administración (`NIVEL_3_TERCIARIA`)**
+*(Para ver y operar el hotel en vivo desde cualquier otra PC sin abrir el WhatsApp del hotel ni duplicar el Vigilante 24/7)*:
+
+1. **Si la PC está recién formateada (instalar Git + Python 3.12 + Librerías):**
+   ```powershell
+   winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements --silent
+   winget install --id Python.Python.3.12 -e --source winget --accept-package-agreements --accept-source-agreements --silent
+   python -m pip install --upgrade pip fastapi uvicorn httpx pydantic gspread google-auth google-api-python-client requests cryptography
+   ```
+2. **Clonar desde GitHub e hidratar el 100% de los datos desde Supabase:**
+   ```powershell
+   git clone -b main https://github.com/eduardocalaniguevara-del/app_local_recepcion.git C:\Ovalo_Sistema_v2
+   python C:\Ovalo_Sistema_v2\instalar_sistema_v2.py
+   ```
+   *(El script `instalar_sistema_v2.py` crea `.env` con `ROL_NODO=NIVEL_3_TERCIARIA`, `ACTIVAR_MOTOR_24X7=false`, `TIENE_QR_WSP_FISICO=false`, descarga todas las estancias/pagos de Supabase en `02_DB_sqlite_local\ovalo.db`, crea el ícono **Hostal Ovalo - Sistema v2** en el Escritorio y abre `:8080` en **`🟢 En vivo`**).*
+
+---
+
+### 🏢 CASO B: Instalar en una **Laptop Madre de Recepción 24/7 (`NIVEL_2_MADRE_HOTEL`)**
+*(Para la PC principal de Recepción del hotel, que sí tiene el único QR físico de WhatsApp, lee `hostal.ovalo@gmail.com`, emite SUNAT y corre `motor_24x7.py` las 24 horas)*:
+
+1. **Instalar Git + Python 3.12 + Librerías (si la PC es nueva):**
+   ```powershell
+   winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements --silent
+   winget install --id Python.Python.3.12 -e --source winget --accept-package-agreements --accept-source-agreements --silent
+   python -m pip install --upgrade pip fastapi uvicorn httpx pydantic gspread google-auth google-api-python-client requests cryptography playwright
+   ```
+2. **Clonar desde GitHub e iniciar en modo `MADRE_L2` (`--madre`):**
+   ```powershell
+   git clone -b main https://github.com/eduardocalaniguevara-del/app_local_recepcion.git C:\Ovalo_Sistema_v2
+   python C:\Ovalo_Sistema_v2\instalar_sistema_v2.py --madre
+   ```
+   *(Con `--madre`, configura `.env` con `ROL_NODO=NIVEL_2_MADRE_HOTEL`, `ACTIVAR_MOTOR_24X7=true`, `TIENE_QR_WSP_FISICO=true`, descarga toda la base de Supabase, crea el ícono en el Escritorio y deja encendido el mostrador `:8080` + el vigilante `05_GIT_vigilante_24x7/motor_24x7.py`).*
