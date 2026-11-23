@@ -32,7 +32,7 @@ import time
 import urllib.parse
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 _MDIR = str(Path(__file__).resolve().parent)
 if _MDIR not in sys.path:
@@ -398,6 +398,7 @@ def emitir_comprobante_sunat_local(
     items: List[Dict[str, Any]],
     emitir_final: bool = True,
     headless: bool = True,
+    etapa_cb: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """
     Emite Boleta (EB01) o Factura (E001) en SUNAT SEE-SOL y guarda el PDF exclusivamente
@@ -418,6 +419,7 @@ def emitir_comprobante_sunat_local(
             emitir_final,
             headless,
             estado,
+            etapa_cb=etapa_cb,
         )
         if res.get("status") == "OK":
             return res
@@ -435,6 +437,7 @@ def _emitir_comprobante_intento(
     emitir_final: bool,
     headless: bool,
     estado: Dict[str, bool],
+    etapa_cb: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     from playwright.sync_api import sync_playwright
 
@@ -455,6 +458,11 @@ def _emitir_comprobante_intento(
                 f"&originalUrl={AUTENTICA_SOL_URL}"
                 f"&state={STATE_SOL_DEFAULT}"
             )
+            if etapa_cb:
+                try:
+                    etapa_cb(f"🔐 Laptop 2 Madre: Iniciando sesión en SUNAT SEE-SOL ({tipo.title()})...")
+                except Exception:
+                    pass
             iniciar_sesion_sol_blindado(page, url_login, ruc_emisor, usuario, clave)
             time.sleep(0.3)
 
@@ -515,6 +523,12 @@ def _emitir_comprobante_intento(
 
             if not frame:
                 raise RuntimeError("No se pudo cargar el formulario dentro de iframeApplication en SUNAT.")
+
+            if etapa_cb:
+                try:
+                    etapa_cb(f"📝 Laptop 2 Madre: Formulario SUNAT listo · Llenando {doc_num or cliente_nombre} e ítems...")
+                except Exception:
+                    pass
 
             doc_limpio = str(doc_num or "").strip()
             nombre_receptor_sunat = cliente_nombre
@@ -649,30 +663,80 @@ def _emitir_comprobante_intento(
                 }
 
             # Emisión Definitiva en SUNAT
+            if not frame.get_by_role("button", name="Emitir").first.is_visible():
+                nom_cap_err = f"error_pre_emitir_{tipo.lower()}_{int(time.time())}.png"
+                page.screenshot(path=str(CAPTURAS_SUNAT_DIR / nom_cap_err), full_page=True)
+                raise RuntimeError(f"SUNAT no habilitó el botón Emitir en Vista Preliminar (captura: {nom_cap_err}).")
+
+            if etapa_cb:
+                try:
+                    etapa_cb(f"🧾 Laptop 2 Madre: Confirmando emisión de {tipo.title()} en SUNAT y descargando PDF...")
+                except Exception:
+                    pass
+
             estado["emitir_pulsado"] = True
-            time.sleep(0.6)
+            time.sleep(0.4)
             btn_conf = frame.locator("#dlgBtnAceptarConfirm, #dlgBtnAceptar")
             for _ in range(3):
                 try:
-                    frame.get_by_role("button", name="Emitir").first.click(force=True, timeout=4000)
+                    frame.get_by_role("button", name="Emitir").first.dispatch_event("click", timeout=3500)
                 except Exception:
-                    frame.get_by_role("button", name="Emitir").first.dispatch_event("click", timeout=4000)
+                    try:
+                        frame.get_by_role("button", name="Emitir").first.click(force=True, timeout=3500)
+                    except Exception:
+                        pass
                 try:
-                    btn_conf.first.wait_for(state="visible", timeout=4500)
+                    btn_conf.first.wait_for(state="visible", timeout=3500)
                     break
                 except Exception:
-                    time.sleep(0.5)
+                    if frame.get_by_role("dialog", name="Confirmar").count() > 0:
+                        break
+                    time.sleep(0.4)
 
-            try:
-                btn_conf.first.click(force=True, timeout=5000)
-            except Exception:
+            btn_dl = frame.locator(
+                "button:has-text('Descargar PDF'), a:has-text('Descargar PDF'), span:has-text('Descargar PDF'), [widgetid*='pdf'], [widgetid*='PDF']"
+            ).first
+
+            # Disparar Aceptar en el diálogo Confirmar de Dojo con triple respaldo hasta que aparezca Descargar PDF
+            t_conf = time.time()
+            while time.time() - t_conf < 22.0:
                 try:
-                    btn_conf.first.dispatch_event("click", timeout=5000)
+                    if btn_dl.count() > 0 and btn_dl.is_visible():
+                        break
                 except Exception:
-                    frame.get_by_role("button", name="Aceptar").last.click(force=True, timeout=5000)
+                    pass
+                try:
+                    if btn_conf.count() > 0 and btn_conf.first.is_visible():
+                        btn_conf.first.dispatch_event("click", timeout=2000)
+                except Exception:
+                    pass
+                try:
+                    dlg_c = frame.get_by_role("dialog", name="Confirmar")
+                    if dlg_c.count() > 0:
+                        dlg_c.get_by_role("button", name="Aceptar").first.dispatch_event("click", timeout=2000)
+                except Exception:
+                    pass
+                try:
+                    frame.evaluate("""() => {
+                        for (const id of ['dlgBtnAceptarConfirm', 'dlgBtnAceptar']) {
+                            if (window.dijit && dijit.byId(id)) {
+                                try { dijit.byId(id).onClick(); } catch (e) {}
+                            }
+                            const el = document.getElementById(id);
+                            if (el) { try { el.click(); } catch (e) {} }
+                        }
+                        const btns = Array.from(document.querySelectorAll('.dijitDialogPaneActionBar .dijitButtonNode, .dijitDialog .dijitButtonContents'));
+                        for (const b of btns) {
+                            if ((b.textContent || '').includes('Aceptar')) {
+                                try { b.click(); } catch (e) {}
+                            }
+                        }
+                    }""")
+                except Exception:
+                    pass
+                time.sleep(0.75)
 
-            btn_dl = frame.get_by_role("button", name="Descargar PDF").first
-            btn_dl.wait_for(state="visible", timeout=20000)
+            btn_dl.wait_for(state="visible", timeout=6000)
 
             texto_constancia_dom = ""
             try:

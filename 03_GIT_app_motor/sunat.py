@@ -591,11 +591,21 @@ def _ejecutar_trabajo_sunat_wsp_local(
     job_id: Optional[str],
     data_norm: Dict[str, Any],
     wakeup_cb: Optional[Callable[[], None]] = None,
+    etapa_cb: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """
     Ejecuta el trabajo de SUNAT + Conversión PDF->Supabase + WhatsApp usando los motores de
     `03_GIT_app_motor/sunat_motor_playwright.py` y guardando los PDFs en `02_DB_sqlite_local/comprobantes_pdf/`.
     """
+    def _notificar_etapa(txt: str) -> None:
+        if job_id:
+            _update_job(job_id, state="RUNNING", etapa=txt)
+        if etapa_cb:
+            try:
+                etapa_cb(txt)
+            except Exception:
+                pass
+
     if job_id:
         _update_job(job_id, etapa="⏳ En cola esperando turno del motor SUNAT...")
 
@@ -788,16 +798,11 @@ def _ejecutar_trabajo_sunat_wsp_local(
         cliente = data_norm["cliente"]
         telefono = data_norm["telefono"]
 
-        if job_id:
-            _update_job(
-                job_id,
-                state="RUNNING",
-                etapa=(
-                    f"🧪 Abriendo Vista Preliminar de {tipo.title()} en SUNAT SEE-SOL..."
-                    if modo_borrador
-                    else f"⚡ Emitiendo {tipo.title()} S/ {total_monto:.2f} en SUNAT SEE-SOL (IGV 10.5%)..."
-                ),
-            )
+        _notificar_etapa(
+            f"🧪 Laptop 2 Madre: Abriendo Vista Preliminar de {tipo.title()} en SUNAT SEE-SOL..."
+            if modo_borrador
+            else f"⚡ Laptop 2 Madre: Emitiendo {tipo.title()} S/ {total_monto:.2f} en SUNAT SEE-SOL (IGV 10.5%)..."
+        )
 
         res_sunat = emitir_comprobante_sunat_local(
             tipo=tipo,
@@ -806,6 +811,7 @@ def _ejecutar_trabajo_sunat_wsp_local(
             items=items_normalizados,
             emitir_final=emitir_en_firme,
             headless=True,
+            etapa_cb=_notificar_etapa,
         )
 
         if res_sunat.get("status") != "OK":
@@ -837,22 +843,14 @@ def _ejecutar_trabajo_sunat_wsp_local(
         receptor_nombre_real = str(res_sunat.get("receptor_nombre") or cliente).strip().upper()
 
         # Etapa 2: Convertir PDF local en Datos (`sunat_ventas` + `sunat_lineas_cache`) y subir a Supabase
-        if job_id:
-            _update_job(
-                job_id,
-                etapa=f"📊 {nro_cp} descargada localmente · Extrayendo datos a sunat_ventas y Supabase...",
-            )
+        _notificar_etapa(f"📊 Laptop 2 Madre: {nro_cp} descargada · Extrayendo datos a sunat_ventas y Supabase...")
         datos_conv = convertir_comprobante_a_datos_y_subir_supabase(res_sunat, data_norm)
 
         # Etapa 3: Enviar por WhatsApp de Recepción si se pidió EMITIR_Y_WSP
         wsp_status = "NO_SOLICITADO"
         wsp_err = ""
         if accion == "EMITIR_Y_WSP" and telefono:
-            if job_id:
-                _update_job(
-                    job_id,
-                    etapa=f"📲 {nro_cp} registrada · Enviando PDF por WhatsApp Recepción al {telefono}...",
-                )
+            _notificar_etapa(f"📲 Laptop 2 Madre: {nro_cp} registrada · Enviando PDF por WhatsApp Recepción al {telefono}...")
             tipo_lbl = "Factura" if tipo == "FACTURA" else "Boleta"
             msg_wsp = (
                 f"Estimado(a) {receptor_nombre_real}, le adjuntamos su {tipo_lbl} Electrónica {nro_cp}. "
@@ -978,11 +976,15 @@ def procesar_cola_ordenes_sunat_madre(wakeup_cb: Optional[Callable[[], None]] = 
             # 1. Reclamar la orden en Supabase
             orden["state"] = "RUNNING"
             orden["atendido_por"] = ROL_NODO
-            orden["etapa"] = f"🏢 Laptop Madre ejecutando {data_norm.get('accion', 'SUNAT')} (Hab. {data_norm.get('hab', '')})..."
+            orden["etapa"] = f"🏢 Laptop 2 Madre recibió la orden ({data_norm.get('accion', 'SUNAT')} Hab. {data_norm.get('hab', '')})..."
             _guardar_estado_orden_remota_supabase(job_id, orden)
 
-            # 2. Ejecutar la orden en Laptop Madre
-            res = _ejecutar_trabajo_sunat_wsp_local(None, data_norm, wakeup_cb=wakeup_cb)
+            def _reportar_etapa_remota(txt_etapa: str, _jid=job_id, _ord=orden) -> None:
+                _ord["etapa"] = txt_etapa
+                _guardar_estado_orden_remota_supabase(_jid, _ord)
+
+            # 2. Ejecutar la orden en Laptop Madre reportando cada fase en vivo a Supabase
+            res = _ejecutar_trabajo_sunat_wsp_local(None, data_norm, wakeup_cb=wakeup_cb, etapa_cb=_reportar_etapa_remota)
 
             # 3. Publicar resultado final en Supabase
             orden["state"] = "DONE" if res.get("status") == "OK" else "ERROR"
