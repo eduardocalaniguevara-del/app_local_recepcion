@@ -290,10 +290,11 @@ def bootstrap_initial_from_supabase() -> dict:
     try:
         c_est = conn.execute("SELECT COUNT(*) FROM estancias").fetchone()[0]
         c_hab = conn.execute("SELECT COUNT(*) FROM habitaciones_config").fetchone()[0]
-        done_flag = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_bootstrap_full_v1'").fetchone()
+        done_flag = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_bootstrap_full_v2'").fetchone()
+        sample_yape = conn.execute("SELECT COUNT(*) FROM estancias WHERE nro_op_yape != ''").fetchone()[0]
     finally:
         conn.close()
-    if done_flag and c_est >= 500 and c_hab >= 15:
+    if (done_flag or (c_est >= 5000 and sample_yape >= 100)) and c_est >= 500 and c_hab >= 15:
         return {"ok": True, "bootstrap": "ALREADY_DONE", "estancias": c_est}
 
     total_descargados = {}
@@ -356,7 +357,7 @@ def bootstrap_initial_from_supabase() -> dict:
             pass
 
         conn_w.execute(
-            "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('sb_bootstrap_full_v1', 'OK', datetime('now', 'localtime'))"
+            "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('sb_bootstrap_full_v2', 'OK', datetime('now', 'localtime'))"
         )
         conn_w.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
         conn_w.commit()
