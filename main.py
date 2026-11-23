@@ -54,12 +54,67 @@ _sheets_wakeup_event = threading.Event()
 _sync_stop_event = threading.Event()
 
 
+def _auto_git_pull_y_recargar() -> bool:
+    """
+    En Laptop 2 (Recepción) y Laptop 3 (Terciaria): descarga automáticamente en segundo plano
+    cualquier mejora publicada con `git push` desde Laptop 1 y recarga los módulos en memoria
+    sin que nadie tenga que tocar PowerShell ni reinstalar el HTML.
+    """
+    if ROL_NODO == "NIVEL_1_INGENIERIA" or not (BASE_DIR / ".git").exists():
+        return False
+    import importlib
+    import subprocess
+
+    try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        before = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(BASE_DIR), capture_output=True, text=True, timeout=4, creationflags=flags
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "pull", "--ff-only", "origin", "main"],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            timeout=12,
+            creationflags=flags,
+        )
+        after = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(BASE_DIR), capture_output=True, text=True, timeout=4, creationflags=flags
+        ).stdout.strip()
+        if before and after and before != after:
+            for mod in (_cfg_v2, _db_v2, dl, ym, sws, wi):
+                try:
+                    importlib.reload(mod)
+                except Exception:
+                    pass
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _autolimpiar_y_conciliar_yapes() -> None:
+    try:
+        conn = get_connection()
+        try:
+            if hasattr(ym, "_deduplicar_yapes_celular_vs_drive"):
+                ym._deduplicar_yapes_celular_vs_drive(conn)
+            ym.comprobar_yapes_con_anotaciones_chicas(conn=conn)
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
 def _background_supabase_worker() -> None:
     try:
+        _auto_git_pull_y_recargar()
         instalar_triggers_outbox()
         publicar_seguidor_carpetas_supabase()
         push_to_supabase()
         pull_from_supabase()
+        _autolimpiar_y_conciliar_yapes()
         sincronizar_espejo_sheets()
     except Exception as exc:
         print(f"[OvaloV2-Sync] Inicio: {exc}")
@@ -73,6 +128,9 @@ def _background_supabase_worker() -> None:
             _sync_wakeup_event.clear()
             time.sleep(0.25)
         try:
+            if ciclo_n % 6 == 0:  # Cada ~2.5 min busca mejoras de código en GitHub automáticamente
+                if _auto_git_pull_y_recargar():
+                    _autolimpiar_y_conciliar_yapes()
             publicar_seguidor_carpetas_supabase()
             push_to_supabase()
             pull_from_supabase()

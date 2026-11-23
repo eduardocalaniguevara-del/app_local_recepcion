@@ -72,7 +72,23 @@ def _esperar_y_abrir_chrome() -> None:
     abrir_google_chrome_app()
 
 
+def _auto_git_pull_silencioso() -> None:
+    if not (BASE_DIR / ".git").exists():
+        return
+    try:
+        subprocess.run(
+            ["git", "pull", "--ff-only", "origin", "main"],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            timeout=6,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+        )
+    except Exception:
+        pass
+
+
 def main() -> None:
+    _auto_git_pull_silencioso()
     if servidor_activo():
         abrir_google_chrome_app()
         return
