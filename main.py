@@ -275,6 +275,8 @@ def api_sync_status():
 
 @app.post("/api/sync/trigger")
 def api_sync_trigger():
+    if _auto_git_pull_y_recargar():
+        _autolimpiar_y_conciliar_yapes()
     _sheets_wakeup_event.set()
     _sync_wakeup_event.set()
     return {"status": "TRIGGERED", "syncStatus": dl.obtener_estado_red_cola()}
@@ -283,6 +285,10 @@ def api_sync_trigger():
 @app.get("/api/yape/recientes")
 def api_yape_recientes(fecha: str = "", limite: int = 80, forzar_drive: int = 0):
     try:
+        if forzar_drive:
+            _auto_git_pull_y_recargar()
+            pull_from_supabase()
+            _autolimpiar_y_conciliar_yapes()
         import yape_manager as ym
         res = ym.obtener_resumen_yapes_sqlite(fecha_dmy=fecha, limite=limite, forzar_drive=bool(forzar_drive))
         return JSONResponse(content=res, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
