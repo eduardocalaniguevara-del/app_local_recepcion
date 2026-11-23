@@ -876,15 +876,16 @@ def _ejecutar_trabajo_sunat_wsp(
     wakeup_cb: Optional[Callable[[], None]] = None,
 ) -> Dict[str, Any]:
     """
-    Enrutador inteligente Multi-Laptop:
-    - Si estamos en Laptop 2 Madre (`es_laptop_recepcion_directa()`), ejecuta directo local.
-    - Si estamos en Laptop 3 Terciaria o Laptop 1:
-      1) Si `forzar_local` está activo en Laptop 1, ejecuta el motor SUNAT local y encola WSP a Laptop 2 por Supabase.
-      2) Por defecto, publica la orden en Supabase (`sunat_orden_remota_<job_id>`) hacia Laptop 2 Madre.
-      3) Si estamos en Laptop 1 y Laptop 2 Madre aún no reclama la orden tras 10s (ej. durante pruebas antes de git pull
-         o si L2 está en reposo), Laptop 1 toma el relevo automáticamente para que la emisión/borrador jamás quede colgada.
+    Candado Arquitectónico por Rol (`ROL_NODO` en `.env`):
+    - Aunque TODAS las laptops descargan el mismo código `.py` desde GitHub:
+      1) Si el `.env` local identifica a la PC como `NIVEL_2_MADRE_HOTEL` (`es_laptop_recepcion_directa() == True`),
+         el motor SUNAT + PDF local + WhatsApp se ACTIVA y ejecuta la orden directamente.
+      2) Si el `.env` local identifica a la PC como `NIVEL_3_TERCIARIA` o `NIVEL_1_INGENIERIA`,
+         el motor local queda INACTIVO: la laptop NO abre SUNAT ni WhatsApp, sino que envía la orden
+         por Supabase (`sunat_orden_remota_<job_id>`) para que la Laptop Madre (L2) la ejecute y devuelva el resultado.
+         (En Laptop 1 solo se permite ejecución local explícita con `--forzar-local` para pruebas de ingeniería).
     """
-    if es_laptop_recepcion_directa() or bool(data_norm.get("forzar_local")):
+    if es_laptop_recepcion_directa() or (ES_NIVEL_1_INGENIERIA and bool(data_norm.get("forzar_local"))):
         return _ejecutar_trabajo_sunat_wsp_local(job_id, data_norm, wakeup_cb=wakeup_cb)
 
     jid_eff = job_id or f"sunat_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
@@ -905,7 +906,6 @@ def _ejecutar_trabajo_sunat_wsp(
 
     t0 = time.time()
     timeout_total = 240.0
-    timeout_relevo_l1 = 10.0  # Si en 10s Laptop 2 no reclamó la orden, Laptop 1 puede ejecutar SUNAT directo
 
     while time.time() - t0 < timeout_total:
         time.sleep(2.0)
@@ -933,19 +933,6 @@ def _ejecutar_trabajo_sunat_wsp(
             if wakeup_cb:
                 wakeup_cb()
             return res_rem
-
-        # Relevo automático en Laptop 1 (Ingeniería) si Laptop 2 no ha reclamado la orden en 10s
-        if ES_NIVEL_1_INGENIERIA and st_rem == "PENDIENTE" and (time.time() - t0) >= timeout_relevo_l1:
-            ord_act["state"] = "RUNNING"
-            ord_act["atendido_por"] = ROL_NODO
-            ord_act["etapa"] = "💻 Ejecutando motor SUNAT en Laptop 1 + sincronización Supabase..."
-            _guardar_estado_orden_remota_supabase(jid_eff, ord_act)
-            res_l1 = _ejecutar_trabajo_sunat_wsp_local(job_id, data_norm, wakeup_cb=wakeup_cb)
-            ord_act["state"] = "DONE" if res_l1.get("status") == "OK" else "ERROR"
-            ord_act["finished_ts"] = time.time()
-            ord_act["result"] = res_l1
-            _guardar_estado_orden_remota_supabase(jid_eff, ord_act)
-            return res_l1
 
     return {
         "status": "ERROR",

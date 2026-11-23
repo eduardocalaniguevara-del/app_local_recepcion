@@ -161,7 +161,10 @@ def obtener_credenciales_sunat() -> Tuple[str, str, str]:
         except Exception:
             continue
 
-    return "20611986484", "RISHERAP", "N@yelitapie1"
+    raise RuntimeError(
+        "Este nodo no tiene la bóveda local de Clave SOL (credenciales_seguras.json / .env). "
+        "La emisión en SUNAT SEE-SOL solo está autorizada en la Laptop Madre (NIVEL_2_MADRE_HOTEL)."
+    )
 
 
 def calcular_valor_unitario_105(precio_con_igv: float) -> float:
