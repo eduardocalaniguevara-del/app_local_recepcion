@@ -54,13 +54,13 @@ TABLAS_SINCRONIZADAS_PK: Dict[str, Tuple[str, ...]] = {
     "wsp_resumen_ejecutivo": ("id",),
     "aprendizaje_compartido_hostal": ("id",),
     "estado_sistema": ("clave",),
+    "yape_conciliacion_hostal": ("id",),
+    "calzado_cache": ("clave_calzado",),
+    "sunat_lineas_cache": ("id_linea",),
 }
 
 # Tablas caché o pesadas locales que NUNCA suben a Supabase (protección de Egress; viajan por Syncthing si aplica)
 TABLAS_SOLO_LOCAL_CACHE = {
-    "yape_conciliacion_hostal",
-    "calzado_cache",
-    "sunat_lineas_cache",
     "auditoria_audio_noche",
 }
 

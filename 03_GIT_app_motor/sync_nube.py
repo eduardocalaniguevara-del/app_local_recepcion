@@ -290,28 +290,29 @@ def bootstrap_initial_from_supabase() -> dict:
     try:
         c_est = conn.execute("SELECT COUNT(*) FROM estancias").fetchone()[0]
         c_hab = conn.execute("SELECT COUNT(*) FROM habitaciones_config").fetchone()[0]
-        done_flag = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_bootstrap_full_v2'").fetchone()
-        sample_yape = conn.execute("SELECT COUNT(*) FROM estancias WHERE nro_op_yape != ''").fetchone()[0]
+        c_20nov = conn.execute("SELECT COUNT(*) FROM estancias WHERE ymd_in = 20261120").fetchone()[0]
+        done_flag = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'sb_bootstrap_full_v3'").fetchone()
     finally:
         conn.close()
-    if (done_flag or (c_est >= 5000 and sample_yape >= 100)) and c_est >= 500 and c_hab >= 15:
+    if (done_flag or (c_est >= 5000 and c_20nov >= 10)) and c_est >= 500 and c_hab >= 15 and c_20nov >= 10:
         return {"ok": True, "bootstrap": "ALREADY_DONE", "estancias": c_est}
 
     total_descargados = {}
     conn_w = get_connection()
     try:
         conn_w.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1;")
-        for tabla in TABLAS_SINCRONIZADAS_PK.keys():
+        for tabla, pk_tuple in TABLAS_SINCRONIZADAS_PK.items():
             if tabla in TABLAS_SOLO_LOCAL_CACHE:
                 continue
             cols_locales = {r[1] for r in conn_w.execute(f'PRAGMA table_info("{tabla}")').fetchall()}
             if not cols_locales:
                 continue
+            order_clause = ",".join(f"{col}.asc" for col in pk_tuple)
             offset = 0
             page_size = 1000
             t_count = 0
             while True:
-                url = f"{SUPABASE_URL}/rest/v1/{tabla}?select=*&limit={page_size}&offset={offset}"
+                url = f"{SUPABASE_URL}/rest/v1/{tabla}?select=*&order={order_clause}&limit={page_size}&offset={offset}"
                 req = urllib.request.Request(url, method="GET", headers=_headers())
                 try:
                     with urllib.request.urlopen(req, timeout=20) as resp:
@@ -357,7 +358,7 @@ def bootstrap_initial_from_supabase() -> dict:
             pass
 
         conn_w.execute(
-            "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('sb_bootstrap_full_v2', 'OK', datetime('now', 'localtime'))"
+            "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('sb_bootstrap_full_v3', 'OK', datetime('now', 'localtime'))"
         )
         conn_w.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
         conn_w.commit()
