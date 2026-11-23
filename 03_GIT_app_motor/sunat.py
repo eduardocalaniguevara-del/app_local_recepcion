@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Servicio Local Asíncrono de Integración con SUNAT (IGV 10.5% Multi-Ítem + Notas de Crédito),
-WhatsApp Desktop / Edge y Padrón DNI/RUC.
-Reutiliza los motores probados de C:\\Hostal_Sistema:
-- scripts/emitir_comprobante_sunat.py
-- scripts/emitir_nota_credito_sunat.py
-- scripts/brazo_wsp.py
-- ejecutar_remoto.py (fallback remoto hacia Laptop 2)
+03_GIT_app_motor/sunat.py — Orquestador Asíncrono de Facturación SUNAT (IGV 10.5% Multi-Ítem + Notas de Crédito),
+Conversión de PDF Local a Datos en Supabase, Despacho WhatsApp Recepción y Cola Remota Multi-Laptop.
+
+Arquitectura v2 (Cero dependencia de C:\\Hostal_Sistema):
+1. Todo el código viaja en `03_GIT_app_motor/` por GitHub (`git push` desde Laptop 1 -> `git pull` en Laptop 2 Madre y Laptops 3 Terciarias).
+2. Los PDFs emitidos (Boletas, Facturas y Notas de Crédito) y las capturas preliminares se guardan
+   exclusivamente en la carpeta local `02_DB_sqlite_local/comprobantes_pdf/` (`boletas/`, `facturas/`, `notas_credito/`, `capturas/`).
+3. Apenas se emite un comprobante, `convertir_comprobante_a_datos_y_subir_supabase()` extrae toda su información
+   y la guarda en `sunat_ventas`, `sunat_lineas_cache` y `estancias`, subiéndola en vivo a Supabase.
+4. Si una orden se dispara desde Laptop 3 (Terciaria) o Laptop 1, viaja por Supabase (`estado_sistema` -> `sunat_orden_remota_<job_id>`)
+   para que la Laptop 2 Madre la ejecute y devuelva el resultado.
 """
 
+from __future__ import annotations
+
 import base64
-import glob
 import json
 import os
 import re
-import subprocess
 import sys
 import threading
 import time
@@ -26,49 +30,41 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 
+_MDIR = str(Path(__file__).resolve().parent)
+if _MDIR not in sys.path:
+    sys.path.insert(0, _MDIR)
+
 from config import (
     APISPERU_DNI_URL,
     APISPERU_RUC_URL,
     APISPERU_TOKEN,
-    BRAZO_WSP_SCRIPT,
-    DESCARGAS_RECEPCION_DIR,
-    EJECUTAR_REMOTO_SCRIPT,
-    EMITIR_COMPROBANTE_SCRIPT,
-    HOSTAL_SISTEMA_DIR,
+    CAPTURAS_SUNAT_DIR,
+    DATA_DIR,
+    ES_NIVEL_1_INGENIERIA,
+    ES_NIVEL_2_MADRE_HOTEL,
     MODO_PRUEBA,
     REGLAS_AUDITORIA_JSON,
-    SCRIPTS_HOSTAL_DIR,
+    ROL_NODO,
+    TIENE_QR_WSP_FISICO,
 )
-import sys as _sys
-from pathlib import Path as _Path
-_MDIR = str(_Path(__file__).resolve().parent)
-if _MDIR not in _sys.path: _sys.path.insert(0, _MDIR)
-from config import ES_NIVEL_2_MADRE_HOTEL, TIENE_QR_WSP_FISICO
 from db import db_transaction, get_connection
 from estancias import _registrar_movimiento, actualizar_comprobante_desde_panel_local
+from sunat_motor_playwright import (
+    buscar_pdf_comprobante_local,
+    calcular_valor_unitario_105,
+    convertir_comprobante_a_datos_y_subir_supabase,
+    despachar_wsp_comprobante_local,
+    emitir_comprobante_sunat_local,
+    emitir_nota_credito_sunat_local,
+)
+from sync_nube import encolar_whatsapp_remoto, pull_from_supabase, push_to_supabase
 
 FACTOR_IGV_HOTEL = 1.105
-EMITIR_NC_SCRIPT = SCRIPTS_HOSTAL_DIR / "emitir_nota_credito_sunat.py"
-CAPTURAS_SUNAT_DIR = HOSTAL_SISTEMA_DIR / "capturas"
-CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if os.name == "nt" else 0
 
 _sunat_emission_lock = threading.Lock()
+_remote_consumer_lock = threading.Lock()
 _jobs_lock = threading.Lock()
 _SUNAT_JOBS: Dict[str, Dict[str, Any]] = {}
-
-
-def calcular_valor_unitario_105(precio_con_igv: float) -> float:
-    """Ley MYPE Hotelería/Turismo (IGV 10.5%): Valor Unitario = Precio / 1.105 (4 decimales)"""
-    return round(float(precio_con_igv) / FACTOR_IGV_HOTEL, 4)
-
-
-def _python_cli_bin() -> str:
-    exe = sys.executable
-    if exe.lower().endswith("pythonw.exe"):
-        cand = exe[:-11] + "python.exe"
-        if os.path.exists(cand):
-            return cand
-    return exe
 
 
 def es_laptop_recepcion_directa() -> bool:
@@ -78,24 +74,6 @@ def es_laptop_recepcion_directa() -> bool:
     if os.path.exists(r"C:\Users\ovalo mariategui"):
         return True
     return False
-
-
-def _whatsapp_local_activo() -> bool:
-    """Detecta si WhatsApp Desktop está corriendo en esta misma PC."""
-    try:
-        res = subprocess.run(
-            ["tasklist", "/NH", "/FI", "IMAGENAME eq WhatsApp*"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            creationflags=CREATE_NO_WINDOW,
-            timeout=3,
-        )
-        out = (res.stdout or "").lower()
-        return "whatsapp.exe" in out or "whatsapp.root.exe" in out
-    except Exception:
-        return False
 
 
 # ==============================================================================
@@ -240,7 +218,6 @@ def consultar_ruc_local_o_sunat(ruc_buscado: str) -> Dict[str, Any]:
     if len(ruc) != 11 or not re.match(r"^(10|15|17|20)", ruc):
         return {"ok": False, "error": "RUC inválido (debe tener 11 dígitos e iniciar con 10 o 20)."}
 
-    # 1. Consulta en Padrón Local (empresas_padron / estancias / huespedes_padron)
     razon_local = ""
     conn = get_connection()
     try:
@@ -266,12 +243,11 @@ def consultar_ruc_local_o_sunat(ruc_buscado: str) -> Dict[str, Any]:
     finally:
         conn.close()
 
-    # 2. Consulta en línea SUNAT (APIsPERU principal + apis.net.pe respaldo)
     urls_consulta = [
         ("APISPERU", f"{APISPERU_RUC_URL}/{ruc}?token={APISPERU_TOKEN}"),
         ("APIS_NET_PE", f"https://api.apis.net.pe/v1/ruc?numero={ruc}"),
     ]
-    for fuente_api, url in urls_consulta:
+    for _, url in urls_consulta:
         try:
             with httpx.Client(timeout=6.0, follow_redirects=True) as client:
                 resp = client.get(url)
@@ -303,7 +279,6 @@ def consultar_ruc_local_o_sunat(ruc_buscado: str) -> Dict[str, Any]:
         except Exception:
             continue
 
-    # 3. Si no hubo respuesta online pero estaba en padrón local, devolver padrón local
     if razon_local:
         _guardar_empresa_padron_seguro(ruc, razon_local)
         return {
@@ -322,16 +297,16 @@ def consultar_ruc_local_o_sunat(ruc_buscado: str) -> Dict[str, Any]:
 
 
 # ==============================================================================
-# 2. AUDITORÍA PREVENTIVA Y BÚSQUEDA DE PDF
+# 2. AUDITORÍA PREVENTIVA Y BÚSQUEDA DE PDF LOCAL
 # ==============================================================================
 
 def cargar_reglas_auditoria() -> Dict[str, Any]:
-    if REGLAS_AUDITORIA_JSON.exists():
-        try:
-            with open(REGLAS_AUDITORIA_JSON, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
+    for cand in (DATA_DIR / "reglas_auditoria.json", REGLAS_AUDITORIA_JSON):
+        if cand.exists():
+            try:
+                return json.loads(cand.read_text(encoding="utf-8"))
+            except Exception:
+                continue
     return {
         "umbrales_auditoria": {"umbral_alerta_monto": 250.0, "umbral_alerta_critico": 500.0},
         "regla_cero_extra": {"activo": True, "valores_sospechosos_cero_extra": [300.0, 350.0, 400.0, 500.0, 600.0, 700.0]},
@@ -365,8 +340,8 @@ def normalizar_y_validar_dni_servicio(
 ) -> Tuple[bool, str, str]:
     """
     Normaliza DNI peruano (7 dígitos -> 8 dígitos con cero inicial) y aplica regla estricta:
-    - Si se ingresó un DNI no vacío y no tiene 7 u 8 dígitos (ej. 4 dígitos), bloquea la emisión/envío.
-    - Si el huésped tiene número de celular registrado o solicita envío WSP, es OBLIGATORIO tener DNI válido (7 u 8 dígitos).
+    - Si se ingresó un DNI no vacío y no tiene 7 u 8 dígitos, bloquea la emisión/envío.
+    - Si el huésped tiene número de celular registrado o solicita envío WSP, es OBLIGATORIO tener DNI válido.
     """
     raw_str = str(raw_dni or "").strip()
     primer_token = re.split(r"[/,;]+", raw_str)[0].strip() if raw_str else ""
@@ -382,7 +357,7 @@ def normalizar_y_validar_dni_servicio(
             False,
             "",
             f"El DNI registrado ('{primer_token}' — {len(solo_dig)} dígitos) es incorrecto. "
-            f"Corríjalo con 7 u 8 dígitos válidos antes de emitir o enviar.",
+            "Corríjalo con 7 u 8 dígitos válidos antes de emitir o enviar.",
         )
 
     if (tel_dig or exigir_por_wsp) and len(solo_dig) != 8:
@@ -390,46 +365,18 @@ def normalizar_y_validar_dni_servicio(
             False,
             "",
             f"El huésped tiene celular registrado ({tel_dig or 'WhatsApp'}), por lo que es OBLIGATORIO "
-            f"que tenga su DNI correcto (7 u 8 dígitos) antes de emitir o enviar el comprobante.",
+            "que tenga su DNI correcto (7 u 8 dígitos) antes de emitir o enviar el comprobante.",
         )
 
     return True, solo_dig, ""
 
 
 def buscar_pdf_comprobante(nro_cp: str = "", ruc_dni: str = "", cliente: str = "") -> Optional[str]:
-    patrones = [
-        str(DESCARGAS_RECEPCION_DIR / "*.pdf"),
-        str(HOSTAL_SISTEMA_DIR / "boletas_sunat" / "**" / "*.pdf"),
-        str(HOSTAL_SISTEMA_DIR / "facturas_sunat" / "**" / "*.pdf"),
-    ]
-    archivos: List[str] = []
-    for pat in patrones:
-        archivos.extend(glob.glob(pat, recursive=True))
-    if not archivos:
-        return None
-    archivos.sort(key=os.path.getmtime, reverse=True)
-
-    terminos = []
-    if nro_cp:
-        terminos.append(nro_cp.replace("-", "").lower())
-        terminos.append(nro_cp.lower())
-    if ruc_dni:
-        terminos.append(str(ruc_dni).strip().lower())
-    if cliente:
-        palabras = [p.lower() for p in str(cliente).split() if len(p) > 3]
-        if palabras:
-            terminos.append(palabras[0])
-
-    terminos_limpios = [t for t in terminos if t]
-    for ruta in archivos[:120]:
-        nom = os.path.basename(ruta).lower()
-        if any(t in nom for t in terminos_limpios):
-            return ruta
-    return None if terminos_limpios else archivos[0]
+    return buscar_pdf_comprobante_local(nro_cp=nro_cp, ruc_dni=ruc_dni, cliente=cliente)
 
 
 # ==============================================================================
-# 3. GESTOR DE TAREAS EN SEGUNDO PLANO (NO BLOQUEA LA WEBAPP)
+# 3. GESTOR DE TRABAJOS EN SEGUNDO PLANO + EJECUCIÓN LOCAL Y COLA REMOTA SUPABASE
 # ==============================================================================
 
 def _prune_old_jobs() -> None:
@@ -464,65 +411,51 @@ def listar_jobs_sunat_recientes() -> List[Dict[str, Any]]:
     return jobs
 
 
-def _despachar_wsp_pdf(
-    telefono: str,
-    pdf_path: str,
-    mensaje: str,
-    nro_cp: str = "",
-) -> Tuple[bool, str, str]:
-    """
-    Despacha mensaje + PDF siempre por el WhatsApp de Recepción (Laptop 2):
-    - En Laptop 2 (es_laptop_recepcion_directa): ejecuta brazo_wsp.py directo en esta PC.
-    - En Laptop 1 (Controlador): delega a Laptop 2 vía ejecutar_remoto.py para no tocar el WhatsApp personal
-      de Laptop 1 y usar el archivo PDF guardado en Laptop 2.
-    """
-    py_bin = _python_cli_bin()
-    if MODO_PRUEBA:
-        return False, "🧪 MODO PRUEBA: el envío por WhatsApp está deshabilitado (no se envió nada).", ""
-    en_recepcion = es_laptop_recepcion_directa()
-    pista_archivo = os.path.basename(pdf_path) if pdf_path else (nro_cp or "")
-
-    if en_recepcion and BRAZO_WSP_SCRIPT.exists():
-        cmd = [py_bin, str(BRAZO_WSP_SCRIPT), "--telefono", telefono, "--mensaje", mensaje]
-        if pdf_path:
-            cmd.extend(["--archivo", pdf_path])
-        elif nro_cp:
-            cmd.extend(["--archivo", nro_cp])
-    elif EJECUTAR_REMOTO_SCRIPT.exists():
-        cmd = [
-            py_bin,
-            str(EJECUTAR_REMOTO_SCRIPT),
-            "brazo_wsp.py",
-            "--telefono", telefono,
-            "--mensaje", mensaje,
-        ]
-        if pista_archivo:
-            cmd.extend(["--archivo", pista_archivo])
-        cmd.extend(["--timeout-remoto", "135"])
-    else:
-        return False, "", "No se encontró brazo_wsp.py ni ejecutar_remoto.py en C:\\Hostal_Sistema."
-
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=160,
-        creationflags=CREATE_NO_WINDOW,
-    )
-    ok = proc.returncode == 0
-    out_txt = (proc.stdout or "").strip()
-    err_txt = (proc.stderr or proc.stdout or "").strip() if not ok else ""
-    return ok, out_txt, err_txt
+def _guardar_estado_orden_remota_supabase(job_id: str, orden_dict: Dict[str, Any]) -> None:
+    """Guarda o actualiza `sunat_orden_remota_<job_id>` en `estado_sistema` y empuja a Supabase."""
+    clave = f"sunat_orden_remota_{job_id}"
+    ahora_iso = datetime.now().isoformat(timespec="seconds")
+    orden_dict["updated_ts"] = time.time()
+    val_json = json.dumps(orden_dict, ensure_ascii=False)
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO estado_sistema (clave, valor, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at
+            """,
+            (clave, val_json, ahora_iso),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    push_to_supabase(limit=30)
 
 
-def _ejecutar_trabajo_sunat_wsp(
+def _leer_orden_remota_local(job_id: str) -> Optional[Dict[str, Any]]:
+    clave = f"sunat_orden_remota_{job_id}"
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = ?", (clave,)).fetchone()
+        if row and row["valor"]:
+            return json.loads(row["valor"])
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return None
+
+
+def _ejecutar_trabajo_sunat_wsp_local(
     job_id: Optional[str],
     data_norm: Dict[str, Any],
     wakeup_cb: Optional[Callable[[], None]] = None,
 ) -> Dict[str, Any]:
-    """Ejecuta en serie segura (con lock SUNAT) la orden solicitada y actualiza SQLite recién al concluir."""
+    """
+    Ejecuta el trabajo de SUNAT + Conversión PDF->Supabase + WhatsApp usando los motores de
+    `03_GIT_app_motor/sunat_motor_playwright.py` y guardando los PDFs en `02_DB_sqlite_local/comprobantes_pdf/`.
+    """
     if job_id:
         _update_job(job_id, etapa="⏳ En cola esperando turno del motor SUNAT...")
 
@@ -531,32 +464,50 @@ def _ejecutar_trabajo_sunat_wsp(
         hab = data_norm["hab"]
         estancia_uuid = data_norm["estanciaUuid"]
         id_estancia = data_norm["id_estancia"]
-        fila_calzado = data_norm["fila_calzado"]
-        modo_borrador = data_norm["modoBorrador"]
+        modo_borrador = bool(data_norm["modoBorrador"])
         tipo = data_norm["tipo"]
-        py_bin = _python_cli_bin()
         en_recepcion = es_laptop_recepcion_directa()
         CAPTURAS_SUNAT_DIR.mkdir(parents=True, exist_ok=True)
 
         # ------------------------------------------------------------------
-        # CASO A: REENVÍO SOLO WHATSAPP (Directo en Laptop 2 o Delegado desde Laptop 1)
+        # CASO A: REENVÍO SOLO WHATSAPP
         # ------------------------------------------------------------------
         if accion == "SOLO_WSP":
             tel = data_norm["telefono"]
             nro_cp = data_norm["nro_comprobante"]
             doc = data_norm["documento"]
             cli = data_norm["cliente"]
-            pdf_path = data_norm["archivo"]
-            if en_recepcion and (not pdf_path or not os.path.isfile(pdf_path)):
-                pdf_path = buscar_pdf_comprobante(nro_cp=nro_cp, ruc_dni=doc, cliente=cli) or ""
+            pdf_path = data_norm.get("archivo") or ""
+            if not pdf_path or not os.path.isfile(pdf_path):
+                pdf_path = buscar_pdf_comprobante_local(nro_cp=nro_cp, ruc_dni=doc, cliente=cli) or ""
             msg = (
                 data_norm.get("mensaje")
                 or f"Estimado(a) {cli or 'cliente'}, adjuntamos su comprobante electrónico {nro_cp} del Hostal El Óvalo Mariátegui. ¡Gracias por su preferencia!"
             )
             if job_id:
-                pref_pc = "" if en_recepcion else "📡 [Laptop 1 → Recepción] "
-                _update_job(job_id, state="RUNNING", etapa=f"{pref_pc}📲 Enviando {nro_cp or 'comprobante'} por WhatsApp a {tel}...")
-            ok_wsp, out_wsp, err_wsp = _despachar_wsp_pdf(tel, pdf_path, msg, nro_cp=nro_cp)
+                _update_job(job_id, state="RUNNING", etapa=f"📲 Enviando {nro_cp or 'comprobante'} por WhatsApp Recepción a {tel}...")
+
+            if en_recepcion:
+                ok_wsp, out_wsp, err_wsp = despachar_wsp_comprobante_local(
+                    telefono=tel,
+                    pdf_path=pdf_path,
+                    mensaje=msg,
+                    nro_cp=nro_cp,
+                    cliente=cli,
+                    ruc_dni=doc,
+                )
+            else:
+                res_q = encolar_whatsapp_remoto(
+                    destino_celular=tel,
+                    mensaje_texto=msg,
+                    nro_comprobante=nro_cp,
+                    adjunto_pdf_path=pdf_path,
+                    cliente_nombre=cli,
+                )
+                ok_wsp = bool(res_q.get("ok"))
+                out_wsp = f"Encolado en Supabase hacia Laptop Madre (Cola #{res_q.get('cola_id')})"
+                err_wsp = "" if ok_wsp else "No se pudo encolar en wsp_recepcion_cola_envio"
+
             return {
                 "status": "OK" if ok_wsp else "ERROR",
                 "accion": "SOLO_WSP",
@@ -574,78 +525,28 @@ def _ejecutar_trabajo_sunat_wsp(
         if accion == "NOTA_CREDITO":
             nro_origen = data_norm["nro_comprobante"]
             motivo = data_norm["motivo"]
-            cap_name = f"nc_{'borrador' if modo_borrador else 'emitida'}_{tipo.lower()}_{int(time.time())}.png"
-            cap_path = CAPTURAS_SUNAT_DIR / cap_name
-            cap_remota_str = f"C:\\Hostal_Sistema\\capturas\\{cap_name}"
 
             if job_id:
-                pref_pc = "" if en_recepcion else "📡 [Laptop 1 → Recepción] "
                 _update_job(
                     job_id,
                     state="RUNNING",
                     etapa=(
-                        f"{pref_pc}🧪 Generando Vista Preliminar de Nota de Crédito ({nro_origen})..."
+                        f"🧪 Generando Vista Preliminar de Nota de Crédito ({nro_origen})..."
                         if modo_borrador
-                        else f"{pref_pc}🧾↩️ Emitiendo Nota de Crédito en SUNAT para anular {nro_origen}..."
+                        else f"🧾↩️ Emitiendo Nota de Crédito en SUNAT para anular {nro_origen}..."
                     ),
                 )
 
-            if en_recepcion or not EJECUTAR_REMOTO_SCRIPT.exists():
-                cmd_nc = [
-                    py_bin,
-                    str(EMITIR_NC_SCRIPT),
-                    "--tipo", tipo,
-                    "--numero", nro_origen,
-                    "--motivo", motivo,
-                    "--headless",
-                    "--captura", str(cap_path),
-                ]
-                if not modo_borrador:
-                    cmd_nc.append("--emitir")
-            else:
-                cmd_nc = [
-                    py_bin,
-                    str(EJECUTAR_REMOTO_SCRIPT),
-                    "emitir_nota_credito_sunat.py",
-                    "--tipo", tipo,
-                    "--numero", nro_origen,
-                    "--motivo", motivo,
-                    "--headless",
-                    "--captura", cap_remota_str,
-                ]
-                if not modo_borrador:
-                    cmd_nc.append("--emitir")
-                cmd_nc.extend(["--timeout-remoto", "180"])
-
-            proc_nc = subprocess.run(
-                cmd_nc,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=210,
-                creationflags=CREATE_NO_WINDOW,
+            res_nc = emitir_nota_credito_sunat_local(
+                tipo_cp=tipo,
+                numero_comprobante=nro_origen,
+                motivo=motivo,
+                modo_borrador=modo_borrador,
+                headless=True,
             )
-            stdout_nc = proc_nc.stdout or ""
-            res_nc: Dict[str, Any] = {}
-            idx_res = stdout_nc.find("--- RESUMEN FINAL ---")
-            if idx_res != -1:
-                bloque = stdout_nc[idx_res + len("--- RESUMEN FINAL ---"):].strip()
-                # Si vino por ejecutar_remoto.py, cortar antes del separador STDERR
-                if "------------------------------------------------------------" in bloque:
-                    bloque = bloque.split("------------------------------------------------------------")[0].strip()
-                try:
-                    res_nc = json.loads(bloque)
-                except Exception:
-                    pass
-
             st_nc = str(res_nc.get("status") or "").upper()
+
             if modo_borrador and st_nc == "BORRADOR_GENERADO":
-                if not en_recepcion and not cap_path.exists():
-                    for _ in range(16):
-                        if cap_path.exists():
-                            break
-                        time.sleep(0.5)
                 return {
                     "status": "OK",
                     "modo": "borrador",
@@ -653,16 +554,20 @@ def _ejecutar_trabajo_sunat_wsp(
                     "hab": hab,
                     "tipo": tipo,
                     "cp_origen": nro_origen,
-                    "captura": str(cap_path),
-                    "nombre_captura": cap_name if cap_path.exists() else "",
+                    "captura": res_nc.get("captura_pantalla", ""),
+                    "nombre_captura": res_nc.get("nombre_captura", ""),
+                    "captura_b64": res_nc.get("captura_b64", ""),
                     "datos_cp_origen": res_nc.get("datos_cp_origen") or {},
                     "mensaje": f"Vista Preliminar de Nota de Crédito para {nro_origen} lista (sin emitir).",
                 }
 
             if not modo_borrador and st_nc == "EMITIDO":
                 nro_nc = str(res_nc.get("nro_nota_credito") or f"NC-{nro_origen}").strip()
-                # Revertir habitación a Pendiente y limpiar el comprobante anulado para permitir re-emitir
                 try:
+                    # 1. Convertir PDF de Nota de Crédito en datos para sunat_ventas -> Supabase
+                    convertir_comprobante_a_datos_y_subir_supabase(res_nc, data_norm)
+
+                    # 2. Revertir habitación a Pendiente para permitir re-emitir
                     actualizar_comprobante_desde_panel_local({
                         "hab": hab,
                         "estanciaUuid": estancia_uuid,
@@ -686,6 +591,7 @@ def _ejecutar_trabajo_sunat_wsp(
                             ],
                             monto=float((res_nc.get("datos_cp_origen") or {}).get("monto") or 0),
                         )
+                    push_to_supabase(limit=50)
                     if wakeup_cb:
                         wakeup_cb()
                 except Exception as exc_db:
@@ -707,8 +613,9 @@ def _ejecutar_trabajo_sunat_wsp(
                     "cp_origen": nro_origen,
                     "nro_nota_credito": nro_nc,
                     "archivo_pdf": res_nc.get("pdf_descargado") or "",
-                    "captura": str(cap_path) if cap_path.exists() else "",
-                    "nombre_captura": cap_name if cap_path.exists() else "",
+                    "captura": res_nc.get("captura_pantalla") or "",
+                    "nombre_captura": res_nc.get("nombre_captura") or "",
+                    "captura_b64": res_nc.get("captura_b64") or "",
                     "mensaje": f"Nota de Crédito {nro_nc} emitida en SUNAT (anuló {nro_origen}). Hab. {hab} volvió a Pendiente.",
                 }
 
@@ -716,11 +623,11 @@ def _ejecutar_trabajo_sunat_wsp(
                 "status": "ERROR",
                 "accion": "NOTA_CREDITO",
                 "hab": hab,
-                "error": res_nc.get("error") or (proc_nc.stderr or stdout_nc)[-500:] or "No se pudo emitir la Nota de Crédito en SUNAT.",
+                "error": res_nc.get("error") or "No se pudo emitir la Nota de Crédito en SUNAT.",
             }
 
         # ------------------------------------------------------------------
-        # CASO C: EMISIÓN DE BOLETA / FACTURA (LAPTOP 2 DIRECTO O LAPTOP 1 -> LAPTOP 2)
+        # CASO C: EMISIÓN DE BOLETA / FACTURA + CONVERSIÓN PDF->SUPABASE + WSP
         # ------------------------------------------------------------------
         emitir_en_firme = not modo_borrador
         items_normalizados = data_norm["items"]
@@ -730,93 +637,36 @@ def _ejecutar_trabajo_sunat_wsp(
         cliente = data_norm["cliente"]
         telefono = data_norm["telefono"]
 
-        # En Laptop 2 (Recepción) corre directo local; en Laptop 1 delega el flujo completo a Laptop 2
-        # vía ejecutar_remoto.py (Syncthing) para emitir y despachar el PDF desde WhatsApp Recepción.
-        usar_remoto_completo = (not en_recepcion) and EJECUTAR_REMOTO_SCRIPT.exists()
-
         if job_id:
-            pref_pc = "📡 [Laptop 1 → Recepción] " if usar_remoto_completo else ""
-            suf_wsp = " + Envío WSP" if (usar_remoto_completo and accion == "EMITIR_Y_WSP" and emitir_en_firme) else ""
             _update_job(
                 job_id,
                 state="RUNNING",
                 etapa=(
-                    f"{pref_pc}🧪 Abriendo Vista Preliminar de {tipo.title()} en SUNAT SEE-SOL..."
+                    f"🧪 Abriendo Vista Preliminar de {tipo.title()} en SUNAT SEE-SOL..."
                     if modo_borrador
-                    else f"{pref_pc}⚡ Emitiendo {tipo.title()} S/ {total_monto:.2f} en SUNAT SEE-SOL (IGV 10.5%){suf_wsp}..."
+                    else f"⚡ Emitiendo {tipo.title()} S/ {total_monto:.2f} en SUNAT SEE-SOL (IGV 10.5%)..."
                 ),
             )
 
-        payload_sunat = {
-            "accion": accion,
-            "tipo": tipo,
-            "documento": doc_num,
-            "dni_huesped": dni_huesped,
-            "cliente": cliente,
-            "items": items_normalizados,
-            "telefono": telefono,
-            "enviar_wsp": bool(usar_remoto_completo and accion == "EMITIR_Y_WSP" and emitir_en_firme),
-            "emitir": emitir_en_firme,
-            "omitir_sheets": True,
-            "headless": True,
-            "id_estancia": id_estancia,
-            "fila_calzado": fila_calzado,
-        }
-
-        if usar_remoto_completo:
-            cmd = [
-                py_bin,
-                str(EJECUTAR_REMOTO_SCRIPT),
-                "emitir_comprobante_sunat.py",
-                "--payload-json",
-                json.dumps(payload_sunat, ensure_ascii=False),
-                "--timeout-remoto", "260",
-            ]
-        else:
-            cmd = [
-                py_bin,
-                str(EMITIR_COMPROBANTE_SCRIPT),
-                "--payload-json",
-                json.dumps(payload_sunat, ensure_ascii=False),
-            ]
-
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=300,
-            creationflags=CREATE_NO_WINDOW,
+        res_sunat = emitir_comprobante_sunat_local(
+            tipo=tipo,
+            doc_num=doc_num,
+            cliente_nombre=cliente,
+            items=items_normalizados,
+            emitir_final=emitir_en_firme,
+            headless=True,
         )
-        stdout_all = proc.stdout or ""
-        res_json: Dict[str, Any] = {}
-        m = re.search(r"JSON_RESULT_START\s*(\{.*?\})\s*JSON_RESULT_END", stdout_all, re.DOTALL)
-        if m:
-            try:
-                res_json = json.loads(m.group(1))
-            except Exception:
-                pass
 
-        if res_json.get("status") != "OK":
+        if res_sunat.get("status") != "OK":
             return {
                 "status": "ERROR",
                 "accion": accion,
                 "hab": hab,
-                "error": res_json.get("error") or (proc.stderr or stdout_all)[-500:] or "Error desconocido en emisión SUNAT.",
+                "error": res_sunat.get("error") or "Error desconocido en emisión SUNAT.",
             }
 
-        # Si fue Modo Borrador, materializar captura en disco local (instantáneo en Laptop 1 vía captura_b64)
+        # Si fue Modo Borrador, devolver captura y base64 sin persistir en sunat_ventas
         if modo_borrador:
-            nom_cap = str(res_json.get("nombre_captura") or "").strip()
-            cap_b64 = str(res_json.get("captura_b64") or "").strip()
-            if nom_cap and cap_b64:
-                try:
-                    local_cap = CAPTURAS_SUNAT_DIR / Path(nom_cap).name
-                    if not local_cap.exists():
-                        local_cap.write_bytes(base64.b64decode(cap_b64))
-                except Exception:
-                    pass
             return {
                 "status": "OK",
                 "modo": "borrador",
@@ -824,34 +674,62 @@ def _ejecutar_trabajo_sunat_wsp(
                 "hab": hab,
                 "tipo": tipo,
                 "nro_comprobante": "BORRADOR-PRELIMINAR",
-                "captura": res_json.get("captura", ""),
-                "nombre_captura": nom_cap,
+                "captura": res_sunat.get("captura", ""),
+                "nombre_captura": res_sunat.get("nombre_captura", ""),
+                "captura_b64": res_sunat.get("captura_b64", ""),
                 "monto": total_monto,
                 "mensaje": f"Vista Preliminar de {tipo.title()} generada en SUNAT (sin emitir).",
             }
 
-        nro_cp = str(res_json.get("nro_comprobante") or "").strip()
-        archivo_pdf = str(res_json.get("archivo_pdf") or "").strip()
-        wsp_status = res_json.get("wsp_status", "NO_SOLICITADO")
-        wsp_err = str(res_json.get("wsp_error") or "").strip()
+        nro_cp = str(res_sunat.get("nro_comprobante") or "").strip()
+        archivo_pdf = str(res_sunat.get("archivo_pdf") or "").strip()
+        receptor_nombre_real = str(res_sunat.get("receptor_nombre") or cliente).strip().upper()
 
-        # Etapa 2: Enviar por WhatsApp (cuando corrió directo en Laptop 2) ANTES de cambiar a Emitido en el Panel
-        if accion == "EMITIR_Y_WSP" and not usar_remoto_completo and telefono:
+        # Etapa 2: Convertir PDF local en Datos (`sunat_ventas` + `sunat_lineas_cache`) y subir a Supabase
+        if job_id:
+            _update_job(
+                job_id,
+                etapa=f"📊 {nro_cp} descargada localmente · Extrayendo datos a sunat_ventas y Supabase...",
+            )
+        datos_conv = convertir_comprobante_a_datos_y_subir_supabase(res_sunat, data_norm)
+
+        # Etapa 3: Enviar por WhatsApp de Recepción si se pidió EMITIR_Y_WSP
+        wsp_status = "NO_SOLICITADO"
+        wsp_err = ""
+        if accion == "EMITIR_Y_WSP" and telefono:
             if job_id:
                 _update_job(
                     job_id,
-                    etapa=f"📲 {nro_cp} generada · Enviando PDF por WhatsApp al {telefono}...",
+                    etapa=f"📲 {nro_cp} registrada · Enviando PDF por WhatsApp Recepción al {telefono}...",
                 )
             tipo_lbl = "Factura" if tipo == "FACTURA" else "Boleta"
             msg_wsp = (
-                f"Estimado(a) {cliente}, le adjuntamos su {tipo_lbl} Electrónica {nro_cp}. "
-                f"¡Muchas gracias por su preferencia en Hostal El Óvalo Mariátegui!"
+                f"Estimado(a) {receptor_nombre_real}, le adjuntamos su {tipo_lbl} Electrónica {nro_cp}. "
+                "¡Muchas gracias por su preferencia en Hostal El Óvalo Mariátegui!"
             )
-            ok_wsp, _, err_wsp = _despachar_wsp_pdf(telefono, archivo_pdf, msg_wsp, nro_cp=nro_cp)
-            wsp_status = "ENVIADO" if ok_wsp else "ERROR_WSP"
-            wsp_err = err_wsp
+            if en_recepcion:
+                ok_wsp, _, err_wsp = despachar_wsp_comprobante_local(
+                    telefono=telefono,
+                    pdf_path=archivo_pdf,
+                    mensaje=msg_wsp,
+                    nro_cp=nro_cp,
+                    cliente=receptor_nombre_real,
+                    ruc_dni=doc_num,
+                )
+                wsp_status = "ENVIADO" if ok_wsp else "ERROR_WSP"
+                wsp_err = err_wsp
+            else:
+                res_q = encolar_whatsapp_remoto(
+                    destino_celular=telefono,
+                    mensaje_texto=msg_wsp,
+                    nro_comprobante=nro_cp,
+                    adjunto_pdf_path=archivo_pdf,
+                    cliente_nombre=receptor_nombre_real,
+                )
+                wsp_status = "ENVIADO" if res_q.get("ok") else "ERROR_WSP"
+                wsp_err = "" if res_q.get("ok") else "No se pudo encolar envío WhatsApp en Supabase."
 
-        # Etapa 3: Recién al finalizar TODO el proceso (SUNAT + WSP), cambiar estado a Emitido (✅) en SQLite y Sheets
+        # Etapa 4: Actualizar estancia a Emitido (✅) en SQLite, Supabase y espejo Sheets
         if hab or estancia_uuid or id_estancia:
             try:
                 actualizar_comprobante_desde_panel_local({
@@ -865,18 +743,19 @@ def _ejecutar_trabajo_sunat_wsp(
                     "montoFact": total_monto,
                     "celular": telefono,
                     "ruc": doc_num if tipo == "FACTURA" else "",
-                    "empresa": cliente if tipo == "FACTURA" else "",
+                    "empresa": receptor_nombre_real if tipo == "FACTURA" else "",
                     "forzarNroComp": True,
                 })
+                push_to_supabase(limit=50)
                 if wakeup_cb:
                     wakeup_cb()
             except Exception as exc_upd:
-                res_json["warn_sqlite"] = str(exc_upd)
+                res_sunat["warn_sqlite"] = str(exc_upd)
 
-        msg_final = f"{'Factura' if tipo == 'FACTURA' else 'Boleta'} {nro_cp} emitida exitosamente."
+        msg_final = f"{'Factura' if tipo == 'FACTURA' else 'Boleta'} {nro_cp} emitida y sincronizada con Supabase."
         if accion == "EMITIR_Y_WSP":
             if wsp_status == "ENVIADO":
-                msg_final = f"✅ {nro_cp} emitida en SUNAT y enviada por WhatsApp al {telefono}."
+                msg_final = f"✅ {nro_cp} emitida en SUNAT, convertida a datos en Supabase y enviada por WhatsApp al {telefono}."
             else:
                 msg_final = f"⚠️ {nro_cp} emitida en SUNAT, pero WhatsApp reportó: {wsp_err or wsp_status}. Puede usar 'Reenviar WSP'."
 
@@ -888,10 +767,192 @@ def _ejecutar_trabajo_sunat_wsp(
             "nro_comprobante": nro_cp,
             "monto": total_monto,
             "archivo_pdf": archivo_pdf,
+            "datos_supabase": datos_conv,
             "wsp_status": wsp_status,
             "wsp_error": wsp_err,
             "mensaje": msg_final,
         }
+
+
+def procesar_cola_ordenes_sunat_madre(wakeup_cb: Optional[Callable[[], None]] = None) -> Dict[str, Any]:
+    """
+    Corre en la Laptop Madre (NIVEL_2_MADRE_HOTEL):
+    1. Revisa si alguna otra laptop (Laptop 3 Terciaria o Laptop 1) envió una orden en
+       `estado_sistema` (`clave LIKE 'sunat_orden_remota_%'`) con `state == 'PENDIENTE'`.
+    2. La reclama (`state = 'RUNNING'`), ejecuta la emisión SUNAT + guardado de PDF local en L2 +
+       conversión a `sunat_ventas` + envío por WhatsApp de Recepción, y publica `state = 'DONE'` en Supabase.
+    """
+    if not es_laptop_recepcion_directa():
+        return {"ok": True, "procesadas": 0, "motivo": "NO_ES_LAPTOP_MADRE"}
+    if not _remote_consumer_lock.acquire(blocking=False):
+        return {"ok": True, "procesadas": 0, "motivo": "YA_EN_EJECUCION"}
+
+    procesadas = 0
+    try:
+        conn = get_connection()
+        try:
+            filas = conn.execute(
+                "SELECT clave, valor FROM estado_sistema WHERE clave LIKE 'sunat_orden_remota_%'"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        ahora_ts = time.time()
+        claves_limpiar: List[str] = []
+
+        for r in filas:
+            clave = str(r["clave"])
+            try:
+                orden = json.loads(r["valor"] or "{}")
+            except Exception:
+                continue
+
+            st = str(orden.get("state") or "").upper()
+            upd_ts = float(orden.get("updated_ts") or orden.get("created_ts") or 0)
+
+            # Purgar órdenes finalizadas hace más de 10 minutos
+            if st in ("DONE", "ERROR") and (ahora_ts - upd_ts) > 600:
+                claves_limpiar.append(clave)
+                continue
+
+            if st != "PENDIENTE":
+                continue
+
+            job_id = str(orden.get("job_id") or clave.replace("sunat_orden_remota_", ""))
+            data_norm = orden.get("data_norm") or {}
+            if not data_norm:
+                continue
+
+            # 1. Reclamar la orden en Supabase
+            orden["state"] = "RUNNING"
+            orden["atendido_por"] = ROL_NODO
+            orden["etapa"] = f"🏢 Laptop Madre ejecutando {data_norm.get('accion', 'SUNAT')} (Hab. {data_norm.get('hab', '')})..."
+            _guardar_estado_orden_remota_supabase(job_id, orden)
+
+            # 2. Ejecutar la orden en Laptop Madre
+            res = _ejecutar_trabajo_sunat_wsp_local(None, data_norm, wakeup_cb=wakeup_cb)
+
+            # 3. Publicar resultado final en Supabase
+            orden["state"] = "DONE" if res.get("status") == "OK" else "ERROR"
+            orden["etapa"] = res.get("mensaje") or res.get("error") or "Completado en Laptop Madre"
+            orden["finished_ts"] = time.time()
+            orden["result"] = res
+            _guardar_estado_orden_remota_supabase(job_id, orden)
+            procesadas += 1
+
+        if claves_limpiar:
+            c_del = get_connection()
+            try:
+                for cl in claves_limpiar:
+                    c_del.execute("DELETE FROM estado_sistema WHERE clave = ?", (cl,))
+                c_del.commit()
+            finally:
+                c_del.close()
+            push_to_supabase(limit=30)
+
+        return {"ok": True, "procesadas": procesadas}
+    finally:
+        _remote_consumer_lock.release()
+
+
+def _materializar_captura_b64_local(res: Dict[str, Any]) -> None:
+    """Si la respuesta remota de Laptop Madre trae una captura preliminar en Base64, la guarda en disco local para mostrarla en la UI."""
+    nom_cap = str(res.get("nombre_captura") or "").strip()
+    cap_b64 = str(res.get("captura_b64") or "").strip()
+    if nom_cap and cap_b64:
+        try:
+            CAPTURAS_SUNAT_DIR.mkdir(parents=True, exist_ok=True)
+            local_cap = CAPTURAS_SUNAT_DIR / Path(nom_cap).name
+            if not local_cap.exists():
+                local_cap.write_bytes(base64.b64decode(cap_b64))
+            res["captura"] = str(local_cap)
+        except Exception:
+            pass
+
+
+def _ejecutar_trabajo_sunat_wsp(
+    job_id: Optional[str],
+    data_norm: Dict[str, Any],
+    wakeup_cb: Optional[Callable[[], None]] = None,
+) -> Dict[str, Any]:
+    """
+    Enrutador inteligente Multi-Laptop:
+    - Si estamos en Laptop 2 Madre (`es_laptop_recepcion_directa()`), ejecuta directo local.
+    - Si estamos en Laptop 3 Terciaria o Laptop 1:
+      1) Si `forzar_local` está activo en Laptop 1, ejecuta el motor SUNAT local y encola WSP a Laptop 2 por Supabase.
+      2) Por defecto, publica la orden en Supabase (`sunat_orden_remota_<job_id>`) hacia Laptop 2 Madre.
+      3) Si estamos en Laptop 1 y Laptop 2 Madre aún no reclama la orden tras 10s (ej. durante pruebas antes de git pull
+         o si L2 está en reposo), Laptop 1 toma el relevo automáticamente para que la emisión/borrador jamás quede colgada.
+    """
+    if es_laptop_recepcion_directa() or bool(data_norm.get("forzar_local")):
+        return _ejecutar_trabajo_sunat_wsp_local(job_id, data_norm, wakeup_cb=wakeup_cb)
+
+    jid_eff = job_id or f"sunat_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+    orden_remota = {
+        "job_id": jid_eff,
+        "state": "PENDIENTE",
+        "solicitado_por": ROL_NODO,
+        "etapa": f"📡 [{ROL_NODO} → Laptop Madre] Orden enviada por Supabase...",
+        "created_ts": time.time(),
+        "updated_ts": time.time(),
+        "data_norm": data_norm,
+        "result": None,
+    }
+    if job_id:
+        _update_job(job_id, state="RUNNING", etapa=orden_remota["etapa"])
+
+    _guardar_estado_orden_remota_supabase(jid_eff, orden_remota)
+
+    t0 = time.time()
+    timeout_total = 240.0
+    timeout_relevo_l1 = 10.0  # Si en 10s Laptop 2 no reclamó la orden, Laptop 1 puede ejecutar SUNAT directo
+
+    while time.time() - t0 < timeout_total:
+        time.sleep(2.0)
+        try:
+            pull_from_supabase(limit=150)
+        except Exception:
+            pass
+
+        ord_act = _leer_orden_remota_local(jid_eff)
+        if not ord_act:
+            continue
+
+        st_rem = str(ord_act.get("state") or "").upper()
+        etapa_rem = str(ord_act.get("etapa") or "")
+        if job_id and etapa_rem:
+            _update_job(job_id, etapa=etapa_rem)
+
+        if st_rem in ("DONE", "ERROR"):
+            res_rem = ord_act.get("result") or {"status": "ERROR", "error": etapa_rem or "Error en Laptop Madre."}
+            _materializar_captura_b64_local(res_rem)
+            try:
+                pull_from_supabase(limit=200)
+            except Exception:
+                pass
+            if wakeup_cb:
+                wakeup_cb()
+            return res_rem
+
+        # Relevo automático en Laptop 1 (Ingeniería) si Laptop 2 no ha reclamado la orden en 10s
+        if ES_NIVEL_1_INGENIERIA and st_rem == "PENDIENTE" and (time.time() - t0) >= timeout_relevo_l1:
+            ord_act["state"] = "RUNNING"
+            ord_act["atendido_por"] = ROL_NODO
+            ord_act["etapa"] = "💻 Ejecutando motor SUNAT en Laptop 1 + sincronización Supabase..."
+            _guardar_estado_orden_remota_supabase(jid_eff, ord_act)
+            res_l1 = _ejecutar_trabajo_sunat_wsp_local(job_id, data_norm, wakeup_cb=wakeup_cb)
+            ord_act["state"] = "DONE" if res_l1.get("status") == "OK" else "ERROR"
+            ord_act["finished_ts"] = time.time()
+            ord_act["result"] = res_l1
+            _guardar_estado_orden_remota_supabase(jid_eff, ord_act)
+            return res_l1
+
+    return {
+        "status": "ERROR",
+        "accion": data_norm.get("accion"),
+        "hab": data_norm.get("hab"),
+        "error": "Tiempo de espera agotado aguardando respuesta de la Laptop Madre en Recepción vía Supabase.",
+    }
 
 
 def _thread_runner(
@@ -926,13 +987,12 @@ def ejecutar_orden_sunat_wsp(
     """
     Valida instantáneamente (<5 ms) los datos de la orden:
     - Si hay error de validación o requiere confirmación de auditoría, responde de inmediato.
-    - Por defecto lanza la ejecución en segundo plano (async=True) y devuelve job_id en 0 ms
-      para que Recepción pueda cerrar el modal y seguir operando sin esperar.
+    - Por defecto lanza la ejecución en segundo plano (async=True) y devuelve job_id en 0 ms.
     - Si data['sincrono'] == True, espera y devuelve el resultado directo.
     """
     accion_raw = str(data.get("accion") or "").upper().strip()
     if MODO_PRUEBA:
-        _msg_p = "🧪 MODO PRUEBA: la emisión SUNAT está deshabilitada en el sistema de prueba (no se emite nada real)."
+        _msg_p = "🧪 MODO PRUEBA: la emisión SUNAT está deshabilitada en el sistema de prueba."
         return {"status": "ERROR", "exito": False, "error": _msg_p, "mensaje": _msg_p}
     modo_borrador = bool(data.get("modoBorrador", False))
     if accion_raw == "BORRADOR":
@@ -946,6 +1006,7 @@ def ejecutar_orden_sunat_wsp(
     id_estancia = data.get("id_estancia") or data.get("fila") or 0
     fila_calzado = data.get("fila_calzado")
     sincrono = bool(data.get("sincrono", False))
+    forzar_local = bool(data.get("forzar_local", False))
 
     if accion not in ("EMITIR", "EMITIR_Y_WSP", "SOLO_WSP", "NOTA_CREDITO"):
         return {"status": "ERROR", "error": f"Acción '{accion_raw}' no soportada."}
@@ -967,6 +1028,7 @@ def ejecutar_orden_sunat_wsp(
             "id_estancia": id_estancia,
             "fila_calzado": fila_calzado,
             "modoBorrador": False,
+            "forzar_local": forzar_local,
             "tipo": str(data.get("tipo") or "BOLETA").upper().strip(),
             "telefono": tel,
             "nro_comprobante": str(data.get("nro_comprobante") or "").strip(),
@@ -1003,6 +1065,7 @@ def ejecutar_orden_sunat_wsp(
             "id_estancia": id_estancia,
             "fila_calzado": fila_calzado,
             "modoBorrador": modo_borrador,
+            "forzar_local": forzar_local,
             "tipo": tipo_nc,
             "nro_comprobante": nro_cp,
             "motivo": motivo,
@@ -1085,6 +1148,7 @@ def ejecutar_orden_sunat_wsp(
             "id_estancia": id_estancia,
             "fila_calzado": fila_calzado,
             "modoBorrador": modo_borrador,
+            "forzar_local": forzar_local,
             "tipo": tipo,
             "documento": doc_num,
             "dni_huesped": dni_huesped_norm,
@@ -1094,11 +1158,9 @@ def ejecutar_orden_sunat_wsp(
             "total_monto": total_monto,
         }
 
-    # Modo síncrono opcional para pruebas por script
     if sincrono:
         return _ejecutar_trabajo_sunat_wsp(None, data_norm, wakeup_cb=wakeup_cb)
 
-    # Modo asíncrono por defecto: responde en 0 ms y corre en segundo plano
     job_id = f"sunat_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     etapa_ini = (
         "🧪 Iniciando captura de Vista Preliminar en SUNAT..."
@@ -1148,3 +1210,285 @@ def ejecutar_orden_sunat_wsp(
         "modoBorrador": modo_borrador,
         "etapa": etapa_ini,
     }
+
+
+# ==============================================================================
+# 4. OBJETIVO 2: PRE-APROBACIÓN Y AUTOMATIZACIÓN DE PENDIENTES (FACTURAS Y BOLETAS)
+# ==============================================================================
+
+MESES_TEXTO_GLOSA = {
+    1: "ENERO", 2: "FEBRERO", 3: "MARZO", 4: "ABRIL",
+    5: "MAYO", 6: "JUNIO", 7: "JULIO", 8: "AGOSTO",
+    9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE",
+}
+
+
+def _formatear_fecha_glosa(fecha_dmy: str) -> str:
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{2,4})", str(fecha_dmy or "").strip())
+    if m:
+        d = int(m.group(1))
+        mes = int(m.group(2))
+        if 1 <= d <= 31 and 1 <= mes <= 12:
+            return f"{d:02d} DE {MESES_TEXTO_GLOSA[mes]}"
+    return "HOY"
+
+
+def listar_pendientes_facturacion_para_aprobacion(
+    fecha_desde_ymd: int = 20261101,
+    fecha_hasta_ymd: int = 20261231,
+    solo_con_yape_o_solicita: bool = True,
+) -> Dict[str, Any]:
+    """
+    Escanea las estancias con comprobante pendiente y genera la tabla de Pre-Aprobación (Semáforo Pre-Vuelo SUNAT):
+    - Separa en:
+      1) `facturas_ruc_pendientes` (Prioridad Naranja: Facturas con RUC)
+      2) `boletas_wsp_pendientes` (Prioridad Naranja: Boletas con celular para emitir + enviar por WhatsApp)
+      3) `boletas_sin_wsp_pendientes` (Amarillo: Boletas con Yape sin celular)
+      4) `observados_corregir` (Rojo: DNI incompleto, RUC inválido o sin monto)
+    """
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT estancia_uuid, sheet_row, fecha_in_dmy, fecha_out_dmy, ymd_in,
+                   hab, tipo_hab, huesped, dni, celular, ruc, empresa,
+                   tarifa, noches, adic_snacks, adic_servicios, adic_comp,
+                   pago_ini_efec, pago_ini_yape, pago_post_efec, pago_post_yape,
+                   solicita_comp, tipo_comp, estado_comp, nro_comp, monto_factura,
+                   unificado_en_uuid
+            FROM estancias
+            WHERE ymd_in BETWEEN ? AND ?
+              AND lower(coalesce(estado_estancia, '')) != 'cancelada'
+              AND (nro_comp IS NULL OR trim(nro_comp) = '')
+              AND lower(coalesce(estado_comp, '')) NOT IN ('emitido', 'unificado')
+              AND (unificado_en_uuid IS NULL OR trim(unificado_en_uuid) = '')
+            ORDER BY ymd_in DESC, hab ASC
+            """,
+            (fecha_desde_ymd, fecha_hasta_ymd),
+        ).fetchall()
+        mapa_emp_ruc: Dict[str, Tuple[str, str]] = {}
+        for er_p in conn.execute("SELECT ruc, razon_social FROM empresas_padron WHERE length(trim(ruc)) = 11").fetchall():
+            rz_p = str(er_p["razon_social"] or "").strip().upper()
+            rc_p = str(er_p["ruc"] or "").strip()
+            if rz_p and rc_p:
+                mapa_emp_ruc[rz_p] = (rc_p, rz_p)
+                primera_pal = rz_p.split()[0]
+                if len(primera_pal) >= 5 and primera_pal not in mapa_emp_ruc:
+                    mapa_emp_ruc[primera_pal] = (rc_p, rz_p)
+        for er_e in conn.execute("SELECT ruc, empresa FROM estancias WHERE length(trim(ruc)) = 11 AND trim(empresa) != ''").fetchall():
+            rz_e = str(er_e["empresa"] or "").strip().upper()
+            rc_e = re.sub(r"\D", "", str(er_e["ruc"] or ""))
+            if len(rc_e) == 11 and rz_e:
+                if rz_e not in mapa_emp_ruc:
+                    mapa_emp_ruc[rz_e] = (rc_e, rz_e)
+                primera_pal = rz_e.split()[0]
+                if len(primera_pal) >= 5 and primera_pal not in mapa_emp_ruc:
+                    mapa_emp_ruc[primera_pal] = (rc_e, rz_e)
+    finally:
+        conn.close()
+
+    facturas_ruc: List[Dict[str, Any]] = []
+    boletas_wsp: List[Dict[str, Any]] = []
+    boletas_sin_wsp: List[Dict[str, Any]] = []
+    observados: List[Dict[str, Any]] = []
+
+    for r in rows:
+        yape_tot = round(float(r["pago_ini_yape"] or 0) + float(r["pago_post_yape"] or 0), 2)
+        efec_tot = round(float(r["pago_ini_efec"] or 0) + float(r["pago_post_efec"] or 0), 2)
+        tarifa = float(r["tarifa"] or 0)
+        noches = max(1, int(r["noches"] or 1))
+        adic = float(r["adic_snacks"] or 0) + float(r["adic_servicios"] or 0) + float(r["adic_comp"] or 0)
+        total_cuenta = round(tarifa * noches + adic, 2)
+
+        ruc_clean = re.sub(r"\D", "", str(r["ruc"] or "").strip())
+        empresa_clean = str(r["empresa"] or "").strip().upper()
+        if not ruc_clean and empresa_clean and empresa_clean != "-":
+            match_emp = mapa_emp_ruc.get(empresa_clean) or mapa_emp_ruc.get(empresa_clean.split()[0])
+            if match_emp:
+                ruc_clean, empresa_clean = match_emp
+        elif len(ruc_clean) == 11 and (not empresa_clean or len(empresa_clean) <= 12):
+            for _, (rc_m, rz_m) in mapa_emp_ruc.items():
+                if rc_m == ruc_clean and len(rz_m) > len(empresa_clean):
+                    empresa_clean = rz_m
+                    break
+        es_fact = bool(
+            len(ruc_clean) == 11
+            or "fact" in str(r["tipo_comp"] or "").lower()
+            or (empresa_clean and empresa_clean != "-")
+        )
+        solicita = str(r["solicita_comp"] or "").strip().lower() in ("sí", "si", "yes", "1", "true") or str(r["estado_comp"] or "").strip().lower() == "pendiente"
+
+        if solo_con_yape_o_solicita and not (yape_tot > 0 or solicita or es_fact):
+            continue
+
+        monto_emitir = round(float(r["monto_factura"] or 0) or (yape_tot if yape_tot > 0 else total_cuenta), 2)
+        tel_clean = re.sub(r"\D", "", str(r["celular"] or "").strip())
+        tiene_wsp = len(tel_clean) >= 9
+        hab = str(r["hab"] or "").strip()
+        fecha_in = str(r["fecha_in_dmy"] or "").strip()
+        huesped = str(r["huesped"] or "CLIENTES VARIOS").strip().upper()
+        ok_dni, dni_norm, err_dni = normalizar_y_validar_dni_servicio(r["dni"], telefono=tel_clean if tiene_wsp else "", exigir_por_wsp=tiene_wsp)
+
+        glosa_base = f"DIA DE ALOJAMIENTO DEL {_formatear_fecha_glosa(fecha_in)}, HAB N {hab}"
+        if es_fact and dni_norm and huesped:
+            glosa_base += f", IDENTIFICADO CON DNI {dni_norm} Y NOMBRE {huesped}"
+
+        item_cand = {
+            "estancia_uuid": r["estancia_uuid"],
+            "id_estancia": r["sheet_row"],
+            "fecha_in": fecha_in,
+            "hab": hab,
+            "tipo": "FACTURA" if es_fact else "BOLETA",
+            "huesped": huesped,
+            "dni": dni_norm or str(r["dni"] or "").strip(),
+            "ruc": ruc_clean,
+            "empresa": empresa_clean,
+            "celular": tel_clean,
+            "tiene_wsp": tiene_wsp,
+            "yape_pagado": yape_tot,
+            "efectivo_pagado": efec_tot,
+            "monto_emitir": monto_emitir,
+            "valor_sin_igv": calcular_valor_unitario_105(monto_emitir) if monto_emitir > 0 else 0.0,
+            "glosa": glosa_base,
+            "accion_sugerida": "EMITIR_Y_WSP" if tiene_wsp else "EMITIR",
+        }
+
+        if monto_emitir <= 0:
+            item_cand["motivo_observacion"] = "Monto a emitir es S/ 0.00"
+            observados.append(item_cand)
+            continue
+
+        if es_fact:
+            if len(ruc_clean) != 11 or not re.match(r"^(10|15|17|20)", ruc_clean):
+                item_cand["motivo_observacion"] = f"RUC inválido o faltante ('{r['ruc'] or ''}')"
+                observados.append(item_cand)
+                continue
+            if not ok_dni:
+                item_cand["motivo_observacion"] = err_dni
+                observados.append(item_cand)
+                continue
+            facturas_ruc.append(item_cand)
+        else:
+            if not ok_dni:
+                item_cand["motivo_observacion"] = err_dni
+                observados.append(item_cand)
+                continue
+            if tiene_wsp:
+                boletas_wsp.append(item_cand)
+            else:
+                boletas_sin_wsp.append(item_cand)
+
+    return {
+        "ok": True,
+        "resumen": {
+            "facturas_ruc_cant": len(facturas_ruc),
+            "facturas_ruc_monto": round(sum(x["monto_emitir"] for x in facturas_ruc), 2),
+            "boletas_wsp_cant": len(boletas_wsp),
+            "boletas_wsp_monto": round(sum(x["monto_emitir"] for x in boletas_wsp), 2),
+            "boletas_sin_wsp_cant": len(boletas_sin_wsp),
+            "boletas_sin_wsp_monto": round(sum(x["monto_emitir"] for x in boletas_sin_wsp), 2),
+            "observados_cant": len(observados),
+        },
+        "facturas_ruc_pendientes": facturas_ruc,
+        "boletas_wsp_pendientes": boletas_wsp,
+        "boletas_sin_wsp_pendientes": boletas_sin_wsp,
+        "observados_corregir": observados,
+    }
+
+
+def ejecutar_estancia_pendiente_por_uuid(
+    estancia_uuid: str,
+    modo_borrador: bool = True,
+    enviar_wsp: bool = True,
+    forzar_local: bool = False,
+    sincrono: bool = True,
+) -> Dict[str, Any]:
+    """
+    Construye la orden de facturación para una estancia pendiente por su `estancia_uuid` y la ejecuta:
+    - `modo_borrador=True`: Entra a SUNAT SEE-SOL y toma la captura oficial de la Vista Preliminar sin emitir.
+    - `modo_borrador=False`: Emite el comprobante en SUNAT, guarda el PDF en `02_DB_sqlite_local/comprobantes_pdf/`,
+      convierte el PDF a datos en `sunat_ventas` + `sunat_lineas_cache` + `estancias` -> Supabase,
+      y si tiene celular y `enviar_wsp=True`, lo envía por el WhatsApp de Recepción.
+    """
+    pend = listar_pendientes_facturacion_para_aprobacion(20260101, 20261231, solo_con_yape_o_solicita=False)
+    todos = (
+        pend["facturas_ruc_pendientes"]
+        + pend["boletas_wsp_pendientes"]
+        + pend["boletas_sin_wsp_pendientes"]
+        + pend["observados_corregir"]
+    )
+    cand = next((x for x in todos if x["estancia_uuid"] == estancia_uuid or str(x["estancia_uuid"]).startswith(estancia_uuid)), None)
+    if not cand:
+        return {"status": "ERROR", "error": f"No se encontró estancia pendiente con UUID '{estancia_uuid}'."}
+    if cand.get("motivo_observacion"):
+        return {"status": "ERROR", "error": f"Estancia observada (corregir antes de emitir): {cand['motivo_observacion']}"}
+
+    es_fact = cand["tipo"] == "FACTURA"
+    tiene_cel = bool(cand.get("tiene_wsp") and cand.get("celular"))
+    accion = "BORRADOR" if modo_borrador else ("EMITIR_Y_WSP" if (enviar_wsp and tiene_cel) else "EMITIR")
+
+    orden = {
+        "accion": accion,
+        "modoBorrador": bool(modo_borrador),
+        "hab": cand["hab"],
+        "estanciaUuid": cand["estancia_uuid"],
+        "id_estancia": cand["id_estancia"],
+        "tipo": cand["tipo"],
+        "documento": cand["ruc"] if es_fact else cand["dni"],
+        "dni_huesped": cand["dni"],
+        "cliente": (cand["empresa"] if es_fact else cand["huesped"]) or "CLIENTES VARIOS",
+        "telefono": cand["celular"] if tiene_cel else "",
+        "items": [
+            {
+                "cantidad": 1,
+                "descripcion": cand["glosa"],
+                "precio_unitario": cand["monto_emitir"],
+                "valor_unitario": cand["valor_sin_igv"],
+            }
+        ],
+        "forzar": True,
+        "forzar_local": bool(forzar_local),
+        "sincrono": bool(sincrono),
+    }
+    return ejecutar_orden_sunat_wsp(orden)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Orquestador SUNAT + PDF->Supabase + WhatsApp Recepción (Sistema v2)")
+    parser.add_argument("--listar-pendientes", action="store_true", help="Lista facturas y boletas pendientes para pre-aprobación")
+    parser.add_argument("--desde", type=int, default=20261115, help="Fecha inicio YYYYMMDD")
+    parser.add_argument("--hasta", type=int, default=20261130, help="Fecha fin YYYYMMDD")
+    parser.add_argument("--borrador-uuid", type=str, default="", help="Genera captura Borrador SUNAT (sin emitir) para estancia_uuid")
+    parser.add_argument("--emitir-uuid", type=str, default="", help="Emite en SUNAT (y envía WSP si tiene celular) para estancia_uuid")
+    parser.add_argument("--sin-wsp", action="store_true", help="Omitir envío por WhatsApp al emitir")
+    parser.add_argument("--forzar-local", action="store_true", help="Ejecutar motor Playwright SUNAT en esta PC directamente")
+    parser.add_argument("--procesar-cola-madre", action="store_true", help="Procesar órdenes remotas pendientes en Laptop Madre")
+    args = parser.parse_args()
+
+    if args.procesar_cola_madre:
+        print(json.dumps(procesar_cola_ordenes_sunat_madre(), indent=2, ensure_ascii=False))
+    elif args.borrador_uuid:
+        res_b = ejecutar_estancia_pendiente_por_uuid(
+            args.borrador_uuid,
+            modo_borrador=True,
+            enviar_wsp=False,
+            forzar_local=args.forzar_local,
+            sincrono=True,
+        )
+        res_print = {k: v for k, v in res_b.items() if k != "captura_b64"}
+        print(json.dumps(res_print, indent=2, ensure_ascii=False))
+    elif args.emitir_uuid:
+        res_e = ejecutar_estancia_pendiente_por_uuid(
+            args.emitir_uuid,
+            modo_borrador=False,
+            enviar_wsp=not args.sin_wsp,
+            forzar_local=args.forzar_local,
+            sincrono=True,
+        )
+        res_print = {k: v for k, v in res_e.items() if k != "captura_b64"}
+        print(json.dumps(res_print, indent=2, ensure_ascii=False))
+    else:
+        print(json.dumps(listar_pendientes_facturacion_para_aprobacion(args.desde, args.hasta), indent=2, ensure_ascii=False))
+

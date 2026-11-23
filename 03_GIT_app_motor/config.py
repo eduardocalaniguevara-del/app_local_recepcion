@@ -26,6 +26,22 @@ PERFIL_HOTEL_PATH = DATA_DIR / "hotel_perfil.json"
 BORRADORES_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+# Carpetas 100% locales en 02_DB_sqlite_local para PDFs SUNAT y capturas (protegidas en .gitignore; cero C:\Hostal_Sistema)
+COMPROBANTES_PDF_DIR = DATA_DIR / "comprobantes_pdf"
+BOLETAS_PDF_DIR = COMPROBANTES_PDF_DIR / "boletas"
+FACTURAS_PDF_DIR = COMPROBANTES_PDF_DIR / "facturas"
+NOTAS_CREDITO_PDF_DIR = COMPROBANTES_PDF_DIR / "notas_credito"
+CAPTURAS_SUNAT_DIR = COMPROBANTES_PDF_DIR / "capturas"
+
+for _pdf_dir in (
+    COMPROBANTES_PDF_DIR,
+    BOLETAS_PDF_DIR,
+    FACTURAS_PDF_DIR,
+    NOTAS_CREDITO_PDF_DIR,
+    CAPTURAS_SUNAT_DIR,
+):
+    _pdf_dir.mkdir(parents=True, exist_ok=True)
+
 
 def cargar_env_local() -> None:
     env_file = BASE_DIR / ".env"

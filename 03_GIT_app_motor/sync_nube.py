@@ -495,20 +495,42 @@ def encolar_whatsapp_remoto(
     mensaje_texto: str,
     nro_comprobante: str = "",
     adjunto_pdf_path: str = "",
+    cliente_nombre: str = "",
 ) -> dict:
     """
     Permite que cualquier Laptop Terciaria (Nivel 3) o Laptop 1 (Nivel 1), que NO tienen
     WhatsApp abierto, envíen un mensaje o boleta a través de la Laptop Madre (Nivel 2).
     """
+    import os
+    tel_clean = re.sub(r"\D", "", str(destino_celular or "").strip())
+    if len(tel_clean) == 9:
+        tel_clean = "51" + tel_clean
+    msg_clean = str(mensaje_texto or "").strip()
+    nom_adj = os.path.basename(adjunto_pdf_path) if adjunto_pdf_path else ""
+    ahora_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     conn = get_connection()
     try:
         cur = conn.execute(
             """
-            INSERT INTO wsp_recepcion_cola_envio
-            (destino_celular, mensaje_texto, adjunto_pdf_path, nro_comprobante, solicitado_por, estado)
-            VALUES (?, ?, ?, ?, ?, 'PENDIENTE')
+            INSERT INTO wsp_recepcion_cola_envio (
+                telefono_o_jid, destino_telefono, mensaje, texto,
+                ruta_adjunto, archivo_ruta, nombre_adjunto,
+                nro_comprobante, cliente_nombre, estado, creado_en
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', ?)
             """,
-            (destino_celular.strip(), mensaje_texto.strip(), adjunto_pdf_path, nro_comprobante, ROL_NODO),
+            (
+                tel_clean,
+                tel_clean,
+                msg_clean,
+                msg_clean,
+                adjunto_pdf_path,
+                adjunto_pdf_path,
+                nom_adj,
+                nro_comprobante,
+                cliente_nombre or ROL_NODO,
+                ahora_str,
+            ),
         )
         conn.commit()
         cola_id = cur.lastrowid

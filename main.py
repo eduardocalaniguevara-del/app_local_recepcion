@@ -26,10 +26,12 @@ sys.modules["database"] = _db_v2
 
 import estancias as dl
 import yape_bcp as ym
+import sunat_motor_playwright as smp
 import sunat as sws
 import whatsapp as wi
 sys.modules["domain_logic"] = dl
 sys.modules["yape_manager"] = ym
+sys.modules["sunat_motor_playwright"] = smp
 sys.modules["sunat_wsp_service"] = sws
 sys.modules["wsp_inteligencia"] = wi
 
@@ -82,7 +84,7 @@ def _auto_git_pull_y_recargar() -> bool:
             ["git", "rev-parse", "HEAD"], cwd=str(BASE_DIR), capture_output=True, text=True, timeout=4, creationflags=flags
         ).stdout.strip()
         if before and after and before != after:
-            for mod in (_cfg_v2, _db_v2, dl, ym, sws, wi):
+            for mod in (_cfg_v2, _db_v2, dl, ym, smp, sws, wi):
                 try:
                     importlib.reload(mod)
                 except Exception:
@@ -134,6 +136,10 @@ def _background_supabase_worker() -> None:
             publicar_seguidor_carpetas_supabase()
             push_to_supabase()
             pull_from_supabase()
+            try:
+                sws.procesar_cola_ordenes_sunat_madre(wakeup_cb=lambda: _sheets_wakeup_event.set())
+            except Exception as exc_sunat_q:
+                print(f"[OvaloV2-SUNAT-ColaMadre] {exc_sunat_q}")
             if _sheets_wakeup_event.is_set() or (ciclo_n % 2 == 0):
                 _sheets_wakeup_event.clear()
                 sincronizar_espejo_sheets()
@@ -317,9 +323,42 @@ def api_sunat_jobs():
 @app.post("/api/sunat/orden")
 def api_sunat_orden(payload: Dict[str, Any]):
     from sunat_wsp_service import ejecutar_orden_sunat_wsp
-    res = ejecutar_orden_sunat_wsp(payload, wakeup_cb=lambda: _sync_wakeup_event.set())
+    res = ejecutar_orden_sunat_wsp(
+        payload,
+        wakeup_cb=lambda: (_sheets_wakeup_event.set(), _sync_wakeup_event.set()),
+    )
     res["syncStatus"] = dl.obtener_estado_red_cola()
     return JSONResponse(content=res)
+
+
+@app.get("/api/sunat/captura/{nombre_captura}")
+def api_sunat_captura(nombre_captura: str):
+    from config import CAPTURAS_SUNAT_DIR, HOSTAL_SISTEMA_DIR
+    safe_name = Path(str(nombre_captura or "")).name
+    if not safe_name:
+        raise HTTPException(status_code=404, detail="Captura no especificada.")
+    for cand in (
+        CAPTURAS_SUNAT_DIR / safe_name,
+        HOSTAL_SISTEMA_DIR / "capturas" / safe_name,
+    ):
+        if cand.is_file():
+            return FileResponse(str(cand), media_type="image/png", headers={"Cache-Control": "no-store"})
+    raise HTTPException(status_code=404, detail=f"Captura no encontrada: {safe_name}")
+
+
+@app.get("/api/sunat/pdf/{nro_cp}")
+def api_sunat_pdf(nro_cp: str):
+    from sunat_wsp_service import buscar_pdf_comprobante
+    ruta = buscar_pdf_comprobante(nro_cp=str(nro_cp or "").strip())
+    if ruta and os.path.isfile(ruta):
+        return FileResponse(ruta, media_type="application/pdf", filename=os.path.basename(ruta))
+    raise HTTPException(status_code=404, detail=f"PDF local no encontrado para {nro_cp} (los PDFs residen en la Laptop Madre).")
+
+
+@app.get("/api/sunat/pendientes")
+def api_sunat_pendientes(desde: int = 20261101, hasta: int = 20261231):
+    from sunat_wsp_service import listar_pendientes_facturacion_para_aprobacion
+    return JSONResponse(content=listar_pendientes_facturacion_para_aprobacion(desde, hasta))
 
 
 @app.post("/api/rpc/{method_name}")
@@ -481,6 +520,22 @@ def api_rpc_handler(method_name: str, body: RpcPayload):
             a0 = args[0] if args else ""
             u_id = a0.get("uuid", "") if isinstance(a0, dict) else str(a0 or "")
             res = dl.obtener_estancia_facturacion_por_uuid(u_id)
+        elif method_name == "listarPendientesFacturacionAprobacion":
+            from sunat_wsp_service import listar_pendientes_facturacion_para_aprobacion
+            a0 = args[0] if args and isinstance(args[0], dict) else {}
+            d_ini = int(a0.get("desde", 20261115))
+            d_fin = int(a0.get("hasta", 20261231))
+            res = listar_pendientes_facturacion_para_aprobacion(d_ini, d_fin)
+        elif method_name == "ejecutarEstanciaPendientePorUuid":
+            from sunat_wsp_service import ejecutar_estancia_pendiente_por_uuid
+            a0 = args[0] if args and isinstance(args[0], dict) else {}
+            res = ejecutar_estancia_pendiente_por_uuid(
+                estancia_uuid=str(a0.get("estancia_uuid") or a0.get("uuid") or ""),
+                modo_borrador=bool(a0.get("modo_borrador", True)),
+                enviar_wsp=bool(a0.get("enviar_wsp", True)),
+                forzar_local=bool(a0.get("forzar_local", False)),
+                sincrono=bool(a0.get("sincrono", False)),
+            )
         elif method_name == "obtenerHorario":
             import horario_logic as hl
             res = hl.obtener_horario_local(args[0] if args else {})

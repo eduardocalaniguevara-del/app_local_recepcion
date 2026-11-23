@@ -24,6 +24,7 @@ if str(MOTOR_DIR) not in sys.path:
 from config import ACTIVAR_MOTOR_24X7, ES_NIVEL_2_MADRE_HOTEL, ROL_NODO, TIENE_QR_WSP_FISICO
 from salud import publicar_seguidor_carpetas_supabase, reporte_salud
 from sync_nube import instalar_triggers_outbox, pull_from_supabase, push_to_supabase
+import sunat as sunat_svc
 import whatsapp as wsp
 import yape_bcp as ym
 
@@ -69,6 +70,8 @@ def ejecutar_ronda_integral() -> dict:
         wsp.tick_resumen_programado()
         if TIENE_QR_WSP_FISICO:
             wsp.vigilar_daemon()
+        if ES_NIVEL_2_MADRE_HOTEL:
+            sunat_svc.procesar_cola_ordenes_sunat_madre()
     except Exception as exc:
         res_wsp = {"ok": False, "error": str(exc)}
 
@@ -111,6 +114,8 @@ def iniciar_vigilante_24x7(modo_prueba_unica: bool = False) -> None:
         try:
             push_to_supabase()
             pull_from_supabase()
+            if ES_NIVEL_2_MADRE_HOTEL:
+                sunat_svc.procesar_cola_ordenes_sunat_madre()
             wsp.tick_resumen_programado()
             if TIENE_QR_WSP_FISICO:
                 wsp.vigilar_daemon()
