@@ -49,22 +49,23 @@ def _obtener_token_windows() -> str:
     raise RuntimeError("No se encontró la sesión de GitHub Desktop en Windows Credential Manager.")
 
 
-def publicar(rama_destino: str = "sistema-v2") -> dict:
+def publicar(rama_destino: str = "main") -> dict:
     token = _obtener_token_windows()
     push_url = f"https://eduardocalaniguevara-del:{token}@{REPO_SLUG}"
-    r = subprocess.run(
-        [GIT_EXE, "-C", str(BASE_DIR), "push", "--force", push_url, f"HEAD:{rama_destino}"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr.replace(token, "***"))
+    for rama in ("main", "sistema-v2"):
+        r = subprocess.run(
+            [GIT_EXE, "-C", str(BASE_DIR), "push", "--force", push_url, f"HEAD:{rama}"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr.replace(token, "***"))
     sha = subprocess.check_output(
         [GIT_EXE, "-C", str(BASE_DIR), "rev-parse", "--short", "HEAD"],
         text=True,
     ).strip()
-    return {"ok": True, "repo": REPO_SLUG, "rama": rama_destino, "commit": sha}
+    return {"ok": True, "repo": REPO_SLUG, "ramas_actualizadas": ["main", "sistema-v2"], "commit": sha}
 
 
 if __name__ == "__main__":
