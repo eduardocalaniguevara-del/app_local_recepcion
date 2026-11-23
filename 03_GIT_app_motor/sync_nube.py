@@ -1427,10 +1427,11 @@ def diagnostico_fase2() -> dict:
 
 
 if __name__ == "__main__":
+    instalar_triggers_outbox()
+    boot = bootstrap_initial_from_supabase()
+    up = push_to_supabase()
+    down = pull_from_supabase()
     if "--sync" in sys.argv:
-        instalar_triggers_outbox()
-        up = push_to_supabase()
-        down = pull_from_supabase()
-        print(json.dumps({"push": up, "pull": down}, indent=2, ensure_ascii=False))
+        print(json.dumps({"bootstrap": boot, "push": up, "pull": down}, indent=2, ensure_ascii=False))
     else:
-        print(json.dumps(diagnostico_fase2(), indent=2, ensure_ascii=False))
+        print(json.dumps({**diagnostico_fase2(), "bootstrap": boot, "pull": down}, indent=2, ensure_ascii=False))
