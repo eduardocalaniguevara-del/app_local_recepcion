@@ -33,20 +33,45 @@ def actualizar_codigo_git_solo_lectura() -> dict:
     """
     En Laptop 2 (Recepción) o Laptops Terciarias: descarga en SOLO LECTURA cualquier mejora
     que hayas subido desde tu Laptop 1 con `git push`, sin tocar 01_PRIV_*, 02_DB_* ni .env.
+    Si el commit cambió, recarga los módulos en memoria y reinicia el proceso para aplicar mejoras al instante.
     """
     if not (BASE_DIR / ".git").exists():
         return {"ok": False, "detalle": "Repositorio Git no inicializado"}
     try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        before = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(BASE_DIR), capture_output=True, text=True, timeout=5, creationflags=flags
+        ).stdout.strip()
         proc = subprocess.run(
-            ["git", "pull", "--ff-only", "origin", "sistema-v2"],
+            ["git", "pull", "--ff-only", "origin", "main"],
             cwd=str(BASE_DIR),
             capture_output=True,
             text=True,
             timeout=20,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+            creationflags=flags,
         )
+        after = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(BASE_DIR), capture_output=True, text=True, timeout=5, creationflags=flags
+        ).stdout.strip()
         salida = (proc.stdout or proc.stderr or "").strip()
-        return {"ok": proc.returncode == 0, "salida": salida[:200]}
+        if before and after and before != after:
+            import importlib
+            for mod in (ym, wsp, sunat_svc):
+                try:
+                    importlib.reload(mod)
+                except Exception:
+                    pass
+            try:
+                pyw = Path(sys.executable).with_name("pythonw.exe")
+                exe = str(pyw if pyw.exists() else sys.executable)
+                subprocess.Popen(
+                    [exe, str(BASE_DIR / "lanzador_escritorio.py"), "--no-browser", "--restart"],
+                    cwd=str(BASE_DIR),
+                    creationflags=flags,
+                )
+            except Exception:
+                pass
+        return {"ok": proc.returncode == 0, "changed": before != after, "commit": after[:7], "salida": salida[:200]}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
