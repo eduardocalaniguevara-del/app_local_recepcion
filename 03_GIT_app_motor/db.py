@@ -548,6 +548,17 @@ def init_db() -> dict:
                 updated_at       TEXT DEFAULT (datetime('now', 'localtime'))
             );
 
+            CREATE TABLE IF NOT EXISTS sync_queue (
+                queue_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                op_type          TEXT NOT NULL DEFAULT '',
+                payload_json     TEXT NOT NULL DEFAULT '{}',
+                status           TEXT NOT NULL DEFAULT 'PENDING',
+                retries          INTEGER NOT NULL DEFAULT 0,
+                last_error       TEXT NOT NULL DEFAULT '',
+                created_at       TEXT DEFAULT (datetime('now', 'localtime')),
+                synced_at        TEXT DEFAULT ''
+            );
+
             -- 6. Tablas Caché SOLO LOCALES (Bloqueadas de subir a Supabase para ahorro de Egress)
             CREATE TABLE IF NOT EXISTS yape_conciliacion_hostal (
                 id               INTEGER PRIMARY KEY AUTOINCREMENT,

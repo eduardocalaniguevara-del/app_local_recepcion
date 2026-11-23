@@ -575,17 +575,28 @@ def obtener_estado_red_cola(conn=None) -> Dict[str, Any]:
         conn = get_connection()
         close_after = True
     try:
-        pend = conn.execute(
-            "SELECT COUNT(*) AS c FROM sync_queue WHERE status IN ('PENDING', 'PROCESSING', 'ERROR')"
-        ).fetchone()["c"]
+        has_sq = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_queue'"
+        ).fetchone()
+        pend = (
+            conn.execute(
+                "SELECT COUNT(*) AS c FROM sync_queue WHERE status IN ('PENDING', 'PROCESSING', 'ERROR')"
+            ).fetchone()["c"]
+            if has_sq
+            else 0
+        )
         online_row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'network_online'").fetchone()
         last_sync_row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'last_sync_ts'").fetchone()
         last_sync_iso_row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'last_successful_pull_iso'").fetchone()
         offline_since_row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'offline_since_iso'").fetchone()
         last_err_sys_row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'last_sync_error'").fetchone()
-        err_row = conn.execute(
-            "SELECT last_error FROM sync_queue WHERE status = 'ERROR' AND last_error != '' ORDER BY queue_id ASC LIMIT 1"
-        ).fetchone()
+        err_row = (
+            conn.execute(
+                "SELECT last_error FROM sync_queue WHERE status = 'ERROR' AND last_error != '' ORDER BY queue_id ASC LIMIT 1"
+            ).fetchone()
+            if has_sq
+            else None
+        )
 
         online = (online_row["valor"] != "0") if online_row else True
         last_sync_ts = last_sync_row["valor"] if last_sync_row else ""

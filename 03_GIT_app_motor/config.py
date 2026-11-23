@@ -31,12 +31,13 @@ def cargar_env_local() -> None:
     env_file = BASE_DIR / ".env"
     if not env_file.exists():
         return
-    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+    raw_text = env_file.read_text(encoding="utf-8-sig")
+    for raw_line in raw_text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip())
+        os.environ.setdefault(k.strip().lstrip("\ufeff"), v.strip())
 
 
 def _cargar_credenciales_supabase_locales() -> dict:

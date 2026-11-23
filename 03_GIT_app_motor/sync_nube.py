@@ -308,6 +308,20 @@ def pull_from_supabase(limit: int = 400) -> dict:
         return {"ok": False, "aplicados": 0, "error": str(exc)}
 
     if not isinstance(logs, list) or not logs:
+        conn_touch = get_connection()
+        try:
+            ahora_iso = datetime.now().isoformat(timespec="seconds")
+            ahora_hms = datetime.now().strftime("%H:%M:%S")
+            conn_touch.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1;")
+            for cl_t, vl_t in (("network_online", "1"), ("last_sync_ts", ahora_hms), ("last_successful_pull_iso", ahora_iso), ("offline_since_iso", "")):
+                conn_touch.execute(
+                    "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES (?, ?, ?)",
+                    (cl_t, vl_t, ahora_iso),
+                )
+            conn_touch.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1;")
+            conn_touch.commit()
+        finally:
+            conn_touch.close()
         return {"ok": True, "aplicados": 0, "last_log_id": last_log_id}
 
     conn_apply = get_connection()
@@ -355,10 +369,13 @@ def pull_from_supabase(limit: int = 400) -> dict:
                 )
                 aplicados += 1
 
-        conn_apply.execute(
-            "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('sb_last_log_id', ?, datetime('now', 'localtime'))",
-            (str(nuevo_cursor),),
-        )
+        ahora_iso = datetime.now().isoformat(timespec="seconds")
+        ahora_hms = datetime.now().strftime("%H:%M:%S")
+        for cl_t, vl_t in (("sb_last_log_id", str(nuevo_cursor)), ("network_online", "1"), ("last_sync_ts", ahora_hms), ("last_successful_pull_iso", ahora_iso), ("offline_since_iso", "")):
+            conn_apply.execute(
+                "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES (?, ?, ?)",
+                (cl_t, vl_t, ahora_iso),
+            )
         conn_apply.execute(
             "UPDATE _supabase_sync_control SET pulling = 0, last_log_id = ?, updated_at = datetime('now', 'localtime') WHERE id = 1;",
             (nuevo_cursor,),
