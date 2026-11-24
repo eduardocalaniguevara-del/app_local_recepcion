@@ -788,12 +788,13 @@ def _emitir_comprobante_intento(
                         break
                     time.sleep(0.4)
 
-            btn_dl = frame.locator(
-                "button:has-text('Descargar PDF'), a:has-text('Descargar PDF'), span:has-text('Descargar PDF'), [widgetid*='pdf'], [widgetid*='PDF']"
-            ).first
+            # Selector exclusivo del botón 'Descargar PDF' (SIN [widgetid*='pdf'] para jamás tocar el botón de Enviar Correo)
+            btn_dl = frame.get_by_role("button", name="Descargar PDF").first
+            prefijo = "E001" if tipo == "FACTURA" else "EB01"
 
-            # Disparar Aceptar en el diálogo Confirmar de Dojo con triple respaldo hasta que aparezca Descargar PDF
+            # CAPA 1: Clic único controlado en Confirmar -> Aceptar (evita doble POST que causaba 'Problemas al conectarse al servidor')
             t_conf = time.time()
+            ultimo_clic_aceptar = 0.0
             while time.time() - t_conf < 22.0:
                 try:
                     if btn_dl.count() > 0 and btn_dl.is_visible():
@@ -801,56 +802,92 @@ def _emitir_comprobante_intento(
                 except Exception:
                     pass
                 try:
-                    if btn_conf.count() > 0 and btn_conf.first.is_visible():
-                        btn_conf.first.dispatch_event("click", timeout=2000)
+                    txt_chk = frame.locator("body").inner_text(timeout=800)
+                    if re.search(rf"\b({prefijo}\s*-\s*\d+)\b", txt_chk or ""):
+                        break
                 except Exception:
                     pass
-                try:
-                    dlg_c = frame.get_by_role("dialog", name="Confirmar")
-                    if dlg_c.count() > 0:
-                        dlg_c.get_by_role("button", name="Aceptar").first.dispatch_event("click", timeout=2000)
-                except Exception:
-                    pass
+
+                # Solo pulsar Aceptar si el diálogo Confirmar está visible y pasaron >= 3.8s desde el último clic
+                if time.time() - ultimo_clic_aceptar >= 3.8:
+                    dialogo_visible = False
+                    try:
+                        if (btn_conf.count() > 0 and btn_conf.first.is_visible()) or frame.get_by_role("dialog", name="Confirmar").count() > 0:
+                            dialogo_visible = True
+                    except Exception:
+                        pass
+                    if dialogo_visible or ultimo_clic_aceptar == 0.0:
+                        ultimo_clic_aceptar = time.time()
+                        try:
+                            if btn_conf.count() > 0 and btn_conf.first.is_visible():
+                                btn_conf.first.click(force=True, timeout=2500)
+                            else:
+                                frame.evaluate("""() => {
+                                    for (const id of ['dlgBtnAceptarConfirm', 'dlgBtnAceptar']) {
+                                        if (window.dijit && dijit.byId(id)) {
+                                            try { dijit.byId(id).onClick(); return; } catch (e) {}
+                                        }
+                                        const el = document.getElementById(id);
+                                        if (el) { try { el.click(); return; } catch (e) {} }
+                                    }
+                                }""")
+                        except Exception:
+                            pass
+                time.sleep(0.45)
+
+            def _cerrar_popups_error_sunat() -> None:
+                """Si SUNAT mostró un cartel superpuesto ('Problemas al conectarse al servidor' / 'Debe ingresar un correo'), lo cierra."""
                 try:
                     frame.evaluate("""() => {
-                        for (const id of ['dlgBtnAceptarConfirm', 'dlgBtnAceptar']) {
-                            if (window.dijit && dijit.byId(id)) {
-                                try { dijit.byId(id).onClick(); } catch (e) {}
-                            }
-                            const el = document.getElementById(id);
-                            if (el) { try { el.click(); } catch (e) {} }
-                        }
-                        const btns = Array.from(document.querySelectorAll('.dijitDialogPaneActionBar .dijitButtonNode, .dijitDialog .dijitButtonContents'));
-                        for (const b of btns) {
-                            if ((b.textContent || '').includes('Aceptar')) {
-                                try { b.click(); } catch (e) {}
+                        const dlgs = Array.from(document.querySelectorAll('.dijitDialog'));
+                        for (const d of dlgs) {
+                            if (d.style && d.style.display !== 'none' && d.offsetParent !== null) {
+                                const closeBtn = d.querySelector('.dijitDialogCloseIcon, [id*="Aceptar"], .dijitButtonNode');
+                                if (closeBtn) { try { closeBtn.click(); } catch (e) {} }
                             }
                         }
                     }""")
                 except Exception:
                     pass
-                time.sleep(0.75)
 
-            prefijo = "E001" if tipo == "FACTURA" else "EB01"
-            try:
-                btn_dl.wait_for(state="visible", timeout=6000)
-                texto_constancia_dom = ""
+            hoy_dt = datetime.now()
+            carpeta_dia = f"{hoy_dt.day:02d}_{MESES_CARPETA.get(hoy_dt.month, 'Mes')}"
+            dir_tipo_base = FACTURAS_PDF_DIR if tipo == "FACTURA" else BOLETAS_PDF_DIR
+            dir_dia_dest = dir_tipo_base / carpeta_dia
+            dir_dia_dest.mkdir(parents=True, exist_ok=True)
+
+            download = None
+            texto_constancia_dom = ""
+            # CAPA 2A: Hasta 2 intentos de descarga oficial con limpieza previa de modales superpuestos
+            for intento_dl in range(1, 3):
                 try:
-                    texto_constancia_dom = frame.locator("body").inner_text()
-                except Exception:
-                    pass
-                with page.expect_download(timeout=25000) as dl_info:
+                    if intento_dl == 2:
+                        _cerrar_popups_error_sunat()
+                        time.sleep(0.8)
+                    btn_dl.wait_for(state="visible", timeout=6000)
                     try:
-                        btn_dl.dispatch_event("click", timeout=5000)
+                        texto_constancia_dom = frame.locator("body").inner_text()
                     except Exception:
-                        btn_dl.click(force=True, timeout=5000)
-                download = dl_info.value
-            except Exception as exc_dl:
-                texto_rescate = ""
-                try:
-                    texto_rescate = frame.locator("body").inner_text()
-                except Exception:
-                    pass
+                        pass
+                    with page.expect_download(timeout=18000) as dl_info:
+                        try:
+                            btn_dl.dispatch_event("click", timeout=4000)
+                        except Exception:
+                            btn_dl.click(force=True, timeout=4000)
+                    download = dl_info.value
+                    break
+                except Exception as exc_dl:
+                    ultimo_exc_dl = exc_dl
+                    _cerrar_popups_error_sunat()
+                    time.sleep(0.6)
+
+            if download is None:
+                texto_rescate = texto_constancia_dom
+                if not texto_rescate:
+                    try:
+                        texto_rescate = frame.locator("body").inner_text()
+                    except Exception:
+                        pass
                 m_rescate = re.search(rf"\b({prefijo}\s*-\s*\d+)\b", texto_rescate) if texto_rescate else None
                 if m_rescate:
                     nro_cp_rescate = m_rescate.group(1).replace(" ", "")
@@ -859,27 +896,53 @@ def _emitir_comprobante_intento(
                         page.screenshot(path=cap_rescate, full_page=True)
                     except Exception:
                         pass
+
+                    # CAPA 2B: Generar el PDF oficial A4 directamente desde el DOM limpio de la constancia emitida en SUNAT
+                    cli_slug_r = re.sub(r"[^A-Z0-9]+", "_", str(nombre_receptor_sunat or doc_limpio or "CLIENTE").upper()).strip("_")[:36]
+                    pref_nom_r = "FACTURA" if tipo == "FACTURA" else "BOLETA"
+                    nombre_limpio_r = f"{pref_nom_r}_{nro_cp_rescate}_{cli_slug_r}.pdf"
+                    ruta_limpia_r = str(dir_dia_dest / nombre_limpio_r)
+                    pdf_rescatado_ok = False
+                    try:
+                        _cerrar_popups_error_sunat()
+                        html_frame = frame.evaluate("""() => {
+                            const clone = document.documentElement.cloneNode(true);
+                            const quitar = clone.querySelectorAll('.dijitDialog, .dijitDialogUnderlayWrapper, button, input[type="button"], input[type="text"], .dijitButton');
+                            quitar.forEach(el => el.remove());
+                            return '<!DOCTYPE html><html>' + clone.innerHTML + '</html>';
+                        }""")
+                        pdf_page = context.new_page()
+                        try:
+                            pdf_page.set_content(html_frame, wait_until="domcontentloaded", timeout=8000)
+                            pdf_page.pdf(path=ruta_limpia_r, format="A4", print_background=True)
+                            pdf_rescatado_ok = os.path.isfile(ruta_limpia_r) and os.path.getsize(ruta_limpia_r) > 500
+                        finally:
+                            try:
+                                pdf_page.close()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pdf_rescatado_ok = False
+
                     return {
                         "status": "OK",
                         "tipo": tipo,
                         "nro_comprobante": nro_cp_rescate,
-                        "archivo_pdf": "",
-                        "archivo_pdf_original": "",
-                        "nombre_pdf": "",
-                        "pdf_pendiente_descarga": True,
+                        "archivo_pdf": ruta_limpia_r if pdf_rescatado_ok else "",
+                        "archivo_pdf_original": ruta_limpia_r if pdf_rescatado_ok else "",
+                        "nombre_pdf": nombre_limpio_r if pdf_rescatado_ok else "",
+                        "pdf_pendiente_descarga": not pdf_rescatado_ok,
                         "receptor_nombre": nombre_receptor_sunat,
                         "receptor_doc": doc_limpio,
-                        "fecha_emision": datetime.now().strftime("%d/%m/%Y"),
+                        "fecha_emision": hoy_dt.strftime("%d/%m/%Y"),
                         "texto_constancia_dom": texto_rescate,
-                        "mensaje": f"{tipo} {nro_cp_rescate} emitida en SUNAT (PDF pendiente de descarga incremental).",
+                        "mensaje": (
+                            f"{tipo} {nro_cp_rescate} emitida en SUNAT y PDF generado por rescate directo."
+                            if pdf_rescatado_ok
+                            else f"{tipo} {nro_cp_rescate} emitida en SUNAT (PDF pendiente de descarga incremental)."
+                        ),
                     }
-                raise exc_dl
-
-            hoy_dt = datetime.now()
-            carpeta_dia = f"{hoy_dt.day:02d}_{MESES_CARPETA.get(hoy_dt.month, 'Mes')}"
-            dir_tipo_base = FACTURAS_PDF_DIR if tipo == "FACTURA" else BOLETAS_PDF_DIR
-            dir_dia_dest = dir_tipo_base / carpeta_dia
-            dir_dia_dest.mkdir(parents=True, exist_ok=True)
+                raise ultimo_exc_dl
 
             nombre_pdf_orig = download.suggested_filename or f"{tipo}_{int(time.time())}.pdf"
             ruta_pdf_orig = str(dir_dia_dest / nombre_pdf_orig)
@@ -1943,6 +2006,124 @@ def _enviar_via_whatsapp_desktop_invisible(telefono_norm: str, mensaje: str, rut
     return True
 
 
+def _reconstruir_pdf_respaldo_desde_sunat_ventas(nro_cp: str, cliente: str = "", ruc_dni: str = "") -> str:
+    """
+    CAPA 3 DE RESCATE: Si el portal SUNAT falló al entregar el PDF pero el comprobante ya está emitido
+    y registrado en `sunat_ventas` (o `estancias`), genera un PDF A4 limpio en `02_DB_sqlite_local/comprobantes_pdf/`
+    para que el envío por WhatsApp nunca falle.
+    """
+    cp_clean = str(nro_cp or "").strip().upper()
+    if not cp_clean:
+        return ""
+    conn = get_connection()
+    row_sv = None
+    row_est = None
+    try:
+        row_sv = conn.execute(
+            "SELECT * FROM sunat_ventas WHERE upper(trim(nro_cp)) = ? ORDER BY id DESC LIMIT 1",
+            (cp_clean,),
+        ).fetchone()
+        row_est = conn.execute(
+            "SELECT * FROM estancias WHERE upper(trim(nro_comp)) LIKE ? ORDER BY sheet_row DESC LIMIT 1",
+            (f"%{cp_clean}%",),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    es_fact = cp_clean.startswith("E001") or cp_clean.startswith("F")
+    fec_em = (dict(row_sv).get("fecha_emision") if row_sv else None) or datetime.now().strftime("%d/%m/%Y")
+    rec_nom = (dict(row_sv).get("receptor_nombre") if row_sv else None) or cliente or (dict(row_est).get("huesped") if row_est else "CLIENTES VARIOS")
+    rec_doc = (dict(row_sv).get("receptor_doc") if row_sv else None) or ruc_dni or (dict(row_est).get("dni") if row_est else "")
+    monto_tot = float((dict(row_sv).get("total") if row_sv else 0) or (dict(row_est).get("monto_factura") if row_est else 0) or 0.0)
+    if monto_tot <= 0 and row_est:
+        de = dict(row_est)
+        monto_tot = float(de.get("tarifa") or 0) * max(1, int(de.get("noches") or 1))
+    if monto_tot <= 0:
+        return ""
+
+    glosa = ""
+    if row_est:
+        de = dict(row_est)
+        glosa = f"SERVICIO DE ALOJAMIENTO DEL {de.get('fecha_in_dmy', fec_em)}, HAB N {de.get('hab', '')}"
+    elif row_sv:
+        glosa = str(dict(row_sv).get("resumen_items") or f"SERVICIO DE ALOJAMIENTO SEGUN {cp_clean}")[:160]
+    else:
+        glosa = f"SERVICIO DE ALOJAMIENTO SEGUN {cp_clean}"
+
+    op_grav = round(monto_tot / FACTOR_IGV_HOTEL, 2)
+    igv_val = round(monto_tot - op_grav, 2)
+    val_unit = f"{monto_tot / FACTOR_IGV_HOTEL:.4f}"
+    titulo_doc = "FACTURA ELECTRONICA" if es_fact else "BOLETA DE VENTA ELECTRONICA"
+    lbl_doc = "RUC" if es_fact else "DNI"
+
+    partes_f = str(fec_em).split("/")
+    if len(partes_f) == 3 and partes_f[0].isdigit() and partes_f[1].isdigit():
+        carpeta_dia = f"{int(partes_f[0]):02d}_{MESES_CARPETA.get(int(partes_f[1]), 'Mes')}"
+    else:
+        hoy_dt = datetime.now()
+        carpeta_dia = f"{hoy_dt.day:02d}_{MESES_CARPETA.get(hoy_dt.month, 'Mes')}"
+
+    dir_base = FACTURAS_PDF_DIR if es_fact else BOLETAS_PDF_DIR
+    dir_dest = dir_base / carpeta_dia
+    dir_dest.mkdir(parents=True, exist_ok=True)
+    cli_slug = re.sub(r"[^A-Z0-9]+", "_", str(rec_nom or rec_doc or "CLIENTE").upper()).strip("_")[:36] or "CLIENTE"
+    pref_nom = "FACTURA" if es_fact else "BOLETA"
+    ruta_pdf = str(dir_dest / f"{pref_nom}_{cp_clean}_{cli_slug}.pdf")
+
+    html_cp = f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<style>
+  body {{ font-family: Arial, sans-serif; font-size: 11px; color: #000; margin: 28px 36px; }}
+  .header-table, .datos-table, .items-table {{ width: 100%; border-collapse: collapse; margin-bottom: 14px; }}
+  .ruc-box {{ width: 38%; border: 2px solid #000; text-align: center; padding: 10px 6px; }}
+  .items-table th {{ border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 6px 4px; text-align: left; }}
+  .items-table td {{ padding: 6px 4px; }}
+  .totales-table {{ width: 45%; margin-left: auto; border-collapse: collapse; margin-top: 10px; }}
+  .totales-table td {{ padding: 3px 4px; text-align: right; }}
+</style></head><body>
+<table class="header-table"><tr>
+  <td style="width:60%;vertical-align:top;">
+    <div style="font-weight:bold;font-size:13px;">EL OVALO MARIATEGUI</div>
+    <div style="font-weight:bold;">MAELEN HOGAR EMPRESA INDIVIDUAL DE RESPONSABILIDAD LIMITADA</div>
+    <div>AV. PAZ 507 INT. A URB. VILLA MILITAR MARISCAL NIETO - MOQUEGUA</div>
+  </td>
+  <td class="ruc-box">
+    <h2 style="margin:0 0 5px 0;font-size:13px;">RUC: 20611986484</h2>
+    <h3 style="margin:0 0 5px 0;font-size:12px;">{titulo_doc}</h3>
+    <h1 style="margin:0;font-size:15px;">{cp_clean}</h1>
+  </td>
+</tr></table>
+<table class="datos-table">
+  <tr><td style="width:22%;"><strong>Fecha de Emisión</strong></td><td>: {fec_em}</td></tr>
+  <tr><td><strong>Señor(es)</strong></td><td>: {rec_nom}</td></tr>
+  <tr><td><strong>{lbl_doc}</strong></td><td>: {rec_doc}</td></tr>
+  <tr><td><strong>Tipo de Moneda</strong></td><td>: SOLES</td></tr>
+</table>
+<table class="items-table">
+  <thead><tr><th>Cantidad</th><th>Unidad</th><th>Descripción</th><th style="text-align:right;">Valor Unit.</th><th style="text-align:right;">Importe</th></tr></thead>
+  <tbody><tr><td>1.00</td><td>UNIDAD</td><td>{glosa}</td><td style="text-align:right;">{val_unit}</td><td style="text-align:right;">{monto_tot:.2f}</td></tr></tbody>
+</table>
+<table class="totales-table">
+  <tr><td>Op. Gravada :</td><td>S/ {op_grav:.2f}</td></tr>
+  <tr><td>IGV (10.5%) :</td><td>S/ {igv_val:.2f}</td></tr>
+  <tr style="border-top:1px solid #000;font-weight:bold;"><td>Importe Total :</td><td>S/ {monto_tot:.2f}</td></tr>
+</table>
+</body></html>"""
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(channel="msedge", headless=True)
+            page = browser.new_page()
+            page.set_content(html_cp, wait_until="domcontentloaded")
+            page.pdf(path=ruta_pdf, format="A4", print_background=True)
+            browser.close()
+        if os.path.isfile(ruta_pdf) and os.path.getsize(ruta_pdf) > 500:
+            return ruta_pdf
+    except Exception:
+        pass
+    return ""
+
+
 def despachar_wsp_comprobante_local(
     telefono: str,
     pdf_path: str,
@@ -1953,7 +2134,8 @@ def despachar_wsp_comprobante_local(
 ) -> Tuple[bool, str, str]:
     """
     Despacha el mensaje + PDF del comprobante desde la Laptop Madre (L2):
-    1. Localiza el PDF en `02_DB_sqlite_local/comprobantes_pdf/`.
+    1. Localiza el PDF en `02_DB_sqlite_local/comprobantes_pdf/` (y si SUNAT falló al descargarlo pero
+       el comprobante ya está emitido, lo reconstruye al instante con `_reconstruir_pdf_respaldo_desde_sunat_ventas`).
     2. Si `wsp_daemon.js` (Baileys) está conectado, envía el PDF en segundo plano (0 ventanas).
     3. Si no, usa el fallback de WhatsApp Desktop local.
     """
@@ -1965,6 +2147,8 @@ def despachar_wsp_comprobante_local(
         return False, "", "Número de teléfono inválido."
 
     ruta_pdf_real = buscar_pdf_comprobante_local(nro_cp=nro_cp, ruc_dni=ruc_dni, cliente=cliente, pista_ruta=pdf_path) or ""
+    if nro_cp and not ruta_pdf_real:
+        ruta_pdf_real = _reconstruir_pdf_respaldo_desde_sunat_ventas(nro_cp=nro_cp, cliente=cliente, ruc_dni=ruc_dni)
     if (pdf_path or nro_cp) and not ruta_pdf_real:
         return False, "", f"No se encontró el PDF local del comprobante {nro_cp or pdf_path} en 02_DB_sqlite_local/comprobantes_pdf."
 
