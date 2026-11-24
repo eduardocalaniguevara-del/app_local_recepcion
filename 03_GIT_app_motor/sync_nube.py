@@ -376,6 +376,48 @@ def bootstrap_initial_from_supabase() -> dict:
     return {"ok": True, "bootstrap": "COMPLETED", "tablas": total_descargados}
 
 
+CLAVES_ESTADO_COMPARTIDAS_SUPABASE = (
+    "caja_sheets_g1",
+    "last_row_estancias",
+    "wsp_recepcion_conexion",
+    "wsp_recepcion_usuario_actual",
+)
+
+
+def _sincronizar_claves_estado_compartidas_supabase(conn) -> int:
+    """
+    Como la tabla `estado_sistema` en Supabase no genera eventos en `supabase_change_log`,
+    sincroniza directamente las claves compartidas críticas (como `caja_sheets_g1` y `last_row_estancias`)
+    para que Laptop 1 y Laptops Terciarias muestren siempre la misma Caja Efectivo que Laptop 2 Madre.
+    """
+    if not SUPABASE_CONFIGURADO:
+        return 0
+    claves_in = ",".join(CLAVES_ESTADO_COMPARTIDAS_SUPABASE)
+    url = f"{SUPABASE_URL}/rest/v1/estado_sistema?clave=in.({claves_in})&select=clave,valor,updated_at"
+    req = urllib.request.Request(url, method="GET", headers=_headers())
+    actualizadas = 0
+    try:
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+        if isinstance(rows, list):
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                cl = str(r.get("clave") or "").strip()
+                vl = r.get("valor")
+                up = str(r.get("updated_at") or "")
+                if not cl or vl is None:
+                    continue
+                conn.execute(
+                    "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES (?, ?, ?)",
+                    (cl, str(vl), up),
+                )
+                actualizadas += 1
+    except Exception:
+        pass
+    return actualizadas
+
+
 def pull_from_supabase(limit: int = 400) -> dict:
     """
     Descarga en 1 sola llamada HTTP los cambios nuevos desde supabase_change_log (columna row_json)
@@ -413,6 +455,7 @@ def pull_from_supabase(limit: int = 400) -> dict:
             ahora_iso = datetime.now().isoformat(timespec="seconds")
             ahora_hms = datetime.now().strftime("%H:%M:%S")
             conn_touch.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1;")
+            _sincronizar_claves_estado_compartidas_supabase(conn_touch)
             for cl_t, vl_t in (("network_online", "1"), ("last_sync_ts", ahora_hms), ("last_successful_pull_iso", ahora_iso), ("offline_since_iso", "")):
                 conn_touch.execute(
                     "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES (?, ?, ?)",
@@ -473,6 +516,7 @@ def pull_from_supabase(limit: int = 400) -> dict:
 
         ahora_iso = datetime.now().isoformat(timespec="seconds")
         ahora_hms = datetime.now().strftime("%H:%M:%S")
+        _sincronizar_claves_estado_compartidas_supabase(conn_apply)
         for cl_t, vl_t in (("sb_last_log_id", str(nuevo_cursor)), ("network_online", "1"), ("last_sync_ts", ahora_hms), ("last_successful_pull_iso", ahora_iso), ("offline_since_iso", "")):
             conn_apply.execute(
                 "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES (?, ?, ?)",
@@ -1034,7 +1078,7 @@ def sincronizar_espejo_sheets(solo_recientes: bool = False, forzar: bool = False
                 errores_q.append(f"{op_type} #{qid}: {str(q_err)[:120]}")
 
         # FASE B: Reconciliación Delta SQLite -> Google Sheets (100% segura con =MAP)
-        estancias_updates_db: List[Tuple[int, str]] = []
+        estancias_updates_db: List[Tuple[int, str, str]] = []
         estancias_upd_count = 0
         estancias_ins_count = 0
 
@@ -1063,7 +1107,7 @@ def sincronizar_espejo_sheets(solo_recientes: bool = False, forzar: bool = False
                             {"range": f"AQ{t_row}:BA{t_row}", "values": [blq["aqba"]]},
                         ])
                         estancias_upd_count += 1
-                    estancias_updates_db.append((t_row, str(r["estancia_uuid"])))
+                    estancias_updates_db.append((t_row, str(r["estancia_uuid"]), str(r.get("updated_at") or "")))
                 elif c_id:
                     nuevas_est.append((r, blq))
 
@@ -1087,7 +1131,7 @@ def sincronizar_espejo_sheets(solo_recientes: bool = False, forzar: bool = False
                     value_input_option="USER_ENTERED",
                 )
                 for off, (r_est, _) in enumerate(nuevas_est):
-                    estancias_updates_db.append((next_r + off, str(r_est["estancia_uuid"])))
+                    estancias_updates_db.append((next_r + off, str(r_est["estancia_uuid"]), str(r_est.get("updated_at") or "")))
                 estancias_ins_count = len(nuevas_est)
                 col_a_bd = ws.col_values(1) or col_a_bd
 
@@ -1339,10 +1383,15 @@ def sincronizar_espejo_sheets(solo_recientes: bool = False, forzar: bool = False
         ahora_hms = datetime.now().strftime("%H:%M:%S")
         conn_fin = get_connection()
         try:
-            for s_row_e, e_uuid in estancias_updates_db:
+            for s_row_e, e_uuid, snap_upd_at in estancias_updates_db:
                 conn_fin.execute(
-                    "UPDATE estancias SET sheet_row = ?, dirty = 0 WHERE estancia_uuid = ? AND (sheet_row != ? OR dirty != 0)",
-                    (s_row_e, e_uuid, s_row_e),
+                    """
+                    UPDATE estancias
+                    SET sheet_row = ?,
+                        dirty = CASE WHEN COALESCE(updated_at, '') = ? THEN 0 ELSE dirty END
+                    WHERE estancia_uuid = ? AND (sheet_row != ? OR dirty != 0)
+                    """,
+                    (s_row_e, snap_upd_at, e_uuid, s_row_e),
                 )
             for s_row_p, p_id in pagos_updates_db:
                 conn_fin.execute(

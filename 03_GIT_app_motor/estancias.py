@@ -630,6 +630,7 @@ def obtener_estado_red_cola(conn=None) -> Dict[str, Any]:
             "minutosDesdeSync": minutos_desde_sync,
             "lastError": last_error,
             "nombreHotel": NOMBRE_HOTEL,
+            "totalCaja": obtener_caja_efectivo_actual(conn),
         }
     finally:
         if close_after:
