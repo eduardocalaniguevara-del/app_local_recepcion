@@ -30,9 +30,10 @@ import sys
 import threading
 import time
 import urllib.parse
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 _MDIR = str(Path(__file__).resolve().parent)
 if _MDIR not in sys.path:
@@ -91,11 +92,103 @@ ARGS_STEALTH_HEADLESS = [
 ]
 
 
-def lanzar_edge_sunat(p, oculto: bool = True):
+_pw_thread_lock = threading.RLock()
+
+
+@contextmanager
+def adquirir_candado_sunat_exclusivo(timeout_s: float = 95.0) -> Iterator[None]:
+    """
+    Exclusión mutua hilo + sistema operativo (`02_DB_sqlite_local/sunat_playwright.lock`)
+    alrededor de toda sesión Playwright contra SUNAT SEE-SOL.
+    """
+    adq_hilo = _pw_thread_lock.acquire(timeout=timeout_s)
+    if not adq_hilo:
+        raise RuntimeError("Otra operación SUNAT está en curso en este nodo; intente en unos segundos.")
+
+    lock_fh = None
+    try:
+        if os.name == "nt":
+            import msvcrt
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            lock_path = DATA_DIR / "sunat_playwright.lock"
+            t0 = time.time()
+            while True:
+                try:
+                    lock_fh = open(lock_path, "a+b")
+                    lock_fh.seek(0)
+                    if lock_path.stat().st_size == 0:
+                        lock_fh.write(b"0")
+                        lock_fh.flush()
+                        lock_fh.seek(0)
+                    msvcrt.locking(lock_fh.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if lock_fh is not None:
+                        try:
+                            lock_fh.close()
+                        except Exception:
+                            pass
+                        lock_fh = None
+                    if time.time() - t0 >= timeout_s:
+                        raise RuntimeError("Otra operación SUNAT está en curso en este nodo; intente en unos segundos.")
+                    time.sleep(0.35)
+        yield
+    finally:
+        if lock_fh is not None:
+            try:
+                import msvcrt
+                lock_fh.seek(0)
+                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
+            except Exception:
+                pass
+            try:
+                lock_fh.close()
+            except Exception:
+                pass
+        _pw_thread_lock.release()
+
+
+def hay_sesion_sunat_activa() -> bool:
+    """Devuelve True si existe una sesión Playwright SUNAT en curso en este proceso o en otro proceso local."""
+    if not _pw_thread_lock.acquire(blocking=False):
+        return True
+    try:
+        if os.name == "nt":
+            import msvcrt
+            lock_path = DATA_DIR / "sunat_playwright.lock"
+            if not lock_path.exists():
+                return False
+            fh = None
+            try:
+                fh = open(lock_path, "a+b")
+                fh.seek(0)
+                if lock_path.stat().st_size == 0:
+                    fh.write(b"0")
+                    fh.flush()
+                    fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                return False
+            except OSError:
+                return True
+            finally:
+                if fh is not None:
+                    try:
+                        fh.close()
+                    except Exception:
+                        pass
+        return False
+    finally:
+        _pw_thread_lock.release()
+
+
+def lanzar_edge_sunat(p, oculto: bool = True, headless: Optional[bool] = None):
     """Lanza Microsoft Edge en modo 100% invisible (headless=True) con camuflaje anti-WAF SUNAT."""
+    modo_oculto = oculto if headless is None else headless
     return p.chromium.launch(
         channel="msedge",
-        headless=bool(oculto),
+        headless=bool(modo_oculto),
         args=ARGS_STEALTH_HEADLESS,
     )
 
@@ -409,24 +502,26 @@ def emitir_comprobante_sunat_local(
     if MODO_PRUEBA:
         emitir_final = False
 
-    for intento in range(1, 3):
-        estado = {"emitir_pulsado": False}
-        res = _emitir_comprobante_intento(
-            tipo_norm,
-            str(doc_num or "").strip(),
-            str(cliente_nombre or "CLIENTES VARIOS").strip().upper(),
-            items,
-            emitir_final,
-            headless,
-            estado,
-            etapa_cb=etapa_cb,
-        )
-        if res.get("status") == "OK":
-            return res
-        if estado["emitir_pulsado"] or not _es_error_red(res.get("error")) or intento == 2:
-            return res
-        time.sleep(2.0)
-    return res
+    with adquirir_candado_sunat_exclusivo():
+        res: Dict[str, Any] = {"status": "ERROR", "tipo": tipo_norm, "error": "No ejecutado."}
+        for intento in range(1, 3):
+            estado = {"emitir_pulsado": False}
+            res = _emitir_comprobante_intento(
+                tipo_norm,
+                str(doc_num or "").strip(),
+                str(cliente_nombre or "CLIENTES VARIOS").strip().upper(),
+                items,
+                emitir_final,
+                headless,
+                estado,
+                etapa_cb=etapa_cb,
+            )
+            if res.get("status") == "OK":
+                return res
+            if estado["emitir_pulsado"] or not _es_error_red(res.get("error")) or intento == 2:
+                return res
+            time.sleep(2.0)
+        return res
 
 
 def _emitir_comprobante_intento(
@@ -736,20 +831,49 @@ def _emitir_comprobante_intento(
                     pass
                 time.sleep(0.75)
 
-            btn_dl.wait_for(state="visible", timeout=6000)
-
-            texto_constancia_dom = ""
+            prefijo = "E001" if tipo == "FACTURA" else "EB01"
             try:
-                texto_constancia_dom = frame.locator("body").inner_text()
-            except Exception:
-                pass
-
-            with page.expect_download(timeout=25000) as dl_info:
+                btn_dl.wait_for(state="visible", timeout=6000)
+                texto_constancia_dom = ""
                 try:
-                    btn_dl.dispatch_event("click", timeout=5000)
+                    texto_constancia_dom = frame.locator("body").inner_text()
                 except Exception:
-                    btn_dl.click(force=True, timeout=5000)
-            download = dl_info.value
+                    pass
+                with page.expect_download(timeout=25000) as dl_info:
+                    try:
+                        btn_dl.dispatch_event("click", timeout=5000)
+                    except Exception:
+                        btn_dl.click(force=True, timeout=5000)
+                download = dl_info.value
+            except Exception as exc_dl:
+                texto_rescate = ""
+                try:
+                    texto_rescate = frame.locator("body").inner_text()
+                except Exception:
+                    pass
+                m_rescate = re.search(rf"\b({prefijo}\s*-\s*\d+)\b", texto_rescate) if texto_rescate else None
+                if m_rescate:
+                    nro_cp_rescate = m_rescate.group(1).replace(" ", "")
+                    cap_rescate = str(CAPTURAS_SUNAT_DIR / f"constancia_{tipo.lower()}_{nro_cp_rescate}_{int(time.time())}.png")
+                    try:
+                        page.screenshot(path=cap_rescate, full_page=True)
+                    except Exception:
+                        pass
+                    return {
+                        "status": "OK",
+                        "tipo": tipo,
+                        "nro_comprobante": nro_cp_rescate,
+                        "archivo_pdf": "",
+                        "archivo_pdf_original": "",
+                        "nombre_pdf": "",
+                        "pdf_pendiente_descarga": True,
+                        "receptor_nombre": nombre_receptor_sunat,
+                        "receptor_doc": doc_limpio,
+                        "fecha_emision": datetime.now().strftime("%d/%m/%Y"),
+                        "texto_constancia_dom": texto_rescate,
+                        "mensaje": f"{tipo} {nro_cp_rescate} emitida en SUNAT (PDF pendiente de descarga incremental).",
+                    }
+                raise exc_dl
 
             hoy_dt = datetime.now()
             carpeta_dia = f"{hoy_dt.day:02d}_{MESES_CARPETA.get(hoy_dt.month, 'Mes')}"
@@ -763,7 +887,6 @@ def _emitir_comprobante_intento(
 
             nro_cp = ""
             if texto_constancia_dom:
-                prefijo = "E001" if tipo == "FACTURA" else "EB01"
                 m_cp = re.search(rf"\b({prefijo}\s*-\s*\d+)\b", texto_constancia_dom)
                 if m_cp:
                     nro_cp = m_cp.group(1).replace(" ", "")
@@ -772,6 +895,32 @@ def _emitir_comprobante_intento(
                 m_cp = re.search(r"([EFB][B0-9]{3})-?(\d{1,8})", nombre_pdf_orig)
                 if m_cp:
                     nro_cp = f"{m_cp.group(1)}-{int(m_cp.group(2))}"
+
+            if not nro_cp:
+                txt_pdf_check = _extraer_texto_pdf_si_posible(ruta_pdf_orig)
+                if txt_pdf_check:
+                    m_cp_pdf = re.search(rf"\b({prefijo}\s*-\s*\d+)\b", txt_pdf_check)
+                    if m_cp_pdf:
+                        nro_cp = m_cp_pdf.group(1).replace(" ", "")
+
+            if not nro_cp:
+                cap_sin_num = str(CAPTURAS_SUNAT_DIR / f"sin_nro_{tipo.lower()}_{int(time.time())}.png")
+                try:
+                    page.screenshot(path=cap_sin_num, full_page=True)
+                except Exception:
+                    pass
+                return {
+                    "status": "ERROR",
+                    "tipo": tipo,
+                    "emitir_pulsado": True,
+                    "estado_incierto": True,
+                    "archivo_pdf": ruta_pdf_orig,
+                    "captura_error": cap_sin_num,
+                    "error": (
+                        "⚠️ ESTADO INCIERTO POST-EMISIÓN (se pulsó Emitir pero no se pudo leer el número de comprobante; "
+                        "verifique en SUNAT antes de reintentar)."
+                    ),
+                }
 
             ruta_pdf_final = ruta_pdf_orig
             if nro_cp:
@@ -812,10 +961,19 @@ def _emitir_comprobante_intento(
                 page.screenshot(path=err_cap, full_page=True)
             except Exception:
                 pass
+            emitir_puls = bool(estado.get("emitir_pulsado"))
+            msg_err = str(e)
+            if emitir_puls:
+                msg_err = (
+                    "⚠️ ESTADO INCIERTO POST-EMISIÓN (se pulsó Emitir antes del fallo; verifique en SUNAT antes de reintentar): "
+                    + msg_err
+                )
             return {
                 "status": "ERROR",
                 "tipo": tipo,
-                "error": str(e),
+                "emitir_pulsado": emitir_puls,
+                "estado_incierto": emitir_puls,
+                "error": msg_err,
                 "captura_error": err_cap,
             }
         finally:
@@ -867,7 +1025,7 @@ def generar_pdf_nota_credito_local(nc_data: Dict[str, Any], dir_destino: Path) -
   </td>
   <td class="ruc-box">
     <h2 style="margin:0 0 5px 0;font-size:13px;">RUC: 20611986484</h2>
-    <h3 style="margin:0 0 5px 0;font-size:12px;">NOTA DE CREDITO ELECTRONICA</h3>
+    <h3 style="margin:0 0 5px 0;font-size:11px;">REPRESENTACION INTERNA DE NOTA DE CREDITO ELECTRONICA (RESPALDO LOCAL)</h3>
     <h1 style="margin:0;font-size:14px;">{nro_nc}</h1>
   </td>
 </tr></table>
@@ -933,246 +1091,252 @@ def emitir_nota_credito_sunat_local(
     ruta_cap = str(CAPTURAS_SUNAT_DIR / nom_cap)
     datos_cp_origen: Dict[str, Any] = {}
 
-    with sync_playwright() as p:
-        browser = lanzar_edge_sunat(p, oculto=bool(headless))
-        context = crear_contexto_sunat(browser, viewport={"width": 1600, "height": 950})
-        page = context.new_page()
+    with adquirir_candado_sunat_exclusivo():
+        with sync_playwright() as p:
+            browser = lanzar_edge_sunat(p, oculto=bool(headless))
+            context = crear_contexto_sunat(browser, viewport={"width": 1600, "height": 950})
+            page = context.new_page()
 
-        try:
-            url_login = (
-                "https://api-seguridad.sunat.gob.pe/v1/clientessol/4f3b88b3-d9d6-402a-b85d-6a0bc857746a/oauth2/loginMenuSol"
-                "?lang=es-PE&showDni=true&showLanguages=false"
-                f"&originalUrl={AUTENTICA_SOL_URL}&state={STATE_SOL_DEFAULT}"
-            )
-            iniciar_sesion_sol_blindado(page, url_login, ruc_emisor, usuario, clave)
-            time.sleep(1.0)
+            try:
+                url_login = (
+                    "https://api-seguridad.sunat.gob.pe/v1/clientessol/4f3b88b3-d9d6-402a-b85d-6a0bc857746a/oauth2/loginMenuSol"
+                    "?lang=es-PE&showDni=true&showLanguages=false"
+                    f"&originalUrl={AUTENTICA_SOL_URL}&state={STATE_SOL_DEFAULT}"
+                )
+                iniciar_sesion_sol_blindado(page, url_login, ruc_emisor, usuario, clave)
+                time.sleep(1.0)
 
-            for btn_text in ["Continuar sin confirmar", "Cerrar", "Aceptar", "Entendido"]:
-                try:
-                    btn = page.get_by_role("button", name=btn_text)
-                    if btn.count() > 0 and btn.first.is_visible():
-                        btn.first.click()
-                        time.sleep(0.4)
-                except Exception:
-                    pass
+                for btn_text in ["Continuar sin confirmar", "Cerrar", "Aceptar", "Entendido"]:
+                    try:
+                        btn = page.get_by_role("button", name=btn_text)
+                        if btn.count() > 0 and btn.first.is_visible():
+                            btn.first.click()
+                            time.sleep(0.4)
+                    except Exception:
+                        pass
 
-            target_sub = "Boleta de Venta Electrónica" if tipo_norm == "BOLETA" else "Factura Electrónica"
-            page.get_by_role("heading", name="Empresas").first.wait_for(state="visible", timeout=25000)
+                target_sub = "Boleta de Venta Electrónica" if tipo_norm == "BOLETA" else "Factura Electrónica"
+                page.get_by_role("heading", name="Empresas").first.wait_for(state="visible", timeout=25000)
 
-            for _ in range(1, 5):
-                try:
-                    page.get_by_role("heading", name="Empresas").first.click(timeout=10000)
-                    time.sleep(0.75)
-                    if not page.get_by_text(target_sub).first.is_visible():
-                        if not page.get_by_text("SEE - SOL").first.is_visible():
-                            page.locator("#nivel1_11 > .glyphicon").first.click(timeout=5000)
-                            time.sleep(0.5)
+                for _ in range(1, 5):
+                    try:
+                        page.get_by_role("heading", name="Empresas").first.click(timeout=10000)
+                        time.sleep(0.75)
                         if not page.get_by_text(target_sub).first.is_visible():
-                            page.get_by_text("SEE - SOL").first.click(timeout=5000)
-                            time.sleep(0.55)
-                    page.get_by_text(target_sub).first.wait_for(state="visible", timeout=3500)
-                    break
-                except Exception:
-                    time.sleep(0.6)
-
-            page.get_by_text(target_sub).first.click(timeout=5000)
-            time.sleep(0.6)
-
-            clicked_nc = False
-            for loc in page.get_by_text("Emitir Nota de Crédito", exact=True).all():
-                try:
-                    if loc.is_visible():
-                        loc.click(timeout=5000)
-                        clicked_nc = True
+                            if not page.get_by_text("SEE - SOL").first.is_visible():
+                                page.locator("#nivel1_11 > .glyphicon").first.click(timeout=5000)
+                                time.sleep(0.5)
+                            if not page.get_by_text(target_sub).first.is_visible():
+                                page.get_by_text("SEE - SOL").first.click(timeout=5000)
+                                time.sleep(0.55)
+                        page.get_by_text(target_sub).first.wait_for(state="visible", timeout=3500)
                         break
+                    except Exception:
+                        time.sleep(0.6)
+
+                page.get_by_text(target_sub).first.click(timeout=5000)
+                time.sleep(0.6)
+
+                clicked_nc = False
+                for loc in page.get_by_text("Emitir Nota de Crédito", exact=True).all():
+                    try:
+                        if loc.is_visible():
+                            loc.click(timeout=5000)
+                            clicked_nc = True
+                            break
+                    except Exception:
+                        pass
+                if not clicked_nc:
+                    page.get_by_text("Emitir Nota de Crédito").first.click(timeout=5000)
+
+                time.sleep(2.0)
+                frame = None
+                campo_id = "pantallaInicial.numeroBVE" if tipo_norm == "BOLETA" else "pantallaInicial.numeroFE"
+                for _ in range(35):
+                    for f in page.frames:
+                        if f.name == "iframeApplication" or "11.5.4.1.2" in f.url or "11.5.3" in f.url or "ww1" in f.url:
+                            try:
+                                if f.locator(f'[id="{campo_id}"]').is_visible():
+                                    frame = f
+                                    break
+                            except Exception:
+                                pass
+                    if frame:
+                        break
+                    time.sleep(0.8)
+
+                if not frame:
+                    raise RuntimeError("No se pudo abrir el formulario de Nota de Crédito en SUNAT.")
+
+                try:
+                    input_tipo = frame.locator("input[type='text']").nth(3)
+                    input_tipo.click()
+                    time.sleep(0.5)
+                    try:
+                        frame.get_by_role("option", name=re.compile(r"Anulaci[oó]n\s+de\s+la\s+Operaci[oó]n", re.I)).click(timeout=3000)
+                    except Exception:
+                        frame.locator(".dijitMenuItem:has-text('Anulaci')").first.click(timeout=3000)
+                except Exception:
+                    frame.evaluate("""() => {
+                        const opts = Array.from(document.querySelectorAll('tr, div, li, span'));
+                        for (const o of opts) {
+                            if (o.textContent && o.textContent.toLowerCase().includes('anulacion de la operacion')) {
+                                o.click();
+                                break;
+                            }
+                        }
+                    }""")
+                time.sleep(0.7)
+
+                campo_num = frame.locator(f'[id="{campo_id}"]')
+                campo_num.click()
+                campo_num.fill(correlativo_str)
+                time.sleep(0.3)
+
+                campo_motivo = frame.locator('[id="pantallaInicial.motivoEmisionNC"]')
+                campo_motivo.click()
+                campo_motivo.fill(motivo)
+                time.sleep(0.3)
+
+                try:
+                    frame.get_by_role("button", name="Continuar").click(timeout=5000)
+                except Exception:
+                    frame.get_by_role("button", name="Continuar").dispatch_event("click")
+                time.sleep(2.8)
+
+                try:
+                    texto_prelim = frame.locator("body").inner_text()
+                    m_nom = re.search(r"Se[ñn]or\(es\)\s*:\s*([^\n\r\t]+)", texto_prelim, re.I)
+                    if m_nom:
+                        datos_cp_origen["cliente"] = m_nom.group(1).strip()
+                    m_monto = re.search(r"Importe\s+Total\s*:\s*S/?\s*([\d\.,]+)", texto_prelim, re.I)
+                    if m_monto:
+                        datos_cp_origen["monto"] = float(m_monto.group(1).replace(",", ""))
                 except Exception:
                     pass
-            if not clicked_nc:
-                page.get_by_text("Emitir Nota de Crédito").first.click(timeout=5000)
 
-            time.sleep(2.0)
-            frame = None
-            campo_id = "pantallaInicial.numeroBVE" if tipo_norm == "BOLETA" else "pantallaInicial.numeroFE"
-            for _ in range(35):
-                for f in page.frames:
-                    if f.name == "iframeApplication" or "11.5.4.1.2" in f.url or "11.5.3" in f.url or "ww1" in f.url:
-                        try:
-                            if f.locator(f'[id="{campo_id}"]').is_visible():
-                                frame = f
-                                break
-                        except Exception:
-                            pass
-                if frame:
-                    break
-                time.sleep(0.8)
-
-            if not frame:
-                raise RuntimeError("No se pudo abrir el formulario de Nota de Crédito en SUNAT.")
-
-            try:
-                input_tipo = frame.locator("input[type='text']").nth(3)
-                input_tipo.click()
-                time.sleep(0.5)
-                try:
-                    frame.get_by_role("option", name=re.compile(r"Anulaci[oó]n\s+de\s+la\s+Operaci[oó]n", re.I)).click(timeout=3000)
-                except Exception:
-                    frame.locator(".dijitMenuItem:has-text('Anulaci')").first.click(timeout=3000)
-            except Exception:
-                frame.evaluate("""() => {
-                    const opts = Array.from(document.querySelectorAll('tr, div, li, span'));
-                    for (const o of opts) {
-                        if (o.textContent && o.textContent.toLowerCase().includes('anulacion de la operacion')) {
-                            o.click();
-                            break;
-                        }
+                if not emitir_final:
+                    png_bytes = page.screenshot(path=ruta_cap, full_page=True)
+                    return {
+                        "status": "BORRADOR_GENERADO",
+                        "modo": "borrador",
+                        "tipo_cp": tipo_norm,
+                        "cp_origen": numero_comprobante,
+                        "nro_nota_credito": "BORRADOR-NC-PRELIMINAR",
+                        "captura_pantalla": ruta_cap,
+                        "nombre_captura": nom_cap,
+                        "captura_b64": base64.b64encode(png_bytes).decode("ascii") if png_bytes else "",
+                        "datos_cp_origen": datos_cp_origen,
                     }
-                }""")
-            time.sleep(0.7)
 
-            campo_num = frame.locator(f'[id="{campo_id}"]')
-            campo_num.click()
-            campo_num.fill(correlativo_str)
-            time.sleep(0.3)
+                # Emisión Definitiva de Nota de Crédito
+                try:
+                    btn_emitir = frame.locator("button:has-text('Emitir'), [value='Emitir'], input[value='Emitir']").first
+                    if btn_emitir.count() > 0:
+                        btn_emitir.click(timeout=10000)
+                    else:
+                        frame.get_by_role("button", name="Emitir").click(timeout=10000)
+                except Exception:
+                    frame.get_by_role("button", name="Emitir").dispatch_event("click")
+                time.sleep(1.8)
 
-            campo_motivo = frame.locator('[id="pantallaInicial.motivoEmisionNC"]')
-            campo_motivo.click()
-            campo_motivo.fill(motivo)
-            time.sleep(0.3)
+                dialog_confirmar = frame.get_by_role("dialog", name="Confirmar")
+                if dialog_confirmar.count() > 0:
+                    try:
+                        dialog_confirmar.get_by_role("button", name="Aceptar").dispatch_event("click", timeout=4000)
+                    except Exception:
+                        dialog_confirmar.get_by_role("button", name="Aceptar").click(force=True, timeout=4000)
+                else:
+                    try:
+                        frame.get_by_role("button", name="Aceptar").dispatch_event("click", timeout=4000)
+                    except Exception:
+                        frame.get_by_role("button", name="Aceptar").click(force=True, timeout=4000)
 
-            try:
-                frame.get_by_role("button", name="Continuar").click(timeout=5000)
-            except Exception:
-                frame.get_by_role("button", name="Continuar").dispatch_event("click")
-            time.sleep(2.8)
+                time.sleep(3.2)
+                page.screenshot(path=ruta_cap, full_page=True)
 
-            try:
-                texto_prelim = frame.locator("body").inner_text()
-                m_nom = re.search(r"Se[ñn]or\(es\)\s*:\s*([^\n\r\t]+)", texto_prelim, re.I)
-                if m_nom:
-                    datos_cp_origen["cliente"] = m_nom.group(1).strip()
-                m_monto = re.search(r"Importe\s+Total\s*:\s*S/?\s*([\d\.,]+)", texto_prelim, re.I)
-                if m_monto:
-                    datos_cp_origen["monto"] = float(m_monto.group(1).replace(",", ""))
-            except Exception:
-                pass
+                cp_mod_norm = f"{'EB01' if tipo_norm == 'BOLETA' else 'E001'}-{correlativo_str}"
+                texto_exito = frame.locator("body").inner_text()
+                cands_nc = [
+                    re.sub(r"\s+", "", c.upper())
+                    for c in re.findall(r"((?:FC01|BC01|E001|EB01)\s*-\s*\d+)", texto_exito, re.I)
+                ]
+                cands_nc_filt = [c for c in cands_nc if c != cp_mod_norm]
+                nro_nc = cands_nc_filt[0] if cands_nc_filt else f"NC-{tipo_norm}-{correlativo_str}"
 
-            if not emitir_final:
-                png_bytes = page.screenshot(path=ruta_cap, full_page=True)
+                hoy_dt = datetime.now()
+                carpeta_dia = f"{hoy_dt.day:02d}_{MESES_CARPETA.get(hoy_dt.month, 'Mes')}"
+                dir_destino = NOTAS_CREDITO_PDF_DIR / ("nc_boletas" if tipo_norm == "BOLETA" else "nc_facturas") / carpeta_dia
+                dir_destino.mkdir(parents=True, exist_ok=True)
+
+                pdf_descargado = ""
+                try:
+                    btn_descargar = frame.locator(
+                        "text='Descargar PDF', [widgetid*='pdf'], [widgetid*='PDF'], span:has-text('Descargar PDF'), button:has-text('Descargar PDF'), a:has-text('Descargar PDF')"
+                    ).first
+                    if btn_descargar.count() > 0:
+                        with page.expect_download(timeout=20000) as download_info:
+                            try:
+                                btn_descargar.dispatch_event("click")
+                            except Exception:
+                                btn_descargar.click(force=True)
+                        download = download_info.value
+                        nom_cte = re.sub(r"[^A-Z0-9]+", "_", str(datos_cp_origen.get("cliente") or "CLIENTE").upper()).strip("_")[:36] or "CLIENTE"
+                        nombre_pdf_limpio = f"NOTA_CREDITO_{nro_nc}_{nom_cte}.pdf"
+                        ruta_pdf_limpia = str(dir_destino / nombre_pdf_limpio)
+                        download.save_as(ruta_pdf_limpia)
+                        pdf_descargado = ruta_pdf_limpia
+                except Exception:
+                    pass
+
+                if not pdf_descargado:
+                    try:
+                        pdf_descargado = generar_pdf_nota_credito_local(
+                            {
+                                "numero_cp": nro_nc,
+                                "fecha_emision": hoy_dt.strftime("%d/%m/%Y"),
+                                "cp_modificado": cp_mod_norm,
+                                "receptor_nombre": datos_cp_origen.get("cliente", ""),
+                                "receptor_doc": datos_cp_origen.get("doc", ""),
+                                "monto_total": datos_cp_origen.get("monto", 0.0),
+                                "motivo_nc": motivo,
+                            },
+                            dir_destino,
+                        )
+                    except Exception:
+                        pass
+
                 return {
-                    "status": "BORRADOR_GENERADO",
-                    "modo": "borrador",
+                    "status": "EMITIDO",
+                    "modo": "definitivo",
                     "tipo_cp": tipo_norm,
-                    "cp_origen": numero_comprobante,
-                    "nro_nota_credito": "BORRADOR-NC-PRELIMINAR",
+                    "cp_origen": cp_mod_norm,
+                    "nro_nota_credito": nro_nc,
+                    "motivo": motivo,
+                    "pdf_descargado": pdf_descargado,
                     "captura_pantalla": ruta_cap,
                     "nombre_captura": nom_cap,
-                    "captura_b64": base64.b64encode(png_bytes).decode("ascii") if png_bytes else "",
+                    "captura_b64": "",
                     "datos_cp_origen": datos_cp_origen,
                 }
 
-            # Emisión Definitiva de Nota de Crédito
-            try:
-                btn_emitir = frame.locator("button:has-text('Emitir'), [value='Emitir'], input[value='Emitir']").first
-                if btn_emitir.count() > 0:
-                    btn_emitir.click(timeout=10000)
-                else:
-                    frame.get_by_role("button", name="Emitir").click(timeout=10000)
-            except Exception:
-                frame.get_by_role("button", name="Emitir").dispatch_event("click")
-            time.sleep(1.8)
-
-            dialog_confirmar = frame.get_by_role("dialog", name="Confirmar")
-            if dialog_confirmar.count() > 0:
+            except Exception as e_gral:
                 try:
-                    dialog_confirmar.get_by_role("button", name="Aceptar").dispatch_event("click", timeout=4000)
-                except Exception:
-                    dialog_confirmar.get_by_role("button", name="Aceptar").click(force=True, timeout=4000)
-            else:
-                try:
-                    frame.get_by_role("button", name="Aceptar").dispatch_event("click", timeout=4000)
-                except Exception:
-                    frame.get_by_role("button", name="Aceptar").click(force=True, timeout=4000)
-
-            time.sleep(3.2)
-            png_bytes = page.screenshot(path=ruta_cap, full_page=True)
-
-            texto_exito = frame.locator("body").inner_text()
-            m_nc = re.search(r"((?:FC01|BC01|E001|EB01)\s*-\s*\d+)", texto_exito, re.I)
-            nro_nc = m_nc.group(1).upper().replace(" ", "") if m_nc else f"NC-{tipo_norm}-{correlativo_str}"
-
-            hoy_dt = datetime.now()
-            carpeta_dia = f"{hoy_dt.day:02d}_{MESES_CARPETA.get(hoy_dt.month, 'Mes')}"
-            dir_destino = NOTAS_CREDITO_PDF_DIR / ("nc_boletas" if tipo_norm == "BOLETA" else "nc_facturas") / carpeta_dia
-            dir_destino.mkdir(parents=True, exist_ok=True)
-
-            pdf_descargado = ""
-            try:
-                btn_descargar = frame.locator(
-                    "text='Descargar PDF', [widgetid*='pdf'], [widgetid*='PDF'], span:has-text('Descargar PDF'), button:has-text('Descargar PDF'), a:has-text('Descargar PDF')"
-                ).first
-                if btn_descargar.count() > 0:
-                    with page.expect_download(timeout=20000) as download_info:
-                        try:
-                            btn_descargar.dispatch_event("click")
-                        except Exception:
-                            btn_descargar.click(force=True)
-                    download = download_info.value
-                    nom_cte = re.sub(r"[^A-Z0-9]+", "_", str(datos_cp_origen.get("cliente") or "CLIENTE").upper()).strip("_")[:36] or "CLIENTE"
-                    nombre_pdf_limpio = f"NOTA_CREDITO_{nro_nc}_{nom_cte}.pdf"
-                    ruta_pdf_limpia = str(dir_destino / nombre_pdf_limpio)
-                    download.save_as(ruta_pdf_limpia)
-                    pdf_descargado = ruta_pdf_limpia
-            except Exception:
-                pass
-
-            if not pdf_descargado:
-                try:
-                    pdf_descargado = generar_pdf_nota_credito_local(
-                        {
-                            "numero_cp": nro_nc,
-                            "fecha_emision": hoy_dt.strftime("%d/%m/%Y"),
-                            "cp_modificado": f"{'EB01' if tipo_norm == 'BOLETA' else 'E001'}-{correlativo_str}",
-                            "receptor_nombre": datos_cp_origen.get("cliente", ""),
-                            "receptor_doc": datos_cp_origen.get("doc", ""),
-                            "monto_total": datos_cp_origen.get("monto", 0.0),
-                            "motivo_nc": motivo,
-                        },
-                        dir_destino,
-                    )
+                    page.screenshot(path=ruta_cap, full_page=True)
                 except Exception:
                     pass
-
-            return {
-                "status": "EMITIDO",
-                "modo": "definitivo",
-                "tipo_cp": tipo_norm,
-                "cp_origen": f"{'EB01' if tipo_norm == 'BOLETA' else 'E001'}-{correlativo_str}",
-                "nro_nota_credito": nro_nc,
-                "motivo": motivo,
-                "pdf_descargado": pdf_descargado,
-                "captura_pantalla": ruta_cap,
-                "nombre_captura": nom_cap,
-                "captura_b64": base64.b64encode(png_bytes).decode("ascii") if png_bytes else "",
-                "datos_cp_origen": datos_cp_origen,
-            }
-
-        except Exception as e_gral:
-            try:
-                page.screenshot(path=ruta_cap, full_page=True)
-            except Exception:
-                pass
-            return {
-                "status": "ERROR",
-                "tipo_cp": tipo_norm,
-                "cp_origen": numero_comprobante,
-                "error": str(e_gral),
-            }
-        finally:
-            try:
-                context.close()
-                browser.close()
-            except Exception:
-                pass
+                return {
+                    "status": "ERROR",
+                    "tipo_cp": tipo_norm,
+                    "cp_origen": numero_comprobante,
+                    "error": str(e_gral),
+                }
+            finally:
+                try:
+                    context.close()
+                    browser.close()
+                except Exception:
+                    pass
 
 
 # ==============================================================================
@@ -1234,8 +1398,9 @@ def extraer_hab_y_fecha_de_descripcion(desc: str, fecha_emision_dmy: str = "", h
     if m_mes:
         dd = int(m_mes.group(1))
         mm = MESES_ES_NUM.get(m_mes.group(2), mes_def)
+        anio_calc = anio_def - 1 if (mes_def == 1 and mm == 12) else anio_def
         if 1 <= dd <= 31:
-            return hab, f"{dd:02d}/{mm:02d}/{anio_def:04d}"
+            return hab, f"{dd:02d}/{mm:02d}/{anio_calc:04d}"
 
     return hab, f_em
 
@@ -1297,11 +1462,11 @@ def convertir_comprobante_a_datos_y_subir_supabase(
                     if not cliente_nc:
                         cliente_nc = str(orig_row["receptor_nombre"] or "")
                 conn.execute(
-                    "UPDATE sunat_ventas SET estado = 'ANULADO (NCE)', updated_at = ?, actualizado_en = ? WHERE nro_cp = ?",
+                    "UPDATE sunat_ventas SET estado = 'ANULADO (NCE)', updated_at = ?, actualizado_en = ? WHERE nro_cp = ? AND coalesce(tipo_doc, tipo, '') != 'NOTA_CREDITO'",
                     (ahora_str, ahora_str, cp_origen),
                 )
                 conn.execute(
-                    "UPDATE sunat_lineas_cache SET estado = 'ANULADO (NCE)' WHERE nro_cp = ?",
+                    "UPDATE sunat_lineas_cache SET estado = 'ANULADO (NCE)' WHERE nro_cp = ? AND coalesce(tipo, '') != 'NOTA_CREDITO'",
                     (cp_origen,),
                 )
 
@@ -1382,7 +1547,18 @@ def convertir_comprobante_a_datos_y_subir_supabase(
             receptor_nombre = m_rz.group(1).strip().upper()
 
     items: List[Dict[str, Any]] = list(data_norm.get("items") or [])
-    total_monto = round(float(data_norm.get("total_monto") or sum(float(i.get("precio_unitario", 0)) * int(i.get("cantidad", 1)) for i in items)), 2)
+    total_esperado = round(float(data_norm.get("total_monto") or sum(float(i.get("precio_unitario", 0)) * int(i.get("cantidad", 1)) for i in items)), 2)
+    total_monto = total_esperado
+    texto_fuente_tot = "\n".join(x for x in (txt_pdf, str(res_emision.get("texto_constancia_dom") or "")) if x)
+    if texto_fuente_tot:
+        m_tot_sunat = re.search(r"Importe\s+Total\s*:\s*(?:S/?|\$)?\s*([0-9]+(?:\.[0-9]{2}))", texto_fuente_tot, re.I)
+        if m_tot_sunat:
+            try:
+                tot_sunat = round(float(m_tot_sunat.group(1)), 2)
+                if tot_sunat > 0 and (total_esperado <= 0 or abs(tot_sunat - total_esperado) <= 0.10):
+                    total_monto = tot_sunat
+            except Exception:
+                pass
     op_gravada = round(total_monto / FACTOR_IGV_HOTEL, 2)
     igv_105 = round(total_monto - op_gravada, 2)
 
@@ -1418,6 +1594,7 @@ def convertir_comprobante_a_datos_y_subir_supabase(
         "op_gravada": op_gravada,
         "igv_105": igv_105,
         "total": total_monto,
+        "total_esperado_panel": total_esperado,
         "nombre_pdf_local": os.path.basename(ruta_pdf) if ruta_pdf else "",
         "carpeta_local_madre": str(Path(ruta_pdf).parent.name) if ruta_pdf else "",
         "nodo_emisor": ROL_NODO,
@@ -1516,13 +1693,31 @@ def normalizar_telefono_peru(telefono: str) -> str:
     return tel
 
 
+def _es_ruta_pdf_autorizada(ruta: str) -> bool:
+    """Garantiza que solo se adjunten/sirvan archivos .pdf dentro de las carpetas de comprobantes autorizadas."""
+    if not ruta:
+        return False
+    try:
+        p = Path(str(ruta)).resolve()
+        if p.suffix.lower() != ".pdf" or not p.is_file():
+            return False
+        bases_ok = (
+            COMPROBANTES_PDF_DIR.resolve(),
+            (DATA_DIR / "descargas_recepcion").resolve(),
+            HOSTAL_SISTEMA_DIR.resolve(),
+        )
+        return any(p.is_relative_to(b) for b in bases_ok)
+    except Exception:
+        return False
+
+
 def buscar_pdf_comprobante_local(nro_cp: str = "", ruc_dni: str = "", cliente: str = "", pista_ruta: str = "") -> Optional[str]:
     """
     Busca el PDF del comprobante priorizando la carpeta local `02_DB_sqlite_local/comprobantes_pdf/`
     y dejando `C:\\Hostal_Sistema` únicamente como lectura histórica de comprobantes antiguos.
     """
-    if pista_ruta and os.path.isfile(pista_ruta):
-        return os.path.abspath(pista_ruta)
+    if pista_ruta and _es_ruta_pdf_autorizada(pista_ruta):
+        return str(Path(pista_ruta).resolve())
 
     patrones = [
         str(BOLETAS_PDF_DIR / "**" / "*.pdf"),
@@ -1541,24 +1736,35 @@ def buscar_pdf_comprobante_local(nro_cp: str = "", ruc_dni: str = "", cliente: s
         return None
     archivos.sort(key=os.path.getmtime, reverse=True)
 
+    nro_clean = str(nro_cp or "").strip().upper()
+    if nro_clean:
+        m_cp = re.match(r"^([A-Z0-9]+)-0*(\d+)$", nro_clean)
+        if m_cp:
+            serie, num = m_cp.group(1), int(m_cp.group(2))
+            pat_cp = re.compile(rf"(?<![A-Z0-9]){re.escape(serie)}-?0*{num}(?![0-9])", re.I)
+        else:
+            pat_cp = re.compile(rf"(?<![A-Z0-9]){re.escape(nro_clean)}(?![A-Z0-9])", re.I)
+        for ruta in archivos[:500]:
+            nom = os.path.basename(ruta)
+            if pat_cp.search(nom) and _es_ruta_pdf_autorizada(ruta):
+                return str(Path(ruta).resolve())
+        return None
+
     terminos = []
-    if pista_ruta:
+    if pista_ruta and str(pista_ruta).lower().endswith(".pdf"):
         terminos.append(os.path.basename(pista_ruta).lower())
-    if nro_cp:
-        terminos.append(nro_cp.replace("-", "").lower())
-        terminos.append(nro_cp.lower())
     if ruc_dni:
-        terminos.append(str(ruc_dni).strip().lower())
-    if cliente:
-        palabras = [p.lower() for p in str(cliente).split() if len(p) > 3]
-        if palabras:
-            terminos.append(palabras[0])
+        dig = re.sub(r"\D", "", str(ruc_dni).strip())
+        if len(dig) >= 8:
+            terminos.append(dig.lower())
 
     terminos_limpios = [t for t in terminos if t]
+    if not terminos_limpios:
+        return None
     for ruta in archivos[:200]:
         nom = os.path.basename(ruta).lower()
-        if any(t in nom for t in terminos_limpios):
-            return os.path.abspath(ruta)
+        if any(t in nom for t in terminos_limpios) and _es_ruta_pdf_autorizada(ruta):
+            return str(Path(ruta).resolve())
     return None
 
 
@@ -1584,11 +1790,12 @@ def _encolar_y_esperar_wsp_daemon(
     ruta_pdf: str,
     nro_cp: str = "",
     cliente: str = "",
-    timeout_s: float = 9.0,
+    timeout_s: float = 18.0,
 ) -> Tuple[bool, str]:
     """
     Inserta el envío en `wsp_recepcion_cola_envio` con las columnas exactas que consume `wsp_daemon.js`
     (Baileys en Laptop 2) y espera hasta `timeout_s` a que marque `ENVIADO` (0 ventanas, 100% silencioso).
+    Si vence `timeout_s`, deja la fila en `PENDIENTE` sin cambiarla ni duplicarla con Desktop fallback.
     """
     nombre_adj = os.path.basename(ruta_pdf) if ruta_pdf else ""
     ahora_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1638,17 +1845,7 @@ def _encolar_y_esperar_wsp_daemon(
         finally:
             c_chk.close()
 
-    # Si no lo tomó en timeout_s, marcarlo para que no se duplique cuando corra el fallback
-    c_cancel = get_connection()
-    try:
-        c_cancel.execute(
-            "UPDATE wsp_recepcion_cola_envio SET estado = 'FALLBACK_DESKTOP' WHERE id = ? AND estado = 'PENDIENTE'",
-            (cola_id,),
-        )
-        c_cancel.commit()
-    finally:
-        c_cancel.close()
-    return False, "Timeout esperando wsp_daemon.js"
+    return True, f"Encolado en Baileys Recepción (cola #{cola_id}, envío en curso)."
 
 
 # --- Fallback WhatsApp Desktop Invisible (absorbido de brazo_wsp.py) ---
@@ -1779,17 +1976,33 @@ def despachar_wsp_comprobante_local(
             ruta_pdf=ruta_pdf_real,
             nro_cp=nro_cp,
             cliente=cliente,
-            timeout_s=9.0,
+            timeout_s=18.0,
         )
         if ok_b:
             return True, msg_b, ""
+        return False, "", msg_b
 
-    # Vía 2: Fallback WhatsApp Desktop en Laptop 2
-    try:
-        _enviar_via_whatsapp_desktop_invisible(tel_norm, mensaje, ruta_pdf_real or None)
-        return True, "Enviado por WhatsApp Desktop.", ""
-    except Exception as exc:
-        return False, "", str(exc)
+    # Vía 2: Solo usar Desktop si está explícitamente habilitado en .env; por defecto encolar en Baileys sin robar foco
+    if os.environ.get("OVALO_PERMITIR_WSP_DESKTOP_FALLBACK") == "1":
+        try:
+            _enviar_via_whatsapp_desktop_invisible(tel_norm, mensaje, ruta_pdf_real or None)
+            return True, "Enviado por WhatsApp Desktop.", ""
+        except Exception as exc:
+            return False, "", str(exc)
+
+    _encolar_y_esperar_wsp_daemon(
+        telefono_norm=tel_norm,
+        mensaje=mensaje,
+        ruta_pdf=ruta_pdf_real,
+        nro_cp=nro_cp,
+        cliente=cliente,
+        timeout_s=0.0,
+    )
+    return (
+        False,
+        "",
+        "WhatsApp Recepción (Baileys) está reconectando; el comprobante quedó en cola y puede reenviarse con 'Reenviar WSP'.",
+    )
 
 
 # ==============================================================================
@@ -2037,189 +2250,206 @@ def revisar_y_descargar_faltantes_sunat_incremental(dias_atras: int = 7) -> Dict
     revisados_total = 0
     errores: List[str] = []
 
-    with sync_playwright() as pw:
-        browser = lanzar_edge_sunat(pw, headless=True)
-        context = crear_contexto_sunat(browser)
-        try:
-            page = iniciar_sesion_sol_blindado(context, ruc_sol, usr_sol, clv_sol)
-
-            modulos = [
-                ("FACTURA", "#nivel3_11_5_3", "Consultar Factura y Nota", "FE Emitidas"),
-                ("BOLETA", "#nivel3_11_5_4", "Consultar Boleta de Venta y", "BVE"),
-            ]
-
-            for tipo_mod, sel_n3, texto_menu, texto_opt in modulos:
-                try:
-                    try:
-                        page.get_by_role("heading", name="Empresas").click(timeout=3000)
-                        time.sleep(0.6)
-                    except Exception:
-                        pass
-
-                    for sel_nav in ("#nivel1_11 > .glyphicon", "#nivel2_11_5 > .glyphicon", f"{sel_n3} > .glyphicon"):
-                        try:
-                            loc_n = page.locator(sel_nav).first
-                            if loc_n.count() > 0 and loc_n.is_visible():
-                                loc_n.click(timeout=4000)
-                                time.sleep(0.7)
-                        except Exception:
-                            pass
-
-                    try:
-                        page.get_by_text(texto_menu).first.click(timeout=7000)
-                    except Exception:
-                        page.get_by_text(texto_menu).first.dispatch_event("click")
-
-                    time.sleep(3.2)
-                    frame = page.locator('iframe[name="iframeApplication"]').content_frame
-
-                    # Llenar rango de fechas y consultar
-                    llenado_ok = False
-                    for _ in range(12):
-                        time.sleep(0.8)
-                        try:
-                            tbs = frame.get_by_role("textbox").all()
-                            if len(tbs) >= 2:
-                                tbs[0].click()
-                                tbs[0].fill(fecha_inicio)
-                                time.sleep(0.25)
-                                tbs[1].click()
-                                tbs[1].fill(fecha_fin)
-                                time.sleep(0.25)
-                                try:
-                                    arrow = frame.locator(".dijitReset.dijitRight").first
-                                    if arrow.count() > 0:
-                                        arrow.click()
-                                        time.sleep(0.4)
-                                        opt = frame.get_by_role("option", name=re.compile(texto_opt, re.I))
-                                        if opt.count() > 0:
-                                            opt.first.click()
-                                            time.sleep(0.3)
-                                except Exception:
-                                    pass
-                                btn_ac = frame.get_by_role("button", name="Aceptar")
-                                if btn_ac.count() > 0:
-                                    btn_ac.first.click()
-                                    llenado_ok = True
-                                    break
-                        except Exception:
-                            pass
-
-                    if not llenado_ok:
-                        continue
-
-                    time.sleep(4.2)
-                    try:
-                        scrollbox = frame.locator(".dojoxGridScrollbox, div[dojoattachpoint='scrollbox']").first
-                        if scrollbox.count() > 0:
-                            for _ in range(10):
-                                scrollbox.evaluate("el => el.scrollTop += 550")
-                                time.sleep(0.2)
-                            scrollbox.evaluate("el => el.scrollTop = 0")
-                            time.sleep(0.6)
-                    except Exception:
-                        pass
-
-                    filas = frame.locator(".dojoxGridRow, tr.dojoxGridRow, tr[dojoxgridrowindex]").all()
-                    for fila in filas:
-                        info_f = _extraer_fila_consulta_see_sol(fila, tipo_mod)
-                        nro_cp = info_f.get("nro_cp") or ""
-                        if not nro_cp:
-                            continue
-                        revisados_total += 1
-
-                        en_db = existentes_db.get(nro_cp)
-                        pdf_local = _buscar_pdf_solo_en_carpeta_local_v2(nro_cp)
-
-                        # Si fue anulado en SUNAT y en DB seguía VIGENTE, actualizar estado
-                        if info_f.get("estado") == "ANULADO (NCE)" and en_db and en_db.get("estado") != "ANULADO (NCE)":
-                            ahora_s = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            with db_transaction() as c_an:
-                                c_an.execute(
-                                    "UPDATE sunat_ventas SET estado = 'ANULADO (NCE)', updated_at = ?, actualizado_en = ? WHERE nro_cp = ?",
-                                    (ahora_s, ahora_s, nro_cp),
-                                )
-                                c_an.execute(
-                                    "UPDATE sunat_lineas_cache SET estado = 'ANULADO (NCE)' WHERE nro_cp = ?",
-                                    (nro_cp,),
-                                )
-                            actualizados_estado.append(nro_cp)
-
-                        if en_db and pdf_local:
-                            continue
-
-                        # Falta en sunat_ventas o falta su PDF en 02_DB_sqlite_local/comprobantes_pdf/
-                        f_em = info_f.get("fecha_emision") or hoy_dt.strftime("%d/%m/%Y")
-                        partes_dmy = f_em.split("/")
-                        if len(partes_dmy) == 3 and partes_dmy[0].isdigit() and partes_dmy[1].isdigit():
-                            carpeta_dia = f"{int(partes_dmy[0]):02d}_{MESES_CARPETA.get(int(partes_dmy[1]), 'Mes')}"
-                        else:
-                            carpeta_dia = f"{hoy_dt.day:02d}_{MESES_CARPETA.get(hoy_dt.month, 'Mes')}"
-
-                        dir_base = FACTURAS_PDF_DIR if tipo_mod == "FACTURA" else BOLETAS_PDF_DIR
-                        dir_dia = dir_base / carpeta_dia
-                        dir_dia.mkdir(parents=True, exist_ok=True)
-
-                        cli_slug = re.sub(r"[^A-Z0-9]+", "_", str(info_f.get("receptor_nombre") or info_f.get("receptor_doc") or "CLIENTE").upper()).strip("_")[:36] or "CLIENTE"
-                        pref_nom = "FACTURA" if tipo_mod == "FACTURA" else "BOLETA"
-                        ruta_pdf_tentativa = str(dir_dia / f"{pref_nom}_{nro_cp}_{cli_slug}.pdf")
-
-                        detalle_cp = dict(info_f)
-                        link_cp = fila.locator("a:has(img), a[href*='verimprimir'], a[href*='verImprimir'], a[href*='consultar.do'], a").first
-                        if link_cp.count() > 0:
-                            try:
-                                link_cp.scroll_into_view_if_needed(timeout=2000)
-                                with page.expect_popup(timeout=9000) as pop_info:
-                                    link_cp.click(force=True)
-                                detalle_cp = _procesar_y_descargar_popup_consulta_sunat(
-                                    pop_info.value,
-                                    info_f,
-                                    ruta_pdf_tentativa,
-                                )
-                            except Exception as exc_pop:
-                                errores.append(f"{nro_cp}: {exc_pop}")
-
-                        res_em_sim = {
-                            "status": "OK",
-                            "tipo": tipo_mod,
-                            "nro_comprobante": nro_cp,
-                            "archivo_pdf": detalle_cp.get("archivo_pdf") or pdf_local or "",
-                            "receptor_nombre": detalle_cp.get("receptor_nombre") or info_f.get("receptor_nombre") or "CLIENTES VARIOS",
-                            "receptor_doc": detalle_cp.get("receptor_doc") or info_f.get("receptor_doc") or "",
-                            "fecha_emision": f_em,
-                        }
-                        data_norm_sim = {
-                            "accion": "EMITIR",
-                            "tipo": tipo_mod,
-                            "documento": res_em_sim["receptor_doc"],
-                            "cliente": res_em_sim["receptor_nombre"],
-                            "items": detalle_cp.get("items") or [
-                                {
-                                    "cantidad": 1,
-                                    "descripcion": f"ALOJAMIENTO SEGUN {nro_cp}",
-                                    "precio_unitario": float(detalle_cp.get("monto_total") or info_f.get("monto_total") or 0.0),
-                                }
-                            ],
-                            "total_monto": float(detalle_cp.get("monto_total") or info_f.get("monto_total") or 0.0),
-                        }
-                        convertir_comprobante_a_datos_y_subir_supabase(res_em_sim, data_norm_sim)
-                        descargados.append(nro_cp)
-                        existentes_db[nro_cp] = {"nro_cp": nro_cp, "tipo_doc": tipo_mod, "estado": info_f.get("estado", "VIGENTE")}
-
-                    try:
-                        page.once("dialog", lambda d: d.dismiss())
-                        frame.get_by_role("button", name="Cerrar").click(timeout=2500)
-                        time.sleep(1.0)
-                    except Exception:
-                        pass
-                except Exception as exc_mod:
-                    errores.append(f"{tipo_mod}: {exc_mod}")
-        finally:
+    with adquirir_candado_sunat_exclusivo():
+        with sync_playwright() as pw:
+            browser = lanzar_edge_sunat(pw, oculto=True)
+            context = crear_contexto_sunat(browser)
+            page = context.new_page()
             try:
-                context.close()
-                browser.close()
-            except Exception:
-                pass
+                url_login = (
+                    "https://api-seguridad.sunat.gob.pe/v1/clientessol/4f3b88b3-d9d6-402a-b85d-6a0bc857746a/oauth2/loginMenuSol"
+                    "?lang=es-PE&showDni=true&showLanguages=false"
+                    f"&originalUrl={AUTENTICA_SOL_URL}&state={STATE_SOL_DEFAULT}"
+                )
+                iniciar_sesion_sol_blindado(page, url_login, ruc_sol, usr_sol, clv_sol)
+                time.sleep(0.5)
+
+                for btn_text in ["Continuar sin confirmar", "Cerrar", "Aceptar", "Entendido"]:
+                    try:
+                        btn = page.get_by_role("button", name=btn_text)
+                        if btn.count() > 0 and btn.first.is_visible():
+                            btn.first.click()
+                            time.sleep(0.25)
+                    except Exception:
+                        pass
+
+                modulos = [
+                    ("FACTURA", "#nivel3_11_5_3", "Consultar Factura y Nota", "FE Emitidas"),
+                    ("BOLETA", "#nivel3_11_5_4", "Consultar Boleta de Venta y", "BVE"),
+                ]
+
+                for tipo_mod, sel_n3, texto_menu, texto_opt in modulos:
+                    try:
+                        try:
+                            page.get_by_role("heading", name="Empresas").click(timeout=3000)
+                            time.sleep(0.6)
+                        except Exception:
+                            pass
+
+                        for sel_nav in ("#nivel1_11 > .glyphicon", "#nivel2_11_5 > .glyphicon", f"{sel_n3} > .glyphicon"):
+                            try:
+                                loc_n = page.locator(sel_nav).first
+                                if loc_n.count() > 0 and loc_n.is_visible():
+                                    loc_n.click(timeout=4000)
+                                    time.sleep(0.7)
+                            except Exception:
+                                pass
+
+                        try:
+                            page.get_by_text(texto_menu).first.click(timeout=7000)
+                        except Exception:
+                            page.get_by_text(texto_menu).first.dispatch_event("click")
+
+                        time.sleep(3.2)
+                        frame = page.locator('iframe[name="iframeApplication"]').content_frame
+
+                        # Llenar rango de fechas y consultar
+                        llenado_ok = False
+                        for _ in range(12):
+                            time.sleep(0.8)
+                            try:
+                                tbs = frame.get_by_role("textbox").all()
+                                if len(tbs) >= 2:
+                                    tbs[0].click()
+                                    tbs[0].fill(fecha_inicio)
+                                    time.sleep(0.25)
+                                    tbs[1].click()
+                                    tbs[1].fill(fecha_fin)
+                                    time.sleep(0.25)
+                                    try:
+                                        arrow = frame.locator(".dijitReset.dijitRight").first
+                                        if arrow.count() > 0:
+                                            arrow.click()
+                                            time.sleep(0.4)
+                                            opt = frame.get_by_role("option", name=re.compile(texto_opt, re.I))
+                                            if opt.count() > 0:
+                                                opt.first.click()
+                                                time.sleep(0.3)
+                                    except Exception:
+                                        pass
+                                    btn_ac = frame.get_by_role("button", name="Aceptar")
+                                    if btn_ac.count() > 0:
+                                        btn_ac.first.click()
+                                        llenado_ok = True
+                                        break
+                            except Exception:
+                                pass
+
+                        if not llenado_ok:
+                            continue
+
+                        time.sleep(4.2)
+                        try:
+                            scrollbox = frame.locator(".dojoxGridScrollbox, div[dojoattachpoint='scrollbox']").first
+                            if scrollbox.count() > 0:
+                                for _ in range(10):
+                                    scrollbox.evaluate("el => el.scrollTop += 550")
+                                    time.sleep(0.2)
+                                scrollbox.evaluate("el => el.scrollTop = 0")
+                                time.sleep(0.6)
+                        except Exception:
+                            pass
+
+                        filas = frame.locator(".dojoxGridRow, tr.dojoxGridRow, tr[dojoxgridrowindex]").all()
+                        for fila in filas:
+                            info_f = _extraer_fila_consulta_see_sol(fila, tipo_mod)
+                            nro_cp = info_f.get("nro_cp") or ""
+                            if not nro_cp:
+                                continue
+                            revisados_total += 1
+
+                            en_db = existentes_db.get(nro_cp)
+                            pdf_local = _buscar_pdf_solo_en_carpeta_local_v2(nro_cp)
+
+                            # Si fue anulado en SUNAT y en DB seguía VIGENTE, actualizar estado
+                            if info_f.get("estado") == "ANULADO (NCE)" and en_db and en_db.get("estado") != "ANULADO (NCE)":
+                                ahora_s = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                with db_transaction() as c_an:
+                                    c_an.execute(
+                                        "UPDATE sunat_ventas SET estado = 'ANULADO (NCE)', updated_at = ?, actualizado_en = ? WHERE nro_cp = ? AND coalesce(tipo_doc, tipo, '') != 'NOTA_CREDITO'",
+                                        (ahora_s, ahora_s, nro_cp),
+                                    )
+                                    c_an.execute(
+                                        "UPDATE sunat_lineas_cache SET estado = 'ANULADO (NCE)' WHERE nro_cp = ? AND coalesce(tipo, '') != 'NOTA_CREDITO'",
+                                        (nro_cp,),
+                                    )
+                                actualizados_estado.append(nro_cp)
+
+                            if en_db and pdf_local:
+                                continue
+
+                            # Falta en sunat_ventas o falta su PDF en 02_DB_sqlite_local/comprobantes_pdf/
+                            f_em = info_f.get("fecha_emision") or hoy_dt.strftime("%d/%m/%Y")
+                            partes_dmy = f_em.split("/")
+                            if len(partes_dmy) == 3 and partes_dmy[0].isdigit() and partes_dmy[1].isdigit():
+                                carpeta_dia = f"{int(partes_dmy[0]):02d}_{MESES_CARPETA.get(int(partes_dmy[1]), 'Mes')}"
+                            else:
+                                carpeta_dia = f"{hoy_dt.day:02d}_{MESES_CARPETA.get(hoy_dt.month, 'Mes')}"
+
+                            dir_base = FACTURAS_PDF_DIR if tipo_mod == "FACTURA" else BOLETAS_PDF_DIR
+                            dir_dia = dir_base / carpeta_dia
+                            dir_dia.mkdir(parents=True, exist_ok=True)
+
+                            cli_slug = re.sub(r"[^A-Z0-9]+", "_", str(info_f.get("receptor_nombre") or info_f.get("receptor_doc") or "CLIENTE").upper()).strip("_")[:36] or "CLIENTE"
+                            pref_nom = "FACTURA" if tipo_mod == "FACTURA" else "BOLETA"
+                            ruta_pdf_tentativa = str(dir_dia / f"{pref_nom}_{nro_cp}_{cli_slug}.pdf")
+
+                            detalle_cp = dict(info_f)
+                            link_cp = fila.locator("a:has(img), a[href*='verimprimir'], a[href*='verImprimir'], a[href*='consultar.do'], a").first
+                            if link_cp.count() > 0:
+                                try:
+                                    link_cp.scroll_into_view_if_needed(timeout=2000)
+                                    with page.expect_popup(timeout=9000) as pop_info:
+                                        link_cp.click(force=True)
+                                    detalle_cp = _procesar_y_descargar_popup_consulta_sunat(
+                                        pop_info.value,
+                                        info_f,
+                                        ruta_pdf_tentativa,
+                                    )
+                                except Exception as exc_pop:
+                                    errores.append(f"{nro_cp}: {exc_pop}")
+
+                            res_em_sim = {
+                                "status": "OK",
+                                "tipo": tipo_mod,
+                                "nro_comprobante": nro_cp,
+                                "archivo_pdf": detalle_cp.get("archivo_pdf") or pdf_local or "",
+                                "receptor_nombre": detalle_cp.get("receptor_nombre") or info_f.get("receptor_nombre") or "CLIENTES VARIOS",
+                                "receptor_doc": detalle_cp.get("receptor_doc") or info_f.get("receptor_doc") or "",
+                                "fecha_emision": f_em,
+                            }
+                            data_norm_sim = {
+                                "accion": "EMITIR",
+                                "tipo": tipo_mod,
+                                "documento": res_em_sim["receptor_doc"],
+                                "cliente": res_em_sim["receptor_nombre"],
+                                "items": detalle_cp.get("items") or [
+                                    {
+                                        "cantidad": 1,
+                                        "descripcion": f"ALOJAMIENTO SEGUN {nro_cp}",
+                                        "precio_unitario": float(detalle_cp.get("monto_total") or info_f.get("monto_total") or 0.0),
+                                    }
+                                ],
+                                "total_monto": float(detalle_cp.get("monto_total") or info_f.get("monto_total") or 0.0),
+                            }
+                            convertir_comprobante_a_datos_y_subir_supabase(res_em_sim, data_norm_sim)
+                            descargados.append(nro_cp)
+                            existentes_db[nro_cp] = {"nro_cp": nro_cp, "tipo_doc": tipo_mod, "estado": info_f.get("estado", "VIGENTE")}
+
+                        try:
+                            page.once("dialog", lambda d: d.dismiss())
+                            frame.get_by_role("button", name="Cerrar").click(timeout=2500)
+                            time.sleep(1.0)
+                        except Exception:
+                            pass
+                    except Exception as exc_mod:
+                        errores.append(f"{tipo_mod}: {exc_mod}")
+            finally:
+                try:
+                    context.close()
+                    browser.close()
+                except Exception:
+                    pass
 
     ahora_iso = datetime.now().isoformat(timespec="seconds")
     hoy_ymd = hoy_dt.strftime("%Y-%m-%d")

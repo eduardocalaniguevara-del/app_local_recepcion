@@ -1,6 +1,6 @@
 ﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+r"""
 INSTALADOR OFICIAL DESDE CERO (Git + Supabase Directo — CERO ZIPs manuales):
 - Clona o actualiza C:\Ovalo_Sistema_v2 directamente con `git` desde GitHub (`main`).
 - Inicializa `02_DB_sqlite_local\ovalo.db` y descarga el 100% de las tablas desde Supabase.

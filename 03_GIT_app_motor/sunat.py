@@ -54,12 +54,14 @@ from config import (
 from db import db_transaction, get_connection
 from estancias import _registrar_movimiento, actualizar_comprobante_desde_panel_local
 from sunat_motor_playwright import (
+    _es_ruta_pdf_autorizada,
     buscar_pdf_comprobante_local,
     calcular_valor_unitario_105,
     convertir_comprobante_a_datos_y_subir_supabase,
     despachar_wsp_comprobante_local,
     emitir_comprobante_sunat_local,
     emitir_nota_credito_sunat_local,
+    hay_sesion_sunat_activa,
     revisar_y_descargar_faltantes_sunat_incremental,
 )
 from sync_nube import _headers, encolar_whatsapp_remoto, pull_from_supabase, push_to_supabase
@@ -815,10 +817,37 @@ def _ejecutar_trabajo_sunat_wsp_local(
         )
 
         if res_sunat.get("status") != "OK":
+            if res_sunat.get("estado_incierto"):
+                clave_inc = f"sunat_alerta_incierta_{(estancia_uuid or hab or 's_id').strip()}"
+                _alerta_inc = {
+                    "estanciaUuid": estancia_uuid,
+                    "hab": hab,
+                    "tipo": tipo,
+                    "monto": total_monto,
+                    "ts": time.time(),
+                    "error": res_sunat.get("error") or "",
+                }
+                try:
+                    c_inc = get_connection()
+                    try:
+                        c_inc.execute(
+                            """
+                            INSERT INTO estado_sistema (clave, valor, updated_at)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at
+                            """,
+                            (clave_inc, json.dumps(_alerta_inc, ensure_ascii=False), datetime.now().isoformat(timespec="seconds")),
+                        )
+                        c_inc.commit()
+                    finally:
+                        c_inc.close()
+                except Exception:
+                    pass
             return {
                 "status": "ERROR",
                 "accion": accion,
                 "hab": hab,
+                "estado_incierto": bool(res_sunat.get("estado_incierto")),
                 "error": res_sunat.get("error") or "Error desconocido en emisión SUNAT.",
             }
 
@@ -945,14 +974,108 @@ def _verificar_estancia_ya_emitida_local(data_norm: Dict[str, Any]) -> Optional[
             ).fetchone()
         else:
             row = conn.execute(
-                "SELECT estado_comp, nro_comp FROM estancias WHERE id = ? LIMIT 1",
-                (id_est,),
+                "SELECT estado_comp, nro_comp FROM estancias WHERE sheet_row = ? OR rowid = ? LIMIT 1",
+                (id_est, id_est),
             ).fetchone()
         if row:
             est_c = str(row["estado_comp"] or "").strip().lower()
             nro_c = str(row["nro_comp"] or "").strip()
             if est_c == "emitido" and nro_c:
                 return nro_c
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return None
+
+
+def _verificar_alerta_incierta_local(data_norm: Dict[str, Any]) -> Optional[str]:
+    """Bloquea re-emisión automática durante 10 minutos si hubo fallo post-Emitir salvo `forzar=True` explícito."""
+    if bool(data_norm.get("forzar_post_incierto")):
+        return None
+    est_uuid = str(data_norm.get("estanciaUuid") or "").strip()
+    hab = str(data_norm.get("hab") or "").strip()
+    cands = []
+    if est_uuid:
+        cands.append(f"sunat_alerta_incierta_{est_uuid}")
+    if hab:
+        cands.append(f"sunat_alerta_incierta_{hab}")
+    if not cands:
+        return None
+    conn = get_connection()
+    try:
+        ahora = time.time()
+        for cl in cands:
+            row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = ?", (cl,)).fetchone()
+            if row and row["valor"]:
+                d = json.loads(row["valor"])
+                if (ahora - float(d.get("ts") or 0)) < 600:
+                    return str(d.get("error") or "Fallo previo tras pulsar Emitir; verifique en SUNAT antes de reintentar.")
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return None
+
+
+def hay_trabajo_sunat_en_curso() -> bool:
+    """Devuelve True si hay una emisión/borrador/NC en ejecución local para aplazar recargas/reinicios."""
+    if _sunat_emission_lock.locked() or hay_sesion_sunat_activa():
+        return True
+    ahora = time.time()
+    with _jobs_lock:
+        for j in _SUNAT_JOBS.values():
+            st = str(j.get("state") or "").upper()
+            upd = float(j.get("updated_ts") or j.get("created_ts") or 0)
+            if st in ("QUEUED", "RUNNING") and (ahora - upd) < 180:
+                return True
+    return False
+
+
+def _clave_dedup_orden(d: Dict[str, Any]) -> str:
+    est_u = str(d.get("estanciaUuid") or "").strip()
+    if est_u:
+        return f"uuid:{est_u}"
+    return f"hab:{d.get('hab','')}|doc:{d.get('documento','')}|tot:{d.get('total_monto',0)}"
+
+
+def _buscar_job_activo_misma_estancia(data_norm: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Evita doble clic / doble despacho buscando si ya hay una orden definitiva activa para la misma estancia."""
+    accion = str(data_norm.get("accion") or "").upper()
+    if accion not in ("EMITIR", "EMITIR_Y_WSP") or bool(data_norm.get("modoBorrador")):
+        return None
+    clave_obj = _clave_dedup_orden(data_norm)
+    ahora = time.time()
+
+    with _jobs_lock:
+        for j in _SUNAT_JOBS.values():
+            st = str(j.get("state") or "").upper()
+            upd = float(j.get("updated_ts") or j.get("created_ts") or 0)
+            if st in ("QUEUED", "RUNNING") and (ahora - upd) < 180:
+                if j.get("dedup_key") == clave_obj:
+                    return dict(j)
+
+    conn = get_connection()
+    try:
+        filas = conn.execute("SELECT valor FROM estado_sistema WHERE clave LIKE 'sunat_orden_remota_%'").fetchall()
+        for r in filas:
+            try:
+                ord_d = json.loads(r["valor"] or "{}")
+            except Exception:
+                continue
+            st = str(ord_d.get("state") or "").upper()
+            upd = float(ord_d.get("updated_ts") or ord_d.get("created_ts") or 0)
+            if st in ("PENDIENTE", "RUNNING") and (ahora - upd) < 180:
+                dn = ord_d.get("data_norm") or {}
+                if str(dn.get("accion") or "").upper() in ("EMITIR", "EMITIR_Y_WSP") and not dn.get("modoBorrador"):
+                    if _clave_dedup_orden(dn) == clave_obj:
+                        return {
+                            "job_id": ord_d.get("job_id"),
+                            "hab": dn.get("hab", ""),
+                            "accion": dn.get("accion"),
+                            "tipo": dn.get("tipo"),
+                            "etapa": ord_d.get("etapa") or "Orden ya en curso en Laptop Madre...",
+                        }
     except Exception:
         pass
     finally:
@@ -1287,6 +1410,8 @@ def ejecutar_orden_sunat_wsp(
             ok_d, _, err_d = normalizar_y_validar_dni_servicio(dni_wsp_in, telefono=tel, exigir_por_wsp=True)
             if not ok_d:
                 return {"status": "ERROR", "error": err_d}
+        arch_in = str(data.get("archivo") or "").strip()
+        arch_safe = arch_in if _es_ruta_pdf_autorizada(arch_in) else ""
         data_norm = {
             "accion": "SOLO_WSP",
             "hab": hab,
@@ -1300,7 +1425,7 @@ def ejecutar_orden_sunat_wsp(
             "nro_comprobante": str(data.get("nro_comprobante") or "").strip(),
             "documento": str(data.get("documento") or "").strip(),
             "cliente": str(data.get("cliente") or "").strip(),
-            "archivo": str(data.get("archivo") or "").strip(),
+            "archivo": arch_safe,
             "mensaje": str(data.get("mensaje") or "").strip(),
         }
 
@@ -1415,6 +1540,7 @@ def ejecutar_orden_sunat_wsp(
             "fila_calzado": fila_calzado,
             "modoBorrador": modo_borrador,
             "forzar_local": forzar_local,
+            "forzar_post_incierto": bool(data.get("forzar_post_incierto", False)),
             "tipo": tipo,
             "documento": doc_num,
             "dni_huesped": dni_huesped_norm,
@@ -1423,6 +1549,30 @@ def ejecutar_orden_sunat_wsp(
             "items": items_normalizados,
             "total_monto": total_monto,
         }
+
+    if accion in ("EMITIR", "EMITIR_Y_WSP") and not modo_borrador:
+        nro_ya = _verificar_estancia_ya_emitida_local(data_norm)
+        if nro_ya:
+            return {
+                "status": "ERROR",
+                "error": f"La estancia ya cuenta con el comprobante emitido {nro_ya}. Use 'Reenviar WSP' o emita Nota de Crédito antes de volver a emitir.",
+            }
+        err_inc = _verificar_alerta_incierta_local(data_norm)
+        if err_inc:
+            return {"status": "ERROR", "estado_incierto": True, "error": err_inc}
+        job_dup = _buscar_job_activo_misma_estancia(data_norm)
+        if job_dup and job_dup.get("job_id"):
+            return {
+                "status": "PROCESSING",
+                "async": True,
+                "dedup": True,
+                "job_id": job_dup["job_id"],
+                "hab": hab,
+                "accion": accion,
+                "tipo": data_norm["tipo"],
+                "modoBorrador": False,
+                "etapa": job_dup.get("etapa") or "Orden ya en curso en Laptop Madre...",
+            }
 
     if sincrono:
         return _ejecutar_trabajo_sunat_wsp(None, data_norm, wakeup_cb=wakeup_cb)
@@ -1445,6 +1595,7 @@ def ejecutar_orden_sunat_wsp(
         "job_id": job_id,
         "hab": hab,
         "estanciaUuid": estancia_uuid,
+        "dedup_key": _clave_dedup_orden(data_norm),
         "accion": accion,
         "tipo": data_norm["tipo"],
         "modoBorrador": modo_borrador,

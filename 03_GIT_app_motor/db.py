@@ -39,7 +39,7 @@ TABLAS_SINCRONIZADAS_PK: Dict[str, Tuple[str, ...]] = {
     "control_pases": ("pase_uuid",),
     "servicios_detalle": ("serv_uuid",),
     "historial_movimientos": ("mov_id",),
-    "sunat_ventas": ("nro_cp",),
+    "sunat_ventas": ("tipo_doc", "nro_cp"),
     "sire_compras_hostal": ("id",),
     "hostal_documentos_ocr": ("id",),
     "maelen_transferencias_correo": ("msg_id",),
@@ -3434,6 +3434,55 @@ def init_db() -> dict:
 
         for t_cache in TABLAS_SOLO_LOCAL_CACHE:
             conn.execute("DELETE FROM _supabase_outbox WHERE tabla = ?", (t_cache,))
+
+        try:
+            conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1")
+            conn.execute(
+                """
+                DELETE FROM sunat_ventas
+                WHERE coalesce(tipo_doc, '') = ''
+                  AND EXISTS (
+                    SELECT 1 FROM sunat_ventas s2
+                    WHERE s2.nro_cp = sunat_ventas.nro_cp AND coalesce(s2.tipo_doc, '') <> ''
+                  )
+                """
+            )
+            conn.execute(
+                """
+                UPDATE sunat_ventas
+                SET tipo_doc = coalesce(
+                    nullif(tipo, ''),
+                    CASE WHEN coalesce(total, 0) < 0 THEN 'NOTA_CREDITO'
+                         WHEN nro_cp LIKE 'E001-%' THEN 'FACTURA'
+                         ELSE 'BOLETA' END
+                )
+                WHERE coalesce(tipo_doc, '') = ''
+                """
+            )
+            conn.execute(
+                """
+                UPDATE sunat_ventas
+                SET total = CASE WHEN tipo_doc = 'NOTA_CREDITO' THEN -abs(monto_total) ELSE abs(monto_total) END
+                WHERE coalesce(total, 0) = 0 AND coalesce(monto_total, 0) <> 0
+                """
+            )
+            conn.execute(
+                """
+                UPDATE sunat_ventas
+                SET monto_total = abs(total)
+                WHERE coalesce(monto_total, 0) = 0 AND coalesce(total, 0) <> 0
+                """
+            )
+            conn.execute(
+                "DELETE FROM _supabase_outbox WHERE tabla = 'sunat_ventas' AND (coalesce(pk1, '') = '' OR coalesce(pk2, '') = '')"
+            )
+        except Exception:
+            pass
+        finally:
+            try:
+                conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+            except Exception:
+                pass
 
         try:
             ctrl_row = conn.execute("SELECT last_log_id FROM _supabase_sync_control WHERE id = 1").fetchone()

@@ -85,6 +85,26 @@ SYNC_INTERVAL_SECONDS = 25
 
 NOMBRE_HOTEL = os.environ.get("NOMBRE_HOTEL", "Hotel El Óvalo Mariátegui")
 CORREO_RECEPCION_HOTEL = os.environ.get("CORREO_RECEPCION_HOTEL", "hostal.ovalo@gmail.com")
+
+
+def _cargar_perfil_hotel() -> dict:
+    base = {
+        "nombre_hotel": NOMBRE_HOTEL,
+        "ruc_empresa": os.environ.get("RUC_EMPRESA_HOTEL", "20602460433"),
+        "correo_recepcion": CORREO_RECEPCION_HOTEL,
+        "carpeta_operativa": str(BASE_DIR),
+    }
+    try:
+        if PERFIL_HOTEL_PATH.exists():
+            raw = json.loads(PERFIL_HOTEL_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                base.update(raw)
+    except Exception:
+        pass
+    return base
+
+
+PERFIL_HOTEL = _cargar_perfil_hotel()
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1KudqxM1D6MSCxT5Zb2_vAOTGxnw9Ja92JuFjFpDuxZ8")
 COL_TIPO_ADICIONAL = "BA"
 COL_TIPO_ADICIONAL_IDX = 52
@@ -153,7 +173,8 @@ EJECUTAR_REMOTO_SCRIPT = HOSTAL_SISTEMA_DIR / "ejecutar_remoto.py"
 EMITIR_COMPROBANTE_SCRIPT = SCRIPTS_HOSTAL_DIR / "emitir_comprobante_sunat.py"
 BRAZO_WSP_SCRIPT = SCRIPTS_HOSTAL_DIR / "brazo_wsp.py"
 REGLAS_AUDITORIA_JSON = HOSTAL_SISTEMA_DIR / "reglas_auditoria.json"
-DESCARGAS_RECEPCION_DIR = HOSTAL_SISTEMA_DIR / "descargas_recepcion"
+DESCARGAS_RECEPCION_DIR = DATA_DIR / "descargas_recepcion"
+DESCARGAS_RECEPCION_DIR.mkdir(parents=True, exist_ok=True)
 
 APISPERU_TOKEN = os.environ.get(
     "APISPERU_TOKEN",

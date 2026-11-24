@@ -759,19 +759,23 @@ def obtener_datos_panel_local(fecha_override: Optional[str] = None) -> Dict[str,
             if r_aj:
                 tiene_hab_ajena = True
         if not MODO_PRUEBA and ((prev_sh_id and prev_sh_id != SPREADSHEET_ID) or tiene_hab_ajena):
-            conn.execute("DELETE FROM habitaciones_config")
-            conn.execute("DELETE FROM estancias WHERE dirty = 0")
-            conn.execute("DELETE FROM pagos WHERE synced = 1")
-            conn.execute("DELETE FROM ventas_tienda WHERE synced = 1")
-            conn.execute("DELETE FROM gastos WHERE synced = 1")
-            conn.execute("DELETE FROM sunat_lineas_cache")
-            conn.execute("DELETE FROM calzado_cache")
-            conn.execute("DELETE FROM vitrina_local")
-            conn.execute("DELETE FROM almacen_movimientos WHERE synced = 1")
-            conn.execute(
-                "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('spreadsheet_id_activo', ?, '')",
-                (SPREADSHEET_ID,),
-            )
+            try:
+                conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1")
+                conn.execute("DELETE FROM habitaciones_config")
+                conn.execute("DELETE FROM estancias WHERE dirty = 0")
+                conn.execute("DELETE FROM pagos WHERE synced = 1")
+                conn.execute("DELETE FROM ventas_tienda WHERE synced = 1")
+                conn.execute("DELETE FROM gastos WHERE synced = 1")
+                conn.execute("DELETE FROM sunat_lineas_cache")
+                conn.execute("DELETE FROM calzado_cache")
+                conn.execute("DELETE FROM vitrina_local")
+                conn.execute("DELETE FROM almacen_movimientos WHERE synced = 1")
+                conn.execute(
+                    "INSERT OR REPLACE INTO estado_sistema (clave, valor, updated_at) VALUES ('spreadsheet_id_activo', ?, '')",
+                    (SPREADSHEET_ID,),
+                )
+            finally:
+                conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
             conn.commit()
             try:
                 if "sync_engine" in _sys.modules:
@@ -6736,6 +6740,8 @@ def _inyectar_rutas_en_servidor_activo() -> None:
             if not _cand or not hasattr(_cand, "app") or not hasattr(_cand, "_obtener_vista_formulario_local"):
                 continue
             m = _cand
+            if getattr(m, "__ovalo_v2_rpc__", False):
+                continue
             app_inst = getattr(m, "app")
             if hasattr(m, "BRIDGE_BODY_LOCAL") and isinstance(m.BRIDGE_BODY_LOCAL, str):
                 m.BRIDGE_BODY_LOCAL = m.BRIDGE_BODY_LOCAL.replace(
@@ -6950,6 +6956,20 @@ def _inyectar_rutas_en_servidor_activo() -> None:
                         a0 = args[0] if args else ""
                         u_id = a0.get("uuid", "") if isinstance(a0, dict) else str(a0 or "")
                         res = _dl_self.obtener_estancia_facturacion_por_uuid(u_id)
+                    elif method_name == "listarPendientesFacturacionAprobacion":
+                        from sunat_wsp_service import listar_pendientes_facturacion_para_aprobacion
+                        a0 = args[0] if args and isinstance(args[0], dict) else {}
+                        res = listar_pendientes_facturacion_para_aprobacion(int(a0.get("desde", 20261115)), int(a0.get("hasta", 20261231)))
+                    elif method_name == "ejecutarEstanciaPendientePorUuid":
+                        from sunat_wsp_service import ejecutar_estancia_pendiente_por_uuid
+                        a0 = args[0] if args and isinstance(args[0], dict) else {}
+                        res = ejecutar_estancia_pendiente_por_uuid(
+                            estancia_uuid=str(a0.get("estancia_uuid") or a0.get("uuid") or ""),
+                            modo_borrador=bool(a0.get("modo_borrador", True)),
+                            enviar_wsp=bool(a0.get("enviar_wsp", True)),
+                            forzar_local=bool(a0.get("forzar_local", False)),
+                            sincrono=bool(a0.get("sincrono", False)),
+                        )
                     elif method_name == "guardarModoMasBoletas":
                         import motor_unificacion as mu
                         a0 = args[0] if args else False

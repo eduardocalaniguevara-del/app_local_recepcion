@@ -54,6 +54,11 @@ def actualizar_codigo_git_solo_lectura() -> dict:
     if not (BASE_DIR / ".git").exists():
         return {"ok": False, "detalle": "Repositorio Git no inicializado"}
     try:
+        if hasattr(sunat_svc, "hay_trabajo_sunat_en_curso") and sunat_svc.hay_trabajo_sunat_en_curso():
+            return {"ok": True, "skipped": True, "motivo": "EMISION_SUNAT_EN_CURSO"}
+    except Exception:
+        pass
+    try:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
         before = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=str(BASE_DIR), capture_output=True, text=True, timeout=5, creationflags=flags
@@ -78,13 +83,22 @@ def actualizar_codigo_git_solo_lectura() -> dict:
                 except Exception:
                     pass
             try:
-                pyw = Path(sys.executable).with_name("pythonw.exe")
-                exe = str(pyw if pyw.exists() else sys.executable)
-                subprocess.Popen(
-                    [exe, str(BASE_DIR / "lanzador_escritorio.py"), "--no-browser", "--restart"],
+                diff_files = subprocess.run(
+                    ["git", "diff", "--name-only", before, after],
                     cwd=str(BASE_DIR),
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                     creationflags=flags,
-                )
+                ).stdout
+                if ("main.py" in (diff_files or "")) or ("lanzador_escritorio.py" in (diff_files or "")) or not _servidor_8080_activo():
+                    pyw = Path(sys.executable).with_name("pythonw.exe")
+                    exe = str(pyw if pyw.exists() else sys.executable)
+                    subprocess.Popen(
+                        [exe, str(BASE_DIR / "lanzador_escritorio.py"), "--no-browser", "--restart"],
+                        cwd=str(BASE_DIR),
+                        creationflags=flags,
+                    )
             except Exception:
                 pass
         return {"ok": proc.returncode == 0, "changed": before != after, "commit": after[:7], "salida": salida[:200]}

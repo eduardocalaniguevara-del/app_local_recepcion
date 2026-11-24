@@ -35,7 +35,7 @@ sys.modules["sunat_motor_playwright"] = smp
 sys.modules["sunat_wsp_service"] = sws
 sys.modules["wsp_inteligencia"] = wi
 
-from config import APP_HOST, APP_PORT, MODO_PRUEBA, NOMBRE_HOTEL, ROL_NODO, STATIC_DIR, WEB_DIR
+from config import APP_HOST, APP_PORT, DATA_DIR, MODO_PRUEBA, NOMBRE_HOTEL, ROL_NODO, STATIC_DIR, WEB_DIR
 from db import get_connection, init_db
 from salud import publicar_seguidor_carpetas_supabase, reporte_salud
 from sync_nube import (
@@ -47,13 +47,26 @@ from sync_nube import (
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+__ovalo_v2_rpc__ = True
 _sync_wakeup_event = threading.Event()
 _sheets_wakeup_event = threading.Event()
 _sync_stop_event = threading.Event()
+
+
+async def _leer_json_opcional(request: Request) -> Dict[str, Any]:
+    """Lee un body JSON opcional sin lanzar 422 cuando el cliente envía POST vacío."""
+    try:
+        raw = await request.body()
+        if not raw or not raw.strip():
+            return {}
+        data = json.loads(raw.decode("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 
 def _auto_git_pull_y_recargar() -> bool:
@@ -64,6 +77,11 @@ def _auto_git_pull_y_recargar() -> bool:
     """
     if ROL_NODO == "NIVEL_1_INGENIERIA" or not (BASE_DIR / ".git").exists():
         return False
+    try:
+        if hasattr(sws, "hay_trabajo_sunat_en_curso") and sws.hay_trabajo_sunat_en_curso():
+            return False
+    except Exception:
+        pass
     import importlib
     import subprocess
 
@@ -287,6 +305,52 @@ def api_salud():
     return JSONResponse(content=reporte_salud())
 
 
+@app.get("/api/health")
+def api_health():
+    return JSONResponse(content=reporte_salud())
+
+
+@app.get("/api/supabase/status")
+def api_supabase_status():
+    _sync_wakeup_event.set()
+    return JSONResponse(
+        content={"ok": True, "status": "OK", "syncStatus": dl.obtener_estado_red_cola()},
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@app.post("/api/system/restart")
+def api_system_restart():
+    updated = _auto_git_pull_y_recargar()
+    _sync_wakeup_event.set()
+    _sheets_wakeup_event.set()
+    return JSONResponse(
+        content={"ok": True, "status": "UPDATED" if updated else "OK", "updated": bool(updated), "syncStatus": dl.obtener_estado_red_cola()}
+    )
+
+
+@app.get("/api/cuentas/pdf")
+def api_cuentas_pdf(hab: str = "", modo: str = "ingreso", fecha: str = "", estanciaUuid: str = ""):
+    try:
+        import pases_logic as pl
+        pdf_path = pl.generar_pdf_cuenta_hab_local(
+            {"hab": hab, "modo": modo, "fecha": fecha, "estanciaUuid": estanciaUuid}
+        )
+        p_obj = Path(pdf_path)
+        if not p_obj.is_file():
+            return JSONResponse(status_code=404, content={"ok": False, "error": "PDF de cuenta no generado."})
+        return FileResponse(
+            str(p_obj),
+            media_type="application/pdf",
+            filename=p_obj.name,
+            headers={"Cache-Control": "no-store"},
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=404, content={"ok": False, "error": str(exc)})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(exc)})
+
+
 @app.get("/api/sync/status")
 def api_sync_status():
     st = dl.obtener_estado_red_cola()
@@ -330,6 +394,209 @@ def api_yape_accion(payload: Dict[str, Any]):
     return JSONResponse(content=res)
 
 
+@app.post("/api/yape/sincronizar-maelen")
+async def api_yape_sincronizar_maelen(request: Request):
+    body = await _leer_json_opcional(request)
+    try:
+        import yape_manager as ym
+        res = ym.sincronizar_transferencias_maelen_correo(forzar=bool(body.get("forzar", True)))
+        if res.get("ok") or res.get("insertados_maelen") or res.get("insertados_yape_vivo"):
+            _sync_wakeup_event.set()
+        return JSONResponse(content=res, headers={"Cache-Control": "no-store"})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/yape/verificar-alertas-5min")
+async def api_yape_verificar_alertas_5min(request: Request):
+    body = await _leer_json_opcional(request)
+    try:
+        import yape_manager as ym
+        res = ym.verificar_y_alertar_yapes_sin_anotar_5min(
+            ventana_horas=int(body.get("ventana_horas") or 24),
+            enviar_wsp_real=bool(body.get("enviar_wsp_real", False)),
+            incluir_reciente_supervision=bool(body.get("incluir_reciente_supervision", False)),
+        )
+        if res.get("ok") or res.get("alertas_creadas"):
+            _sync_wakeup_event.set()
+        return JSONResponse(content=res, headers={"Cache-Control": "no-store"})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/yape/revisor-830am")
+async def api_yape_revisor_830am(request: Request):
+    body = await _leer_json_opcional(request)
+    try:
+        import yape_manager as ym
+        res = ym.ejecutar_revisor_criterio_yape_830am(
+            fecha_filtro=body.get("fecha_filtro"),
+            forzar_extraccion=bool(body.get("forzar_extraccion", False)),
+            enviar_wsp_real=bool(body.get("enviar_wsp_real", False)),
+        )
+        if res.get("ok"):
+            _sync_wakeup_event.set()
+        return JSONResponse(content=res, headers={"Cache-Control": "no-store"})
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/tablet", response_class=HTMLResponse)
+def api_tablet_page():
+    fpath = WEB_DIR / "TabletKiosco.html"
+    if not fpath.is_file():
+        raise HTTPException(status_code=404, detail="TabletKiosco.html no encontrado.")
+    html = fpath.read_text(encoding="utf-8").replace("{{NOMBRE_HOTEL}}", NOMBRE_HOTEL)
+    return HTMLResponse(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@app.get("/api/tablet/manifest.json")
+def api_tablet_manifest():
+    manifest = {
+        "name": f"{NOMBRE_HOTEL} — Lobby Digital",
+        "short_name": "Óvalo Lobby",
+        "start_url": "/tablet",
+        "scope": "/",
+        "display": "standalone",
+        "orientation": "landscape",
+        "background_color": "#16110E",
+        "theme_color": "#16110E",
+        "icons": [
+            {"src": "/api/tablet/foto/logo_app_192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/api/tablet/foto/logo_app_512.png", "sizes": "512x512", "type": "image/png"},
+        ],
+    }
+    return JSONResponse(content=manifest, media_type="application/manifest+json")
+
+
+@app.get("/api/tablet/sw.js")
+def api_tablet_sw():
+    sw_code = (
+        "self.addEventListener('install', function(e) { self.skipWaiting(); });\n"
+        "self.addEventListener('activate', function(e) { e.waitUntil(self.clients.claim()); });\n"
+        "self.addEventListener('fetch', function(e) { /* pass-through local */ });\n"
+    )
+    return Response(
+        content=sw_code,
+        media_type="application/javascript; charset=utf-8",
+        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@app.get("/api/tablet/estado")
+def api_tablet_estado(request: Request, from_tablet: int = 0):
+    import tablet_manager as tm
+    ip = request.client.host if request.client else ""
+    ua = request.headers.get("user-agent", "")
+    data = tm.obtener_datos_tablet_publico(client_ip=ip, user_agent=ua)
+    return JSONResponse(content=data, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/tablet/control")
+def api_tablet_control_get():
+    import tablet_manager as tm
+    return JSONResponse(content=tm.obtener_panel_control_tablet(), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/tablet/control")
+async def api_tablet_control_post(request: Request):
+    import tablet_manager as tm
+    body = await _leer_json_opcional(request)
+    return JSONResponse(content=tm.actualizar_control_remoto_tablet(body))
+
+
+@app.post("/api/tablet/seleccionar-hab")
+def api_tablet_seleccionar_hab(payload: Dict[str, Any]):
+    import tablet_manager as tm
+    try:
+        return JSONResponse(content=tm.seleccionar_habitacion_desde_tablet(payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/tablet/consultar-doc")
+def api_tablet_consultar_doc(payload: Dict[str, Any]):
+    import tablet_manager as tm
+    return JSONResponse(content=tm.consultar_documento_desde_tablet(payload))
+
+
+@app.post("/api/tablet/checkin-datos")
+def api_tablet_checkin_datos(payload: Dict[str, Any]):
+    import tablet_manager as tm
+    try:
+        return JSONResponse(content=tm.enviar_datos_checkin_desde_tablet(payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/tablet/pedido-tienda")
+def api_tablet_pedido_tienda(payload: Dict[str, Any]):
+    import tablet_manager as tm
+    try:
+        return JSONResponse(content=tm.enviar_pedido_vitrina_desde_tablet(payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/tablet/limpieza")
+def api_tablet_limpieza(payload: Dict[str, Any]):
+    import tablet_manager as tm
+    try:
+        res = tm.cambiar_estado_limpieza_desde_tablet(payload)
+        _sync_wakeup_event.set()
+        return JSONResponse(content=res)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/tablet/firma")
+def api_tablet_firma(payload: Dict[str, Any]):
+    import tablet_manager as tm
+    try:
+        res = tm.guardar_firma_conformidad_tablet(payload)
+        _sync_wakeup_event.set()
+        return JSONResponse(content=res)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/tablet/sugerencia")
+def api_tablet_sugerencia(payload: Dict[str, Any]):
+    import tablet_manager as tm
+    res = tm.guardar_sugerencia_tablet(payload)
+    _sync_wakeup_event.set()
+    return JSONResponse(content=res)
+
+
+@app.get("/api/tablet/foto/{filename}")
+def api_tablet_foto(filename: str, w: str = ""):
+    import tablet_manager as tm
+    safe = Path(str(filename or "")).name
+    if not safe:
+        raise HTTPException(status_code=404, detail="Archivo no especificado.")
+    ruta = tm.obtener_ruta_foto_tablet(safe, w=w)
+    if ruta and ruta.is_file():
+        return FileResponse(str(ruta), headers={"Cache-Control": "public, max-age=86400"})
+    raise HTTPException(status_code=404, detail=f"Foto no encontrada: {safe}")
+
+
+@app.get("/api/tablet/producto-foto/{filename}")
+def api_tablet_producto_foto(filename: str, w: str = ""):
+    import tablet_manager as tm
+    safe = Path(str(filename or "")).name
+    if not safe:
+        raise HTTPException(status_code=404, detail="Archivo no especificado.")
+    fotos_prods_dir = getattr(tm, "FOTOS_PRODS_DIR", DATA_DIR / "fotos_productos")
+    ruta = tm.obtener_ruta_foto_tablet(safe, w=w, carpeta=fotos_prods_dir)
+    if ruta and ruta.is_file():
+        return FileResponse(str(ruta), headers={"Cache-Control": "public, max-age=86400"})
+    raise HTTPException(status_code=404, detail=f"Foto de producto no encontrada: {safe}")
+
+
 @app.get("/api/sunat/jobs")
 def api_sunat_jobs():
     try:
@@ -369,7 +636,7 @@ def api_sunat_captura(nombre_captura: str):
 def api_sunat_pdf(nro_cp: str):
     from sunat_wsp_service import buscar_pdf_comprobante
     ruta = buscar_pdf_comprobante(nro_cp=str(nro_cp or "").strip())
-    if ruta and os.path.isfile(ruta):
+    if ruta and os.path.isfile(ruta) and (not hasattr(smp, "_es_ruta_pdf_autorizada") or smp._es_ruta_pdf_autorizada(ruta)):
         return FileResponse(ruta, media_type="application/pdf", filename=os.path.basename(ruta))
     raise HTTPException(status_code=404, detail=f"PDF local no encontrado para {nro_cp} (los PDFs residen en la Laptop Madre).")
 
