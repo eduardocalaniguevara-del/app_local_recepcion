@@ -481,10 +481,36 @@ def _guardar_estado_orden_remota_supabase(job_id: str, orden_dict: Dict[str, Any
         push_to_supabase(limit=20)
 
 
+def _borrar_orden_remota_supabase(job_id: str) -> None:
+    """Elimina el sobre `sunat_orden_remota_{job_id}` de Supabase y de SQLite local una vez entregado el resultado."""
+    clave = f"sunat_orden_remota_{job_id}"
+    if SUPABASE_CONFIGURADO:
+        try:
+            url = f"{SUPABASE_URL}/rest/v1/estado_sistema?clave=eq.{urllib.parse.quote(clave)}"
+            _get_sb_fast_client().delete(url, headers=_headers())
+        except Exception:
+            pass
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1")
+        conn.execute("DELETE FROM estado_sistema WHERE clave = ?", (clave,))
+        conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        try:
+            conn.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
+            conn.commit()
+        except Exception:
+            pass
+        conn.close()
+
+
 def _leer_orden_remota_local(job_id: str) -> Optional[Dict[str, Any]]:
     """
     Lee el estado de `sunat_orden_remota_{job_id}` directamente desde `estado_sistema`
-    en Supabase usando conexión Keep-Alive (<50 ms) y lo sincroniza en `estado_sistema` local.
+    en Supabase en RAM (<50 ms) con CERO escrituras a SQLite durante el polling.
     """
     clave = f"sunat_orden_remota_{job_id}"
     if SUPABASE_CONFIGURADO:
@@ -497,29 +523,7 @@ def _leer_orden_remota_local(job_id: str) -> Optional[Dict[str, Any]]:
             if resp.status_code == 200:
                 rows = resp.json()
                 if isinstance(rows, list) and rows and rows[0].get("valor"):
-                    val_str = str(rows[0]["valor"])
-                    upd_at = str(rows[0].get("updated_at") or datetime.now().isoformat(timespec="seconds"))
-                    c_w = get_connection()
-                    try:
-                        c_w.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1")
-                        c_w.execute(
-                            """
-                            INSERT INTO estado_sistema (clave, valor, updated_at)
-                            VALUES (?, ?, ?)
-                            ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = excluded.updated_at
-                            """,
-                            (clave, val_str, upd_at),
-                        )
-                        c_w.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
-                        c_w.commit()
-                    finally:
-                        try:
-                            c_w.execute("UPDATE _supabase_sync_control SET pulling = 0 WHERE id = 1")
-                            c_w.commit()
-                        except Exception:
-                            pass
-                        c_w.close()
-                    return json.loads(val_str)
+                    return json.loads(str(rows[0]["valor"]))
         except Exception:
             pass
 
@@ -537,8 +541,9 @@ def _leer_orden_remota_local(job_id: str) -> Optional[Dict[str, Any]]:
 
 def _sincronizar_ordenes_remotas_desde_supabase_en_madre() -> int:
     """
-    Descarga directamente de Supabase por Keep-Alive (<50 ms) todas las filas `clave=like.sunat_orden_remota*`
-    de `estado_sistema` y las sincroniza en `estado_sistema` local de Laptop 2 Madre antes de procesarlas.
+    Descarga directamente de Supabase por Keep-Alive (<50 ms) las filas `clave=like.sunat_orden_remota*`
+    y SOLO abre SQLite si existe alguna orden nueva con `state == 'PENDIENTE'`.
+    Purga de Supabase las órdenes finalizadas (`DONE`/`ERROR`) con más de 120s de antigüedad.
     """
     if not SUPABASE_CONFIGURADO:
         return 0
@@ -555,17 +560,39 @@ def _sincronizar_ordenes_remotas_desde_supabase_en_madre() -> int:
         if not isinstance(rows, list) or not rows:
             return 0
 
+        ahora_ts = time.time()
+        pendientes_guardar: List[Tuple[str, str, str]] = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            cl = str(r.get("clave") or "").strip()
+            vl = str(r.get("valor") or "").strip()
+            up = str(r.get("updated_at") or datetime.now().isoformat(timespec="seconds"))
+            if not cl or not vl:
+                continue
+            try:
+                ord_d = json.loads(vl)
+            except Exception:
+                continue
+            st = str(ord_d.get("state") or "").upper()
+            upd_ts = float(ord_d.get("updated_ts") or ord_d.get("created_ts") or 0)
+            if st in ("DONE", "ERROR") and (ahora_ts - upd_ts) > 120:
+                try:
+                    url_del = f"{SUPABASE_URL}/rest/v1/estado_sistema?clave=eq.{urllib.parse.quote(cl)}"
+                    _get_sb_fast_client().delete(url_del, headers=_headers())
+                except Exception:
+                    pass
+                continue
+            if st == "PENDIENTE":
+                pendientes_guardar.append((cl, vl, up))
+
+        if not pendientes_guardar:
+            return 0
+
         conn = get_connection()
         try:
             conn.execute("UPDATE _supabase_sync_control SET pulling = 1 WHERE id = 1")
-            for r in rows:
-                if not isinstance(r, dict):
-                    continue
-                cl = str(r.get("clave") or "").strip()
-                vl = str(r.get("valor") or "").strip()
-                up = str(r.get("updated_at") or datetime.now().isoformat(timespec="seconds"))
-                if not cl or not vl:
-                    continue
+            for cl, vl, up in pendientes_guardar:
                 conn.execute(
                     """
                     INSERT INTO estado_sistema (clave, valor, updated_at)
@@ -1314,6 +1341,7 @@ def _ejecutar_trabajo_sunat_wsp(
         if st_rem in ("DONE", "ERROR"):
             res_rem = ord_act.get("result") or {"status": "ERROR", "error": etapa_rem or "Error en Laptop Madre."}
             _materializar_captura_b64_local(res_rem)
+            _borrar_orden_remota_supabase(jid_eff)
             try:
                 pull_from_supabase(limit=200)
             except Exception:

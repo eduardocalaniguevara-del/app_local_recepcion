@@ -2375,7 +2375,7 @@ def revisar_y_descargar_faltantes_sunat_incremental(dias_atras: int = 7) -> Dict
                                     )
                                 actualizados_estado.append(nro_cp)
 
-                            if en_db and pdf_local:
+                            if en_db:
                                 continue
 
                             # Falta en sunat_ventas o falta su PDF en 02_DB_sqlite_local/comprobantes_pdf/
