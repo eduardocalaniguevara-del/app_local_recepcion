@@ -559,14 +559,63 @@ def resolver_facturacion_estancia(stay: Dict[str, Any], idx_fact: Dict[str, Any]
 # CONSULTA DEL PANEL DE DISPONIBILIDAD EN 0 MS (SQLITE LOCAL)
 # ==============================================================================
 
+def _fecha_dmy_a_ymd_caja(fecha_str: Any) -> int:
+    s = str(fecha_str or "").strip().split(" ")[0].split("T")[0]
+    if "/" in s:
+        partes = s.split("/")
+        if len(partes) == 3:
+            try:
+                d, m, y = int(partes[0]), int(partes[1]), int(partes[2])
+                if y < 100:
+                    y += 2000
+                return y * 10000 + m * 100 + d
+            except ValueError:
+                return 0
+    if "-" in s:
+        partes = s.split("-")
+        if len(partes) == 3:
+            try:
+                if len(partes[0]) == 4:
+                    return int(partes[0]) * 10000 + int(partes[1]) * 100 + int(partes[2])
+                return int(partes[2]) * 10000 + int(partes[1]) * 100 + int(partes[0])
+            except ValueError:
+                return 0
+    return 0
+
+
 def obtener_caja_efectivo_actual(conn) -> str:
-    row = conn.execute("SELECT valor FROM estado_sistema WHERE clave = 'caja_sheets_g1'").fetchone()
-    base_caja = parse_moneda(row["valor"]) if row else 0.0
-    delta_row = conn.execute(
-        "SELECT COALESCE(SUM(delta_caja), 0) AS delta FROM sync_queue WHERE status IN ('PENDING', 'PROCESSING', 'ERROR')"
+    """
+    Calcula la Caja Efectivo 100% desde SQLite local en tiempo real (~15 ms),
+    con CERO dependencia de Google Sheets (`caja_sheets_g1`) ni de `sync_queue.delta_caja`:
+      Caja Efectivo = SUM(estancias.pago_ini_efec + pago_post_efec desde 01/06/2026)
+                    + SUM(ventas_tienda.subtotal en Efectivo desde 01/06/2026)
+                    - SUM(gastos.monto en Efectivo desde 01/06/2026)
+    """
+    est_row = conn.execute(
+        "SELECT COALESCE(SUM(COALESCE(pago_ini_efec, 0) + COALESCE(pago_post_efec, 0)), 0) AS total "
+        "FROM estancias WHERE ymd_in >= 20260601"
     ).fetchone()
-    delta = float(delta_row["delta"] or 0.0) if delta_row else 0.0
-    return f"{(base_caja + delta):.2f}"
+    total_est = float(est_row["total"] or 0.0) if est_row else 0.0
+
+    filas_tnd = conn.execute(
+        "SELECT fecha_dmy, subtotal FROM ventas_tienda WHERE lower(trim(COALESCE(metodo_pago, ''))) = 'efectivo'"
+    ).fetchall()
+    total_tnd = sum(
+        float(r["subtotal"] or 0.0)
+        for r in filas_tnd
+        if _fecha_dmy_a_ymd_caja(r["fecha_dmy"]) >= 20260601
+    )
+
+    filas_gst = conn.execute(
+        "SELECT fecha_gasto_dmy, monto FROM gastos WHERE lower(trim(COALESCE(metodo_pago, ''))) = 'efectivo'"
+    ).fetchall()
+    total_gst = sum(
+        float(r["monto"] or 0.0)
+        for r in filas_gst
+        if _fecha_dmy_a_ymd_caja(r["fecha_gasto_dmy"]) >= 20260601
+    )
+
+    return f"{(total_est + total_tnd - total_gst):.2f}"
 
 
 def obtener_estado_red_cola(conn=None) -> Dict[str, Any]:

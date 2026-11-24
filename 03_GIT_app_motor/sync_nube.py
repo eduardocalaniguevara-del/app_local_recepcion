@@ -377,7 +377,6 @@ def bootstrap_initial_from_supabase() -> dict:
 
 
 CLAVES_ESTADO_COMPARTIDAS_SUPABASE = (
-    "caja_sheets_g1",
     "last_row_estancias",
     "wsp_recepcion_conexion",
     "wsp_recepcion_usuario_actual",
@@ -387,8 +386,9 @@ CLAVES_ESTADO_COMPARTIDAS_SUPABASE = (
 def _sincronizar_claves_estado_compartidas_supabase(conn) -> int:
     """
     Como la tabla `estado_sistema` en Supabase no genera eventos en `supabase_change_log`,
-    sincroniza directamente las claves compartidas críticas (como `caja_sheets_g1` y `last_row_estancias`)
-    para que Laptop 1 y Laptops Terciarias muestren siempre la misma Caja Efectivo que Laptop 2 Madre.
+    sincroniza directamente las claves compartidas de estado (`last_row_estancias`, estado WSP).
+    Nota: `obtener_caja_efectivo_actual` ya se calcula 100% desde SQLite local (`estancias + ventas_tienda - gastos`)
+    sin depender de `caja_sheets_g1` ni de Google Sheets.
     """
     if not SUPABASE_CONFIGURADO:
         return 0
