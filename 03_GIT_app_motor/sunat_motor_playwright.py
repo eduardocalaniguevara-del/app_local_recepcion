@@ -55,6 +55,7 @@ from config import (
 from db import db_transaction, get_connection
 
 FACTOR_IGV_HOTEL = 1.105
+RUC_EMISOR_HOTEL = "20611986484"
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if os.name == "nt" else 0
 
 MESES_CARPETA = {
@@ -788,8 +789,14 @@ def _emitir_comprobante_intento(
                         break
                     time.sleep(0.4)
 
-            # Selector exclusivo del botón 'Descargar PDF' (SIN [widgetid*='pdf'] para jamás tocar el botón de Enviar Correo)
-            btn_dl = frame.get_by_role("button", name="Descargar PDF").first
+            # Botón 'Descargar PDF': rol accesible O selector por texto (SIN [widgetid*='pdf'] para jamás tocar Enviar Correo).
+            # Desde el 23/11 el selector solo-por-rol dejó de encontrar el botón y ninguna emisión traía PDF.
+            btn_dl = frame.get_by_role("button", name="Descargar PDF").or_(
+                frame.locator(
+                    "button:has-text('Descargar PDF'), a:has-text('Descargar PDF'), "
+                    "span.dijitButtonText:has-text('Descargar PDF'), span[role='button']:has-text('Descargar PDF')"
+                )
+            ).first
             prefijo = "E001" if tipo == "FACTURA" else "EB01"
 
             # CAPA 1: Clic único controlado en Confirmar -> Aceptar (evita doble POST que causaba 'Problemas al conectarse al servidor')
@@ -858,24 +865,47 @@ def _emitir_comprobante_intento(
 
             download = None
             texto_constancia_dom = ""
+            ultimo_exc_dl: Exception = RuntimeError("No apareció el botón 'Descargar PDF' en la constancia SUNAT.")
+            # Captura descargas de la página principal Y de cualquier ventana emergente que abra SUNAT
+            descargas_capturadas: List[Any] = []
+
+            def _registrar_descargas(pg) -> None:
+                try:
+                    pg.on("download", lambda d: descargas_capturadas.append(d))
+                except Exception:
+                    pass
+
+            _registrar_descargas(page)
+            try:
+                context.on("page", _registrar_descargas)
+            except Exception:
+                pass
+
             # CAPA 2A: Hasta 2 intentos de descarga oficial con limpieza previa de modales superpuestos
             for intento_dl in range(1, 3):
                 try:
                     if intento_dl == 2:
                         _cerrar_popups_error_sunat()
                         time.sleep(0.8)
-                    btn_dl.wait_for(state="visible", timeout=6000)
+                    btn_dl.wait_for(state="visible", timeout=8000)
                     try:
                         texto_constancia_dom = frame.locator("body").inner_text()
                     except Exception:
                         pass
-                    with page.expect_download(timeout=18000) as dl_info:
+                    try:
+                        btn_dl.click(timeout=4000)
+                    except Exception:
                         try:
                             btn_dl.dispatch_event("click", timeout=4000)
                         except Exception:
                             btn_dl.click(force=True, timeout=4000)
-                    download = dl_info.value
-                    break
+                    t_dl = time.time()
+                    while not descargas_capturadas and time.time() - t_dl < 20.0:
+                        page.wait_for_timeout(300)
+                    if descargas_capturadas:
+                        download = descargas_capturadas[0]
+                        break
+                    raise RuntimeError(f"SUNAT no entregó la descarga del PDF (intento {intento_dl}).")
                 except Exception as exc_dl:
                     ultimo_exc_dl = exc_dl
                     _cerrar_popups_error_sunat()
@@ -955,7 +985,9 @@ def _emitir_comprobante_intento(
                     nro_cp = m_cp.group(1).replace(" ", "")
 
             if not nro_cp and nombre_pdf_orig:
-                m_cp = re.search(r"([EFB][B0-9]{3})-?(\d{1,8})", nombre_pdf_orig)
+                # SUNAT pega el RUC emisor tras el número (PDF-DOC-E001-214320611986484.pdf): quitarlo antes de leer
+                nombre_sin_ruc = nombre_pdf_orig.replace(RUC_EMISOR_HOTEL, "")
+                m_cp = re.search(r"([EFB][B0-9]{3})-?(\d{1,8})(?![0-9])", nombre_sin_ruc)
                 if m_cp:
                     nro_cp = f"{m_cp.group(1)}-{int(m_cp.group(2))}"
 
@@ -1802,11 +1834,14 @@ def buscar_pdf_comprobante_local(nro_cp: str = "", ruc_dni: str = "", cliente: s
     nro_clean = str(nro_cp or "").strip().upper()
     if nro_clean:
         m_cp = re.match(r"^([A-Z0-9]+)-0*(\d+)$", nro_clean)
+        # Acepta nombre limpio (BOLETA_EB01-6904_...) y crudo SUNAT con prefijo y RUC pegado
+        # (PDF-BOLETAEB01-690420611986484.pdf / PDF-DOC-E001-214320611986484.pdf)
+        sufijo_ruc = rf"(?:{RUC_EMISOR_HOTEL})?"
         if m_cp:
             serie, num = m_cp.group(1), int(m_cp.group(2))
-            pat_cp = re.compile(rf"(?<![A-Z0-9]){re.escape(serie)}-?0*{num}(?![0-9])", re.I)
+            pat_cp = re.compile(rf"(?<![0-9]){re.escape(serie)}-?0*{num}{sufijo_ruc}(?![0-9])", re.I)
         else:
-            pat_cp = re.compile(rf"(?<![A-Z0-9]){re.escape(nro_clean)}(?![A-Z0-9])", re.I)
+            pat_cp = re.compile(rf"(?<![A-Z0-9]){re.escape(nro_clean)}{sufijo_ruc}(?![A-Z0-9])", re.I)
         for ruta in archivos[:500]:
             nom = os.path.basename(ruta)
             if pat_cp.search(nom) and _es_ruta_pdf_autorizada(ruta):
@@ -2119,9 +2154,30 @@ def _reconstruir_pdf_respaldo_desde_sunat_ventas(nro_cp: str, cliente: str = "",
             browser.close()
         if os.path.isfile(ruta_pdf) and os.path.getsize(ruta_pdf) > 500:
             return ruta_pdf
-    except Exception:
-        pass
+        _ULTIMO_ERROR_RESCATE_PDF["capa3"] = f"PDF generado vacío o inexistente en {ruta_pdf}"
+    except Exception as exc_c3:
+        _ULTIMO_ERROR_RESCATE_PDF["capa3"] = f"{type(exc_c3).__name__}: {exc_c3}"[:300]
     return ""
+
+
+_ULTIMO_ERROR_RESCATE_PDF: Dict[str, str] = {}
+
+
+def _rescatar_pdf_oficial_via_revisor(nro_cp: str) -> str:
+    """
+    CAPA 2C: Descarga el PDF OFICIAL desde 'Consultar Boleta/Factura' de SUNAT SEE-SOL (mismo motor del
+    revisor incremental de las 8 AM, que sí logra traer los PDFs) y devuelve la ruta local si quedó guardado.
+    """
+    cp_clean = str(nro_cp or "").strip().upper()
+    if not cp_clean or not ES_NIVEL_2_MADRE_HOTEL:
+        return ""
+    try:
+        res_rev = revisar_y_descargar_faltantes_sunat_incremental(dias_atras=1)
+        if res_rev.get("errores"):
+            _ULTIMO_ERROR_RESCATE_PDF["revisor"] = str(res_rev.get("errores"))[:300]
+    except Exception as exc_rev:
+        _ULTIMO_ERROR_RESCATE_PDF["revisor"] = f"{type(exc_rev).__name__}: {exc_rev}"[:300]
+    return buscar_pdf_comprobante_local(nro_cp=cp_clean) or ""
 
 
 def despachar_wsp_comprobante_local(
@@ -2146,11 +2202,20 @@ def despachar_wsp_comprobante_local(
     if not tel_norm:
         return False, "", "Número de teléfono inválido."
 
+    _ULTIMO_ERROR_RESCATE_PDF.clear()
     ruta_pdf_real = buscar_pdf_comprobante_local(nro_cp=nro_cp, ruc_dni=ruc_dni, cliente=cliente, pista_ruta=pdf_path) or ""
+    # Rescate 1: PDF oficial desde la consulta SUNAT (si la descarga post-emisión falló)
+    if nro_cp and not ruta_pdf_real:
+        ruta_pdf_real = _rescatar_pdf_oficial_via_revisor(nro_cp)
+    # Rescate 2: reconstrucción local A4 con los datos ya registrados en sunat_ventas
     if nro_cp and not ruta_pdf_real:
         ruta_pdf_real = _reconstruir_pdf_respaldo_desde_sunat_ventas(nro_cp=nro_cp, cliente=cliente, ruc_dni=ruc_dni)
     if (pdf_path or nro_cp) and not ruta_pdf_real:
-        return False, "", f"No se encontró el PDF local del comprobante {nro_cp or pdf_path} en 02_DB_sqlite_local/comprobantes_pdf."
+        detalle = "; ".join(f"{k}={v}" for k, v in _ULTIMO_ERROR_RESCATE_PDF.items()) or "sin detalle"
+        return False, "", (
+            f"No se encontró el PDF local del comprobante {nro_cp or pdf_path} en 02_DB_sqlite_local/comprobantes_pdf "
+            f"(rescates fallidos: {detalle})."
+        )
 
     # Vía 1: Baileys wsp_daemon.js (100% silencioso, sin abrir ventanas)
     if _wsp_daemon_baileys_conectado():

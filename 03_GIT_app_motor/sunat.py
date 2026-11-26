@@ -957,6 +957,33 @@ def _ejecutar_trabajo_sunat_wsp_local(
             except Exception as exc_upd:
                 res_sunat["warn_sqlite"] = str(exc_upd)
 
+        # Etapa 5: Registro PERMANENTE del resultado (sincroniza a Supabase vía historial_movimientos)
+        # para poder auditar desde cualquier laptop si el WhatsApp salió o por qué no.
+        try:
+            with db_transaction() as conn_log:
+                _registrar_movimiento(
+                    conn_log,
+                    "Emisión SUNAT",
+                    hab=hab,
+                    huesped=receptor_nombre_real,
+                    resumen=(
+                        f"Hab. {hab} · {nro_cp} · {accion} · WSP: {wsp_status}"
+                        + (f" al {telefono}" if telefono and accion == "EMITIR_Y_WSP" else "")
+                        + (f" · {wsp_err}" if wsp_err else "")
+                    )[:480],
+                    detalle=[
+                        {"campo": "Comprobante", "antes": "-", "despues": nro_cp},
+                        {"campo": "Acción", "antes": "-", "despues": accion},
+                        {"campo": "PDF al emitir", "antes": "-", "despues": os.path.basename(archivo_pdf) if archivo_pdf else "SIN PDF"},
+                        {"campo": "WhatsApp", "antes": "-", "despues": wsp_status},
+                        {"campo": "Error WSP", "antes": "-", "despues": (wsp_err or "-")[:300]},
+                    ],
+                    monto=float(total_monto or 0),
+                )
+            push_to_supabase(limit=20)
+        except Exception as exc_log:
+            res_sunat["warn_log"] = str(exc_log)
+
         msg_final = f"{'Factura' if tipo == 'FACTURA' else 'Boleta'} {nro_cp} emitida y sincronizada con Supabase."
         if accion == "EMITIR_Y_WSP":
             if wsp_status == "ENVIADO":
@@ -1325,7 +1352,8 @@ def _ejecutar_trabajo_sunat_wsp(
     _guardar_estado_orden_remota_supabase(jid_eff, orden_remota)
 
     t0 = time.time()
-    timeout_total = 240.0
+    # Emisión (~70 s) + posible rescate del PDF oficial por consulta SUNAT (~90 s) + WSP
+    timeout_total = 400.0
 
     while time.time() - t0 < timeout_total:
         time.sleep(0.65)
