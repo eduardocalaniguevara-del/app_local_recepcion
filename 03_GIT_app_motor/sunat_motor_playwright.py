@@ -884,9 +884,11 @@ def _emitir_comprobante_intento(
             # CAPA 2A: Hasta 2 intentos de descarga oficial con limpieza previa de modales superpuestos
             for intento_dl in range(1, 3):
                 try:
-                    if intento_dl == 2:
-                        _cerrar_popups_error_sunat()
-                        time.sleep(0.8)
+                    # SUNAT suele dejar encima 'Problemas al conectarse al servidor' / 'Debe ingresar un correo'
+                    # tapando 'Descargar PDF' (captura EB01-6916): cerrarlos SIEMPRE antes de cada intento.
+                    _cerrar_popups_error_sunat()
+                    time.sleep(0.8 if intento_dl == 1 else 1.2)
+                    _cerrar_popups_error_sunat()
                     btn_dl.wait_for(state="visible", timeout=8000)
                     try:
                         texto_constancia_dom = frame.locator("body").inner_text()
