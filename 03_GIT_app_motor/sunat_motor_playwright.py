@@ -882,7 +882,7 @@ def _emitir_comprobante_intento(
                 pass
 
             # CAPA 2A: Hasta 2 intentos de descarga oficial con limpieza previa de modales superpuestos
-            for intento_dl in range(1, 3):
+            for intento_dl in range(1, 4):
                 try:
                     # SUNAT suele dejar encima 'Problemas al conectarse al servidor' / 'Debe ingresar un correo'
                     # tapando 'Descargar PDF' (captura EB01-6916): cerrarlos SIEMPRE antes de cada intento.
@@ -934,27 +934,10 @@ def _emitir_comprobante_intento(
                     pref_nom_r = "FACTURA" if tipo == "FACTURA" else "BOLETA"
                     nombre_limpio_r = f"{pref_nom_r}_{nro_cp_rescate}_{cli_slug_r}.pdf"
                     ruta_limpia_r = str(dir_dia_dest / nombre_limpio_r)
+                    # Ya NO se "imprime" el DOM a PDF: ese formato no es el oficial de 'Descargar PDF'.
+                    # Sin descarga oficial se devuelve sin PDF y despachar_wsp_comprobante_local lo rescata
+                    # desde 'Consultar Boleta/Factura' de SUNAT antes de enviar el WhatsApp.
                     pdf_rescatado_ok = False
-                    try:
-                        _cerrar_popups_error_sunat()
-                        html_frame = frame.evaluate("""() => {
-                            const clone = document.documentElement.cloneNode(true);
-                            const quitar = clone.querySelectorAll('.dijitDialog, .dijitDialogUnderlayWrapper, button, input[type="button"], input[type="text"], .dijitButton');
-                            quitar.forEach(el => el.remove());
-                            return '<!DOCTYPE html><html>' + clone.innerHTML + '</html>';
-                        }""")
-                        pdf_page = context.new_page()
-                        try:
-                            pdf_page.set_content(html_frame, wait_until="domcontentloaded", timeout=8000)
-                            pdf_page.pdf(path=ruta_limpia_r, format="A4", print_background=True)
-                            pdf_rescatado_ok = os.path.isfile(ruta_limpia_r) and os.path.getsize(ruta_limpia_r) > 500
-                        finally:
-                            try:
-                                pdf_page.close()
-                            except Exception:
-                                pass
-                    except Exception:
-                        pdf_rescatado_ok = False
 
                     return {
                         "status": "OK",
@@ -2209,9 +2192,8 @@ def despachar_wsp_comprobante_local(
     # Rescate 1: PDF oficial desde la consulta SUNAT (si la descarga post-emisión falló)
     if nro_cp and not ruta_pdf_real:
         ruta_pdf_real = _rescatar_pdf_oficial_via_revisor(nro_cp)
-    # Rescate 2: reconstrucción local A4 con los datos ya registrados en sunat_ventas
-    if nro_cp and not ruta_pdf_real:
-        ruta_pdf_real = _reconstruir_pdf_respaldo_desde_sunat_ventas(nro_cp=nro_cp, cliente=cliente, ruc_dni=ruc_dni)
+    # (La reconstrucción local A4 `_reconstruir_pdf_respaldo_desde_sunat_ventas` ya NO se envía al cliente:
+    #  no es el formato oficial de SUNAT. Si no hay PDF oficial, se informa y se usa 'Reenviar WSP' luego.)
     if (pdf_path or nro_cp) and not ruta_pdf_real:
         detalle = "; ".join(f"{k}={v}" for k, v in _ULTIMO_ERROR_RESCATE_PDF.items()) or "sin detalle"
         return False, "", (
@@ -2426,20 +2408,35 @@ def _procesar_y_descargar_popup_consulta_sunat(
         ruta_final = str(dir_dest / f"{pref_nom}_{out['nro_cp']}_{cli_slug}.pdf")
 
         descargado = False
+        out["pdf_formato"] = ""
         try:
-            btn_pdf = popup_page.locator("text='Descargar PDF', button:has-text('Descargar PDF'), a:has-text('Descargar PDF'), [widgetid*='pdf']").first
+            # Antes: "text='Descargar PDF', button:..." es un selector inválido (el motor text= se traga toda la
+            # cadena) => nunca encontraba el botón y SIEMPRE caía a imprimir la página (PDF ~64 KB no oficial).
+            btn_pdf = popup_page.get_by_role("button", name="Descargar PDF").or_(
+                popup_page.locator(
+                    "button:has-text('Descargar PDF'), a:has-text('Descargar PDF'), "
+                    "span.dijitButtonText:has-text('Descargar PDF'), span[role='button']:has-text('Descargar PDF')"
+                )
+            ).first
             if btn_pdf.count() > 0:
-                with popup_page.expect_download(timeout=10000) as dl_info:
-                    btn_pdf.click(force=True)
+                with popup_page.expect_download(timeout=15000) as dl_info:
+                    try:
+                        btn_pdf.click(timeout=4000)
+                    except Exception:
+                        btn_pdf.dispatch_event("click", timeout=4000)
                 dl_info.value.save_as(ruta_final)
                 descargado = os.path.isfile(ruta_final)
-        except Exception:
-            pass
+                if descargado:
+                    out["pdf_formato"] = "OFICIAL_DESCARGAR_PDF"
+        except Exception as exc_dl_pop:
+            out["pdf_error_descarga"] = str(exc_dl_pop)[:200]
 
         if not descargado:
             try:
                 popup_page.pdf(path=ruta_final, format="A4", print_background=True)
                 descargado = os.path.isfile(ruta_final)
+                if descargado:
+                    out["pdf_formato"] = "IMPRESION_RESPALDO"
             except Exception:
                 pass
 

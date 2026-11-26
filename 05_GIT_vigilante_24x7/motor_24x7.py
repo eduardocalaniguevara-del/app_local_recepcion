@@ -77,11 +77,18 @@ def actualizar_codigo_git_solo_lectura() -> dict:
         salida = (proc.stdout or proc.stderr or "").strip()
         if before and after and before != after:
             import importlib
-            for mod in (ym, wsp, sunat_svc):
+            # Orden de dependencias: config/db -> motor Playwright -> servicio SUNAT (antes faltaba el motor y fallaba en silencio)
+            mods_reload = []
+            for nombre in ("config", "db", "sunat_motor_playwright"):
+                m_extra = sys.modules.get(nombre)
+                if m_extra is not None:
+                    mods_reload.append(m_extra)
+            mods_reload.extend((ym, wsp, sunat_svc))
+            for mod in mods_reload:
                 try:
                     importlib.reload(mod)
-                except Exception:
-                    pass
+                except Exception as exc_rl:
+                    print(f"[motor_24x7] reload {getattr(mod, '__name__', mod)} falló: {exc_rl}", flush=True)
             try:
                 diff_files = subprocess.run(
                     ["git", "diff", "--name-only", before, after],

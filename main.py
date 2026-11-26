@@ -69,11 +69,59 @@ async def _leer_json_opcional(request: Request) -> Dict[str, Any]:
         return {}
 
 
+def _git_head_actual() -> str:
+    try:
+        import subprocess as _sp
+        flags = getattr(_sp, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        return _sp.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(BASE_DIR), capture_output=True, text=True, timeout=4, creationflags=flags
+        ).stdout.strip()
+    except Exception:
+        return ""
+
+
+# Commit con el que ESTE proceso cargó su código. Si el disco avanza (pull propio o del motor_24x7),
+# el proceso se reinicia completo: importlib.reload no basta y fallaba en silencio (incidente 24-26/11:
+# la Madre siguió emitiendo con sunat_motor_playwright viejo 2 días y ningún WhatsApp salió).
+_HEAD_AL_ARRANCAR = _git_head_actual()
+_reinicio_por_codigo_lanzado = False
+
+
+def _reiniciar_si_codigo_cambio_desde_arranque() -> bool:
+    global _reinicio_por_codigo_lanzado
+    if _reinicio_por_codigo_lanzado or not _HEAD_AL_ARRANCAR:
+        return False
+    actual = _git_head_actual()
+    if not actual or actual == _HEAD_AL_ARRANCAR:
+        return False
+    import subprocess as _sp
+    flags = getattr(_sp, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    try:
+        cambiados = _sp.run(
+            ["git", "diff", "--name-only", _HEAD_AL_ARRANCAR, actual],
+            cwd=str(BASE_DIR), capture_output=True, text=True, timeout=4, creationflags=flags,
+        ).stdout or ""
+    except Exception:
+        cambiados = ""
+    if not any(ln.strip().endswith(".py") for ln in cambiados.splitlines()):
+        return False
+    _reinicio_por_codigo_lanzado = True
+    print(f"[auto-update] Código cambió {_HEAD_AL_ARRANCAR[:7]} -> {actual[:7]}; reiniciando servidor completo.", flush=True)
+    pyw = Path(sys.executable).with_name("pythonw.exe")
+    exe = str(pyw if pyw.exists() else sys.executable)
+    _sp.Popen(
+        [exe, str(BASE_DIR / "lanzador_escritorio.py"), "--no-browser", "--restart"],
+        cwd=str(BASE_DIR),
+        creationflags=flags,
+    )
+    return True
+
+
 def _auto_git_pull_y_recargar() -> bool:
     """
     En Laptop 2 (Recepción) y Laptop 3 (Terciaria): descarga automáticamente en segundo plano
-    cualquier mejora publicada con `git push` desde Laptop 1 y recarga los módulos en memoria
-    sin que nadie tenga que tocar PowerShell ni reinstalar el HTML.
+    cualquier mejora publicada con `git push` desde Laptop 1 y, si cambió algún .py desde que este
+    proceso arrancó, reinicia el servidor completo para que el código nuevo quede realmente cargado.
     """
     if ROL_NODO == "NIVEL_1_INGENIERIA" or not (BASE_DIR / ".git").exists():
         return False
@@ -101,6 +149,9 @@ def _auto_git_pull_y_recargar() -> bool:
         after = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=str(BASE_DIR), capture_output=True, text=True, timeout=4, creationflags=flags
         ).stdout.strip()
+        # Compara contra el código CARGADO al arrancar (no solo contra este pull: el motor_24x7 puede haber hecho el pull antes)
+        if _reiniciar_si_codigo_cambio_desde_arranque():
+            return True
         if before and after and before != after:
             for mod in (_cfg_v2, _db_v2, dl, ym, smp, sws, wi):
                 try:
