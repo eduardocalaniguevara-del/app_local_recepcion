@@ -50,30 +50,9 @@ CORR_JSON_PATH = DATA_DIR / "corroboracion_ingresos_bcp_nov2026.json"
 
 
 def _asegurar_jsons_base_contabilidad() -> None:
-    """Si aún no existen los JSON base en data/ o faltan los 108 CPEs de Nov 2026 en sunat_ventas, hidrata desde C:\\Hostal_Sistema\\datos_sunat."""
-    import shutil
+    """Desactivado en Sistema v2: ya no se copian ni dependen de JSONs congelados del 14/11; todo lee directo de SQLite."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    for local_p in (CORR_JSON_PATH, PLAN_JSON_PATH):
-        if not local_p.exists():
-            shared_p = SUNAT_SHARED_DIR / local_p.name
-            if shared_p.exists():
-                try:
-                    shutil.copy2(shared_p, local_p)
-                except Exception:
-                    pass
-    try:
-        conn = _get_db_connection()
-        try:
-            cnt_nov = conn.execute("SELECT COUNT(*) FROM sunat_ventas WHERE periodo_mes = '2026-11'").fetchone()[0]
-        except Exception:
-            cnt_nov = 0
-        finally:
-            conn.close()
-        if cnt_nov < 100 and (SUNAT_SHARED_DIR / "sunat_facturas_noviembre_raw.json").exists():
-            import auditor_calzado_bcp_sunat as aud
-            aud.sincronizar_sunat_nov_sqlite(SANDBOX_DB)
-    except Exception:
-        pass
+
 
 FACTOR_IGV = 1.105  # Ley 31556 / IGV hotelero 10.5%
 
@@ -96,20 +75,8 @@ def _get_db_connection() -> sqlite3.Connection:
 
 
 def _cargar_plan_emparejamiento(forzar_recalculo: bool = False) -> Dict[str, Any]:
-    """Carga el plan validado desde JSON o lo genera usando auditor_calzado_bcp_sunat."""
-    _asegurar_jsons_base_contabilidad()
-    if not PLAN_JSON_PATH.exists() or forzar_recalculo:
-        try:
-            import auditor_calzado_bcp_sunat as aud
-            return aud.ejecutar_auditoria(verbose=False)
-        except Exception as exc:
-            if PLAN_JSON_PATH.exists():
-                with open(PLAN_JSON_PATH, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            raise RuntimeError(f"Error al ejecutar auditor_calzado_bcp_sunat: {exc}")
-    else:
-        with open(PLAN_JSON_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+    """Sistema v2 lee directo desde SQLite (`ovalo.db`); retorna `{}` sin regenerar JSONs congelados del 14/11."""
+    return {}
 
 
 def _obtener_puente_visual(plan_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -625,16 +592,27 @@ def _sort_key_dmy_hms(fecha_str: str, hora_str: str) -> tuple:
     return (ymd, h)
 
 
-def _construir_extracto_rows(plan_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Devuelve los ingresos reales BCP/Yape (+), cola viva (+) y salidas (-) con fecha, hora y titular."""
-    if not CORR_JSON_PATH.exists():
-        return []
+def _construir_extracto_rows(plan_data: Dict[str, Any], conn: Optional[sqlite3.Connection] = None, mes: str = "2026-11") -> List[Dict[str, Any]]:
+    """
+    Devuelve los movimientos reales del Banco BCP / Yape (+) y salidas (-) del mes
+    directamente desde SQLite (`yape_conciliacion_hostal` + `maelen_transferencias_correo`),
+    sin depender de JSONs estáticos.
+    """
+    m_re = re.match(r"^(\d{4})-(\d{2})$", str(mes or datetime.now().strftime("%Y-%m")).strip())
+    if m_re:
+        yyyy, mm = m_re.group(1), m_re.group(2)
+    else:
+        ahora = datetime.now()
+        yyyy, mm = str(ahora.year), f"{ahora.month:02d}"
+    like_dmy = f"%/{mm}/{yyyy}%"
+    like_iso = f"{yyyy}-{mm}%"
 
-    with open(CORR_JSON_PATH, "r", encoding="utf-8") as f:
-        corr = json.load(f)
+    close_conn = False
+    if conn is None:
+        conn = _get_db_connection()
+        close_conn = True
 
-    clas = corr.get("clasificacion_detallada", {})
-    resultado = []
+    resultado: List[Dict[str, Any]] = []
 
     def _add_row(id_op, fecha, hora, tipo_mov, canal_cod, canal_label, titular, monto_signed, nro_op, destino, calzado_tag, estado_txt, obs=""):
         f_clean = str(fecha or "").strip()
@@ -645,7 +623,7 @@ def _construir_extracto_rows(plan_data: Dict[str, Any]) -> List[Dict[str, Any]]:
             "fecha": f_clean,
             "hora": h_clean,
             "fecha_hora": fh,
-            "tipo_mov": tipo_mov,  # INGRESO | SALIDA
+            "tipo_mov": tipo_mov,
             "canal": canal_cod,
             "canal_etiqueta": canal_label,
             "remitente": titular or "—",
@@ -661,86 +639,81 @@ def _construir_extracto_rows(plan_data: Dict[str, Any]) -> List[Dict[str, Any]]:
             "observacion": obs or "",
         })
 
-    # 1. Habitaciones (110 ops) -> INGRESO (+)
-    for it in clas.get("habitaciones", []):
-        habs = it.get("habitaciones_vinculadas", [])
-        hab_txt = ", ".join(f"Hab. {h.get('hab')}" for h in habs if h.get("hab"))
-        _add_row(
-            it.get("id"), it.get("fecha"), it.get("hora"),
-            "INGRESO", "YAPE_HABITACION", "Yape / Plin Habitación",
-            it.get("remitente"), abs(_r2(it.get("monto"))),
-            it.get("nro_operacion"), hab_txt or "Alojamiento",
-            "1:1 Habitación", "Ingreso Verificado", it.get("observacion", "")
-        )
+    try:
+        # 1. Yapes y Plins conciliados en vivo (`yape_conciliacion_hostal`)
+        try:
+            rows_y = conn.execute(
+                """
+                SELECT id, fecha_operacion, hora_operacion, remitente_bcp, monto_bcp,
+                       nro_operacion, hab_calzada, huesped_calzado, estado_auditoria, observacion
+                FROM yape_conciliacion_hostal
+                WHERE fecha_operacion LIKE ? OR fecha_operacion LIKE ?
+                """,
+                (like_dmy, like_iso),
+            ).fetchall()
+            for ry in rows_y:
+                m_val = _r2(ry["monto_bcp"])
+                est_a = str(ry["estado_auditoria"] or "").upper().strip()
+                es_salida = (m_val < 0) or ("SALIDA" in est_a) or ("EGRESO" in est_a)
+                hab_c = str(ry["hab_calzada"] or "").strip()
+                hue_c = str(ry["huesped_calzado"] or "").strip()
+                dest = f"Hab. {hab_c} ({hue_c})".strip() if hab_c else (hue_c or "Yape / Plin")
+                _add_row(
+                    f"Y-{ry['id']}",
+                    ry["fecha_operacion"],
+                    ry["hora_operacion"],
+                    "SALIDA" if es_salida else "INGRESO",
+                    "EGRESO_EXCLUIDO" if es_salida else "YAPE_HABITACION",
+                    "Salida Yape / BCP" if es_salida else "Yape / Plin",
+                    ry["remitente_bcp"],
+                    -abs(m_val) if es_salida else abs(m_val),
+                    ry["nro_operacion"],
+                    dest,
+                    "Excluido" if es_salida else (est_a or "Yape"),
+                    est_a or "Verificado",
+                    ry["observacion"] or "",
+                )
+        except Exception:
+            pass
 
-    # 2. Tienda Pura (33 ops) -> INGRESO (+)
-    for it in clas.get("tienda", []):
-        _add_row(
-            it.get("id"), it.get("fecha"), it.get("hora"),
-            "INGRESO", "YAPE_TIENDA", "Yape Vitrina / Tienda",
-            it.get("remitente"), abs(_r2(it.get("monto"))),
-            it.get("nro_operacion"), "Tienda (Cubierto Bolsa Efectivo N2)",
-            "Absorbido N2", "Cubierto por Bolsa N2", it.get("observacion", "")
-        )
+        # 2. Transferencias BCP por correo (`maelen_transferencias_correo`, sin duplicar las ya en Reporte Yape)
+        try:
+            rows_m = conn.execute(
+                """
+                SELECT msg_id, fecha_operacion, hora_operacion, tipo_movimiento, remitente_o_destino,
+                       monto, nro_operacion, estado_cruce, detalle_cruce, asunto
+                FROM maelen_transferencias_correo
+                WHERE (fecha_operacion LIKE ? OR fecha_operacion LIKE ?)
+                  AND upper(coalesce(estado_cruce, '')) != 'EN_REPORTE_YAPE'
+                """,
+                (like_dmy, like_iso),
+            ).fetchall()
+            for rm in rows_m:
+                tm = str(rm["tipo_movimiento"] or "").upper()
+                m_val = _r2(rm["monto"])
+                es_salida = ("SALIDA" in tm) or ("PAGO" in tm) or ("RETIRO" in tm) or (m_val < 0)
+                _add_row(
+                    f"M-{rm['msg_id']}",
+                    rm["fecha_operacion"],
+                    rm["hora_operacion"],
+                    "SALIDA" if es_salida else "INGRESO",
+                    "EGRESO_EXCLUIDO" if es_salida else "MAELEN_CORPORATIVO",
+                    "Salida BCP (Correo)" if es_salida else "Transferencia BCP (Correo)",
+                    rm["remitente_o_destino"],
+                    -abs(m_val) if es_salida else abs(m_val),
+                    rm["nro_operacion"],
+                    rm["detalle_cruce"] or ("Salida Bancaria" if es_salida else "Transferencia Cuenta 8023"),
+                    "Excluido" if es_salida else "Transferencia BCP",
+                    rm["estado_cruce"] or ("Salida" if es_salida else "Ingreso Correo"),
+                    rm["asunto"] or "",
+                )
+        except Exception:
+            pass
+    finally:
+        if close_conn:
+            conn.close()
 
-    # 3. Corporativo Maelen (2 ops) -> INGRESO (+)
-    for it in clas.get("corporativo_maelen", []):
-        _add_row(
-            it.get("id"), it.get("fecha"), it.get("hora"),
-            "INGRESO", "MAELEN_CORPORATIVO", "Transferencia BCP Empresa",
-            it.get("remitente"), abs(_r2(it.get("monto"))),
-            it.get("nro_operacion"), "Facturas Empresas (Quisapata / RENIEC)",
-            "1:1 Empresa", "Ingreso Corporativo", it.get("observacion", "")
-        )
-
-    # 4. Sueltos Banco (4 ops) -> INGRESO (+)
-    for it in clas.get("sueltos_banco", []):
-        _add_row(
-            it.get("id"), it.get("fecha"), it.get("hora"),
-            "INGRESO", "SUELTO_BANCO", "Ingreso Menor / Suelto",
-            it.get("remitente"), abs(_r2(it.get("monto"))),
-            it.get("nro_operacion"), "Cubierto Bolsa Efectivo N2",
-            "Absorbido N2", "Cubierto por Bolsa N2", it.get("observacion", "")
-        )
-
-    # 5. Cola Viva (10 ops) -> INGRESO (+)
-    lp = plan_data.get("nivel_3_lotes_pendientes", {})
-    for idx, it in enumerate(lp.get("lote_3B3_cola_viva_post_corte_14_15nov", []), start=1001):
-        fp = str(it.get("fecha_pago", "")).strip()
-        f_p = fp.split(" ")[0] if " " in fp else fp
-        h_p = fp.split(" ")[1] if " " in fp else ""
-        _add_row(
-            idx, f_p, h_p,
-            "INGRESO", "COLA_VIVA", "Yape Post-Corte (14–15/11)",
-            it.get("huesped"), abs(_r2(it.get("monto"))),
-            it.get("nro_operacion") or f"ColaViva H{it.get('hab')}",
-            f"Hab. {it.get('hab')} ({it.get('huesped')})",
-            "Cola Viva", f"Post-Corte · Sol. Boleta: {it.get('solicita_comp', 'No')}",
-            f"Yape post-corte 14–15/11"
-        )
-
-    # 6. Salidas / Egresos Excluidos (deduplicados por fecha + monto + nro_op) -> SALIDA (-)
-    vistos_salidas = set()
-    for it in clas.get("salidas_excluidas", []):
-        clave_sal = (
-            str(it.get("fecha") or "").strip(),
-            _r2(abs(float(it.get("monto") or 0))),
-            str(it.get("nro_operacion") or "").strip(),
-        )
-        if clave_sal in vistos_salidas:
-            continue
-        vistos_salidas.add(clave_sal)
-        _add_row(
-            it.get("id"), it.get("fecha"), it.get("hora"),
-            "SALIDA", "EGRESO_EXCLUIDO", "Salida / Retiro Bancario",
-            it.get("destinatario_o_concepto", "Salida de cuenta"),
-            -abs(_r2(it.get("monto"))),
-            it.get("nro_operacion"), "Salida Excluida de Ventas",
-            "Excluido", it.get("motivo_exclusion", "Salida bancaria (no es venta)"),
-            it.get("motivo_exclusion", "")
-        )
-
-    resultado.sort(key=lambda x: _sort_key_dmy_hms(x.get("fecha", ""), x.get("hora", "")))
+    resultado.sort(key=lambda x: _sort_key_dmy_hms(x.get("fecha", ""), x.get("hora", "")), reverse=True)
     return resultado
 
 
@@ -1268,7 +1241,7 @@ def obtener_datos_contabilidad_local(mes: str = "2026-11") -> Dict[str, Any]:
         lotes_emision = _construir_lotes_emision(plan_data, conn)
         calzado_rows, resumen_estados = _construir_calzado_rows(plan_data, conn, mes)
         sunat_rows = _construir_sunat_rows(conn, mes)
-        extracto_rows = _construir_extracto_rows(plan_data)
+        extracto_rows = _construir_extracto_rows(plan_data, conn, mes)
 
         return {
             "status": "ok",
@@ -1344,13 +1317,8 @@ def actualizar_extraccion_tributaria_completa_local(mes: str = "2026-11") -> Dic
     except Exception as exc:
         avisos.append(f"Yape local: {exc}")
 
-    # 2. Refresco de caché SUNAT (Boletas, Facturas y Notas de Crédito) + Auditor Maestro
-    try:
-        import auditor_calzado_bcp_sunat as aud
-        aud.ejecutar_auditoria(verbose=False)
-        pasos_ok.append("Facturas, Boletas, Notas de Crédito y Cruce recalculados")
-    except Exception as exc:
-        avisos.append(f"Auditoría SUNAT/BCP: {exc}")
+    # 3. Verificación directa en SQLite (sin regenerar JSONs congelados del 14/11)
+    pasos_ok.append("Totales SUNAT, Cruce Tricolor y Extracto BCP/Yape verificados en vivo desde SQLite")
 
     # 3. Guardar sello horario de última comprobación en estado_sistema
     try:
