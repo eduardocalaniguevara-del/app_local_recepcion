@@ -763,14 +763,15 @@
         <div class="flex items-center gap-1 mr-1">
           <label class="text-[10.5px] font-black text-slate-600">Periodo:</label>
           <select id="contabSelMes" onchange="alCambiarPeriodoContab()" class="px-1.5 py-0.5 rounded border border-[#D8C7B8] text-xs font-bold bg-white cursor-pointer">
-            <option value="2026-11" selected>Noviembre 2026 (01–15/11)</option>
+            <option value="2026-11" selected>Noviembre 2026 (Mes Vivo)</option>
+            <option value="2026-12">Diciembre 2026</option>
             <option value="2026-10">Octubre 2026 (Cerrado)</option>
           </select>
         </div>
         <button type="button" id="btnExtraerTributario" onclick="actualizarExtraccionTributariaUI()"
-                title="Extrae y actualiza Boletas, Facturas, Notas de Crédito, Extractos BCP/Yape y todos los reportes tributarios"
+                title="Verifica el cuadre automático en vivo entre SUNAT (Boletas, Facturas, NCs) y Banco BCP/Yape (Laptop 2 Madre sincroniza todo en segundo plano)"
                 class="px-2.5 py-1 rounded-md font-black bg-sky-800 hover:bg-sky-900 text-white text-[11px] cursor-pointer shadow-2xs inline-flex items-center gap-1">
-          <span>🔄 Extraer / Actualizar SUNAT + BCP</span>
+          <span>🔍 Verificar Cuadre (SUNAT + BCP)</span>
         </button>
         <button type="button" id="btnSincronizarBD8CPE" onclick="sincronizarComprobantesFaltantesBDUI()"
                 title="Anota en la base de datos los 8 comprobantes ya emitidos en SUNAT que seguían como Pendiente"
