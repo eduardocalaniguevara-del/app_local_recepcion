@@ -106,6 +106,19 @@ def actualizar_codigo_git_solo_lectura() -> dict:
                         cwd=str(BASE_DIR),
                         creationflags=flags,
                     )
+                if ("--once" not in sys.argv) and any(ln.strip().endswith(".py") for ln in (diff_files or "").splitlines()):
+                    pyw = Path(sys.executable).with_name("pythonw.exe")
+                    exe = str(pyw if pyw.exists() else sys.executable)
+                    print(f"[motor_24x7] Código cambió {before[:7]} -> {after[:7]}; reiniciando motor_24x7 silencioso.", flush=True)
+                    subprocess.Popen(
+                        [exe, str(BASE_DIR / "05_GIT_vigilante_24x7" / "motor_24x7.py")],
+                        cwd=str(BASE_DIR),
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        creationflags=flags,
+                    )
+                    os._exit(0)
             except Exception:
                 pass
         return {"ok": proc.returncode == 0, "changed": before != after, "commit": after[:7], "salida": salida[:200]}
@@ -149,7 +162,9 @@ def ejecutar_ronda_integral() -> dict:
 
     res_yape = {"ok": True}
     try:
-        # Llamada automática al correo BCP desactivada por ahora; solo concilia Yape local en SQLite
+        # En Laptop 2 Madre (hostal.ovalo@gmail.com): lee notificaciones BCP 8023 reenviadas y concilia Yape local
+        if ES_NIVEL_2_MADRE_HOTEL:
+            ym.sincronizar_transferencias_maelen_correo()
         ym.conciliar_yapes_sqlite()
     except Exception as exc:
         res_yape = {"ok": False, "error": str(exc)}

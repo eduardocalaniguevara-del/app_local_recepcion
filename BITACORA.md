@@ -65,6 +65,11 @@
   - **`2366484` (26/11):** Rescate del PDF antes de despachar WhatsApp, soporte para nombres crudos SUNAT con RUC pegado (`PDF-DOC-E001-2143<RUC>.pdf`), registro permanente `Emision SUNAT` en `historial_movimientos` y timeout L1->Madre ampliado a `400s`.
   - **`62f57df` (26/11, verificado en vivo en L2 el 27/11 con `E001-2148`, `E001-2149` y `EB01-6917`):** Cierre preventivo de modales superpuestos de SUNAT (`Problemas al conectarse al servidor` / `Debe ingresar un correo`) antes de cada intento de `Descargar PDF` (PDF descargado a la primera y enviado por WhatsApp Baileys en 2–4 segundos).
   - **`a38f883` (26/11):** Reinicio real del proceso `main.py` cuando cambia algún `.py` en disco tras `git pull` (propio o de `motor_24x7.py`), recarga ordenada de `config`, `db` y `sunat_motor_playwright` en `motor_24x7.py`, y envío exclusivo del PDF oficial de `Descargar PDF` de SUNAT.
+- **✅ Fase 13 — Contabilidad 100% SQLite Vivo + Piloto Automático BCP en Laptop 2 Madre + 0 CMD (`4407ee3`, `08ea23e`, `c653155`, `06c5fc0`, `3d31058`):** COMPLETADA (27/11/2026)
+  - **Vitrina 100% SQLite (`4407ee3`):** `obtener_datos_vitrina_local()` calcula `stockVitrina` directamente desde `almacen_movimientos` y `ventas_tienda` en 0 ms sin depender de `stock_sheets`.
+  - **Contabilidad 100% Viva sin JSONs congelados del 14/11 (`08ea23e`, `c653155`, `06c5fc0`, `3d31058`):** Eliminados `corroboracion_ingresos_bcp_nov2026.json` y `plan_emparejamiento_noviembre_2026.json`; Balanza Tricolor, Cruce Tricolor (mes completo dinámico, `499` filas) y Extracto BCP (`293` movimientos de `yape_conciliacion_hostal` + `maelen_transferencias_correo`) leen 100% de `ovalo.db`, y el botón pasa a **`🔍 Verificar Cuadre (SUNAT + BCP)`**.
+  - **Piloto Automático BCP + Auto-Reinicio Silencioso en `motor_24x7.py`:** Verificado el reenvío automático de `notificacionesbcp.com.pe` hacia `hostal.ovalo@gmail.com` (`60/60` sincronizados en Supabase); reactivado `sincronizar_transferencias_maelen_correo()` exclusivamente en `ES_NIVEL_2_MADRE_HOTEL` y añadido auto-reinicio con `pythonw.exe` + `CREATE_NO_WINDOW`.
+  - **0 CMD en Laptop 1:** Tarea `Facturas_Compras_Diario` pasada a `wscript.exe` oculto (`0` ventanas negras) y eliminado resto muerto V1 `Vigilante_Boletas_Hostal.vbs`.
 
 ---
 
