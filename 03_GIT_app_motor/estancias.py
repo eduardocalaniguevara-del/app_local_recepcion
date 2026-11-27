@@ -4440,16 +4440,37 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
         pass
     conn = get_connection()
     try:
-        # 1. Ventas locales de tienda aún no sincronizadas (synced = 0) para restar al stock de Sheets en vivo (0 ms)
-        ventas_pend: Dict[str, int] = {}
-        for rv in conn.execute(
-            "SELECT producto, SUM(cantidad) AS cant FROM ventas_tienda WHERE synced = 0 GROUP BY producto"
+        # 1. Stock teórico Vitrina calculado en 0 ms desde SQLite (idéntico a fórmula Google Sheets Vitrina_Tienda B6):
+        # (INVENTARIO_INICIAL_VITRINA + TRANSFERENCIAS) - MERMAS - TOTAL_VENTAS
+        stock_vit_map: Dict[str, float] = {}
+        for r_v in conn.execute(
+            """
+            SELECT 
+                c.clave AS producto,
+                COALESCE(alm.inv_ini, 0) + COALESCE(alm.transf, 0) - COALESCE(alm.mermas, 0) - COALESCE(vnt.total_ventas, 0) AS st_vit
+            FROM catalogos_local c
+            LEFT JOIN (
+                SELECT 
+                    producto,
+                    SUM(CASE WHEN tipo_movimiento = 'INVENTARIO_INICIAL_VITRINA' THEN cantidad ELSE 0 END) AS inv_ini,
+                    SUM(CASE WHEN tipo_movimiento = 'TRANSFERENCIA' THEN cantidad ELSE 0 END) AS transf,
+                    SUM(CASE WHEN tipo_movimiento = 'MERMA' THEN cantidad ELSE 0 END) AS mermas
+                FROM almacen_movimientos
+                GROUP BY producto
+            ) alm ON alm.producto = c.clave
+            LEFT JOIN (
+                SELECT 
+                    producto,
+                    SUM(cantidad) AS total_ventas
+                FROM ventas_tienda
+                GROUP BY producto
+            ) vnt ON vnt.producto = c.clave
+            WHERE c.categoria = 'PRODUCTO_TIENDA'
+            """
         ).fetchall():
-            p_nom = str(rv["producto"] or "").strip()
-            if p_nom:
-                ventas_pend[p_nom] = int(rv["cant"] or 0)
+            stock_vit_map[str(r_v["producto"] or "").strip()] = float(r_v["st_vit"] or 0.0)
 
-        # 1b. Precios de venta de productos y stocks de almacén + deltas pendientes de vitrina
+        # 1b. Precios de venta de productos y stocks de almacén
         precios_map: Dict[str, float] = {}
         for rp in conn.execute(
             "SELECT clave, valor FROM catalogos_local WHERE categoria = 'PRODUCTO_TIENDA'"
@@ -4502,10 +4523,12 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
                 prod_nom = str(r["producto"] or "").strip()
                 if not prod_nom:
                     continue
-                st_sheets = float(r["stock_sheets"] or 0)
-                vend_local = ventas_pend.get(prod_nom, 0)
-                delta_alm_vit = delta_vit_pend_map.get(prod_nom, 0.0)
-                st_actual = st_sheets - vend_local + delta_alm_vit
+                st_actual = stock_vit_map.get(prod_nom, float(r["stock_sheets"] or 0))
+                if abs(st_actual - float(r["stock_sheets"] or 0)) > 0.001:
+                    try:
+                        conn.execute("UPDATE vitrina_local SET stock_sheets = ? WHERE producto = ?", (st_actual, prod_nom))
+                    except Exception:
+                        pass
                 st_alm = stock_alm_map.get(prod_nom, 0.0)
                 r_keys = r.keys()
                 est_act = str(r["estado_actual"] or "")
@@ -4544,6 +4567,11 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
                         falta_desde = meta.get("vitrina_fecha_e3", "")
                 item_d["faltaDesde"] = falta_desde
                 productos_out.append(item_d)
+        if filas_vit:
+            try:
+                conn.commit()
+            except Exception:
+                pass
         else:
             for idx_p, rc in enumerate(
                 conn.execute("SELECT clave, valor FROM catalogos_local WHERE categoria = 'PRODUCTO_TIENDA' ORDER BY orden").fetchall()
@@ -4552,13 +4580,13 @@ def obtener_datos_vitrina_local() -> Dict[str, Any]:
                 if not prod_nom:
                     continue
                 st_alm = stock_alm_map.get(prod_nom, 0.0)
-                delta_alm_vit = delta_vit_pend_map.get(prod_nom, 0.0)
+                st_vit = stock_vit_map.get(prod_nom, delta_vit_pend_map.get(prod_nom, 0.0))
                 item_d = {
                     "orden": idx_p + 1,
                     "producto": prod_nom,
                     "precioVenta": round(parse_moneda(rc["valor"]), 2),
                     "stockAlmacen": _fmt_num_stock(st_alm),
-                    "stockVitrina": _fmt_num_stock(delta_alm_vit),
+                    "stockVitrina": _fmt_num_stock(st_vit),
                     "estadoActual": "",
                     "faltaDesde": "",
                     "historicos": [{"idx": idx_h, "cant": "", "est": ""} for idx_h in range(1, 37)],
