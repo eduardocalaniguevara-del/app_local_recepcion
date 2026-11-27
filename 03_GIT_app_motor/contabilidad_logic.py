@@ -203,7 +203,7 @@ def _obtener_puente_visual(plan_data: Dict[str, Any]) -> Dict[str, Any]:
             rows_em = conn_pv.execute("""
                 SELECT monto_factura, tarifa, pago_ini_yape, pago_post_yape, nro_comp, estado_comp
                 FROM estancias
-                WHERE ((ymd_in BETWEEN 20261101 AND 20261115) OR (ymd_in = 20261031 AND (pago_ini_yape > 0 OR pago_post_yape > 0)))
+                WHERE ((ymd_in BETWEEN 20261101 AND 20261131) OR (ymd_in = 20261031 AND (pago_ini_yape > 0 OR pago_post_yape > 0)))
                   AND (lower(coalesce(estado_comp, '')) = 'emitido' OR (nro_comp IS NOT NULL AND trim(nro_comp) != ''))
             """).fetchall()
             for r in rows_em:
@@ -749,14 +749,26 @@ def _construir_calzado_rows(plan_data: Dict[str, Any], conn: sqlite3.Connection,
     Construye las filas tricolor (Estancia <-> Banco <-> SUNAT) y actualiza calzado_cache en SQLite Sandbox.
     """
     cur = conn.cursor()
-    # Estancias del periodo Noviembre 2026 (01/11 - 15/11) + noches 31/10 pagadas en 01/11
+    # Estancias del mes completo (dinámico según `mes`, ej. 2026-11 -> 20261101..20261131) + último día del mes previo con Yape
+    m_mes = re.match(r"^(\d{4})-(\d{2})$", str(mes or "2026-11").strip())
+    if m_mes:
+        yyyy_c, mm_c = int(m_mes.group(1)), int(m_mes.group(2))
+    else:
+        ahora_c = datetime.now()
+        yyyy_c, mm_c = ahora_c.year, ahora_c.month
+    ymd_ini = yyyy_c * 10000 + mm_c * 100 + 1
+    ymd_fin = yyyy_c * 10000 + mm_c * 100 + 31
+    like_dmy_c = f"%/{mm_c:02d}/{yyyy_c}%"
+    like_iso_c = f"{yyyy_c}-{mm_c:02d}%"
+
     est_rows = cur.execute(
         """
         SELECT * FROM estancias
-        WHERE (ymd_in BETWEEN 20261101 AND 20261115)
-           OR (ymd_in = 20261031 AND (pago_ini_yape > 0 OR pago_post_yape > 0))
-        ORDER BY ymd_in, hab
-        """
+        WHERE (ymd_in BETWEEN ? AND ?)
+           OR (ymd_in = 20261031 AND ? = 20261101 AND (pago_ini_yape > 0 OR pago_post_yape > 0))
+        ORDER BY ymd_in DESC, hab
+        """,
+        (ymd_ini, ymd_fin, ymd_ini),
     ).fetchall()
 
     # Mapear estancias que están en los lotes y vínculos
@@ -774,10 +786,13 @@ def _construir_calzado_rows(plan_data: Dict[str, Any], conn: sqlite3.Connection,
         for e in item.get("estancias_bd", []):
             sin_anotar_by_uuid[e.get("estancia_uuid")] = item
 
-    # Map de comprobantes SUNAT desde sunat_ventas
+    # Map de comprobantes SUNAT desde sunat_ventas (mes completo)
     sunat_docs = {
         r["nro_cp"]: dict(r)
-        for r in cur.execute("SELECT * FROM sunat_ventas WHERE periodo_mes = ?", (mes,)).fetchall()
+        for r in cur.execute(
+            "SELECT * FROM sunat_ventas WHERE periodo_mes = ? OR fecha_emision LIKE ? OR fecha_emision LIKE ?",
+            (mes, like_dmy_c, like_iso_c),
+        ).fetchall()
     }
 
     # Map de operaciones reales de Banco BCP/Yape por uuid o (hab, huesped_upper)
@@ -1036,10 +1051,12 @@ def _calcular_totales_vivos_sqlite(conn: sqlite3.Connection, mes: str = "2026-11
 
     bol_vig_cnt = 0
     bol_vig_tot = 0.0
+    bol_anul_tot = 0.0
     fac_vig_cnt = 0
     fac_vig_tot = 0.0
     nc_vig_cnt = 0
     nc_vig_tot = 0.0
+    nc_sire_tot = 0.0
     sunat_neto_sire = 0.0
     total_docs_sunat = 0
     ultimo_eb01 = ""
@@ -1063,6 +1080,8 @@ def _calcular_totales_vivos_sqlite(conn: sqlite3.Connection, mes: str = "2026-11
             mx = str(r["max_cp"] or "").strip()
             total_docs_sunat += n
             sunat_neto_sire += s
+            if td == "NOTA_CREDITO":
+                nc_sire_tot += s
             if "ANULADO" not in est:
                 if td == "BOLETA":
                     bol_vig_cnt += n
@@ -1077,12 +1096,52 @@ def _calcular_totales_vivos_sqlite(conn: sqlite3.Connection, mes: str = "2026-11
                 elif td == "NOTA_CREDITO":
                     nc_vig_cnt += n
                     nc_vig_tot += s
+            else:
+                if td == "BOLETA":
+                    bol_anul_tot += s
     except Exception:
         pass
 
     sunat_bruto_vig = _r2(bol_vig_tot + fac_vig_tot)
     sunat_neto_sire = _r2(sunat_neto_sire)
     nc_neto_otros_meses = _r2(max(0.0, sunat_bruto_vig - sunat_neto_sire))
+
+    # Estancias del mes: desglose real de Yape emitido vs pendiente vs solicita='No'
+    ymd_ini_v = int(yyyy) * 10000 + int(mm) * 100 + 1
+    ymd_fin_v = int(yyyy) * 10000 + int(mm) * 100 + 31
+    yape_boleteado_vivo = 0.0
+    yape_pendiente_sol_vivo = 0.0
+    yape_no_solicita_vivo = 0.0
+    pendientes_emitir_cnt = 0
+    pendientes_emitir_tarifa = 0.0
+    try:
+        rows_est_v = conn.execute(
+            """
+            SELECT estado_comp, nro_comp, solicita_comp, tarifa,
+                   COALESCE(pago_ini_yape, 0) + COALESCE(pago_post_yape, 0) AS yape_est
+            FROM estancias
+            WHERE ymd_in BETWEEN ? AND ?
+              AND lower(coalesce(estado_estancia, '')) NOT LIKE '%anulad%'
+            """,
+            (ymd_ini_v, ymd_fin_v),
+        ).fetchall()
+        for re_v in rows_est_v:
+            est_c = str(re_v["estado_comp"] or "").strip().lower()
+            nro_c = str(re_v["nro_comp"] or "").strip()
+            sol_c = str(re_v["solicita_comp"] or "").strip().lower()
+            y_e = float(re_v["yape_est"] or 0.0)
+            t_e = float(re_v["tarifa"] or 0.0)
+            es_emit = (est_c == "emitido") or bool(nro_c)
+            if es_emit:
+                yape_boleteado_vivo += y_e
+            elif sol_c in ("si", "sí"):
+                yape_pendiente_sol_vivo += y_e
+                pendientes_emitir_cnt += 1
+                pendientes_emitir_tarifa += t_e
+            else:
+                yape_no_solicita_vivo += y_e
+    except Exception:
+        pass
 
     yape_tot = 0.0
     transf_tot = 0.0
@@ -1126,10 +1185,13 @@ def _calcular_totales_vivos_sqlite(conn: sqlite3.Connection, mes: str = "2026-11
         "sunat_igv_105": igv_105,
         "boletas_vigentes_cant": bol_vig_cnt,
         "boletas_vigentes_total": _r2(bol_vig_tot),
+        "boletas_anuladas_total": _r2(bol_anul_tot),
+        "boletas_sire_bruto": _r2(bol_vig_tot + bol_anul_tot),
         "facturas_vigentes_cant": fac_vig_cnt,
         "facturas_vigentes_total": _r2(fac_vig_tot),
         "nc_vigentes_cant": nc_vig_cnt,
         "nc_vigentes_total": _r2(nc_vig_tot),
+        "nc_sire_total": _r2(nc_sire_tot),
         "nc_descuento_neto": nc_neto_otros_meses,
         "total_docs_sunat": total_docs_sunat,
         "ultimo_eb01": ultimo_eb01,
@@ -1138,8 +1200,14 @@ def _calcular_totales_vivos_sqlite(conn: sqlite3.Connection, mes: str = "2026-11
         "yape_total": _r2(yape_tot),
         "transf_cant": transf_cnt,
         "transf_total": _r2(transf_tot),
+        "banco_ingresos_cant": yape_cnt + transf_cnt,
         "banco_total": banco_total_vivo,
         "efectivo_total": _r2(efectivo_tot),
+        "yape_boleteado_vivo": _r2(yape_boleteado_vivo),
+        "yape_pendiente_sol_vivo": _r2(yape_pendiente_sol_vivo),
+        "yape_no_solicita_vivo": _r2(yape_no_solicita_vivo),
+        "pendientes_emitir_cnt": pendientes_emitir_cnt,
+        "pendientes_emitir_tarifa": _r2(pendientes_emitir_tarifa),
     }
 
 
@@ -1167,12 +1235,25 @@ def obtener_datos_contabilidad_local(mes: str = "2026-11") -> Dict[str, Any]:
             puente_visual["sunat_facturas_cant"] = totales_vivos["facturas_vigentes_cant"]
             puente_visual["sunat_boletas_monto"] = totales_vivos["boletas_vigentes_total"]
             puente_visual["sunat_boletas_cant"] = totales_vivos["boletas_vigentes_cant"]
+            puente_visual["sunat_boletas_anuladas_monto"] = totales_vivos["boletas_anuladas_total"]
+            puente_visual["sunat_boletas_sire_bruto"] = totales_vivos["boletas_sire_bruto"]
             puente_visual["sunat_nc_oct_monto"] = totales_vivos["nc_descuento_neto"]
             puente_visual["sunat_nc_oct_cant"] = totales_vivos["nc_vigentes_cant"]
+            puente_visual["sunat_nc_sire_total"] = totales_vivos["nc_sire_total"]
             puente_visual["ultimo_eb01"] = totales_vivos["ultimo_eb01"]
             puente_visual["ultimo_e001"] = totales_vivos["ultimo_e001"]
         if totales_vivos.get("banco_total", 0.0) > 0:
             puente_visual["banco_total"] = totales_vivos["banco_total"]
+            puente_visual["banco_ingresos_cant"] = totales_vivos["banco_ingresos_cant"]
+            puente_visual["yape_cant"] = totales_vivos["yape_cant"]
+            puente_visual["yape_total"] = totales_vivos["yape_total"]
+            puente_visual["transf_cant"] = totales_vivos["transf_cant"]
+            puente_visual["transf_total"] = totales_vivos["transf_total"]
+            puente_visual["banco_calzado"] = _r2(max(0.0, totales_vivos["banco_total"] - totales_vivos["yape_pendiente_sol_vivo"] - totales_vivos["yape_no_solicita_vivo"] - puente_visual.get("banco_absorbido_n2", 0.0)))
+            puente_visual["banco_lotes_3ab"] = totales_vivos["yape_pendiente_sol_vivo"]
+            puente_visual["banco_no_solicita"] = totales_vivos["yape_no_solicita_vivo"]
+            puente_visual["pendientes_emitir_cnt"] = totales_vivos["pendientes_emitir_cnt"]
+            puente_visual["pendientes_emitir_tarifa"] = totales_vivos["pendientes_emitir_tarifa"]
             if totales_vivos["banco_total"] > puente_visual["sunat_pdt"]:
                 def_m = _r2(totales_vivos["banco_total"] - puente_visual["sunat_pdt"])
                 puente_visual["alerta_deficit"] = {

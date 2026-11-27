@@ -818,13 +818,13 @@
                 <span class="px-1.5 py-0.5 rounded text-[9.5px] font-black bg-sky-200 text-sky-900 border border-sky-300">Extracto Verificado</span>
               </div>
               <div class="mt-1 flex items-baseline gap-2" style="font-variant-numeric: tabular-nums;">
-                <span class="text-xl sm:text-2xl font-black text-sky-950" id="pvBancoTotal">S/ 11,767.10</span>
-                <span class="text-[11px] font-bold text-sky-700">149 ingresos reales</span>
+                <span class="text-xl sm:text-2xl font-black text-sky-950" id="pvBancoTotal">S/ 0.00</span>
+                <span class="text-[11px] font-bold text-sky-700" id="pvBancoCant">ingresos reales</span>
               </div>
-              <div class="mt-0.5 flex items-center gap-1 text-[10.5px] font-black text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-200">
-                <span>⚡ Cola Viva Post-Corte:</span>
-                <span id="pvColaViva">+ S/ 760.00</span>
-                <span class="text-slate-600 font-semibold">(10 Yapes 14–15/11)</span>
+              <div class="mt-0.5 flex items-center gap-1 text-[10.5px] font-black text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-200" id="pvColaVivaRow">
+                <span id="pvColaVivaTitulo">⚡ Yape + Transf.:</span>
+                <span id="pvColaViva">cargando...</span>
+                <span class="text-slate-600 font-semibold" id="pvColaVivaSub"></span>
               </div>
             </div>
 
@@ -915,34 +915,34 @@
                 <span class="text-[11px] font-black text-emerald-800">Total Declarado Vigente</span>
               </div>
               <div class="mt-1 px-2 py-1 rounded bg-amber-100/80 border border-amber-300 text-[10.5px] font-extrabold text-amber-950 flex flex-wrap items-center justify-between gap-1">
-                <span>Bruto Vigente (<strong id="pvSunatBruto">S/ 11,500.50</strong>) − NC Octubre (<strong class="text-rose-700" id="pvSunatNc">S/ 200.00</strong>)</span>
-                <span class="font-black">= S/ 11,300.50</span>
+                <span>Bruto Vigente (<strong id="pvSunatBruto">S/ 0.00</strong>) − NC Mes Ant. (<strong class="text-rose-700" id="pvSunatNc">S/ 0.00</strong>)</span>
+                <span class="font-black" id="pvSunatPdtEq">= S/ 0.00</span>
               </div>
               <div class="mt-1 text-[10px] font-bold text-slate-600 flex items-center justify-between">
-                <span>Base sin IGV: <strong id="pvSunatBase">S/ 10,226.70</strong></span>
-                <span>IGV Hotelero (10.5%): <strong class="text-emerald-800" id="pvSunatIgv">S/ 1,073.80</strong></span>
+                <span>Base sin IGV: <strong id="pvSunatBase">S/ 0.00</strong></span>
+                <span>IGV Hotelero (10.5%): <strong class="text-emerald-800" id="pvSunatIgv">S/ 0.00</strong></span>
               </div>
             </div>
 
             <div class="mt-2 p-1.5 rounded bg-white/90 border border-amber-200 text-[10.5px]">
               <div class="font-black text-slate-800 mb-1 flex items-center justify-between">
                 <span>Composición Vigente (= SIRE SUNAT):</span>
-                <span class="text-slate-500 text-[9.5px]">101 vigentes + 5 NCs</span>
+                <span class="text-slate-500 text-[9.5px]" id="pvSunatCompCount">vigentes + NCs</span>
               </div>
               <div class="grid grid-cols-3 gap-1 text-[10px]">
                 <div class="bg-slate-50 p-1 rounded border border-slate-200">
-                  <div class="text-slate-500 font-semibold">18 Facturas</div>
-                  <div class="font-black text-slate-800" id="pvSunatFacturas">S/ 5,673.00</div>
+                  <div class="text-slate-500 font-semibold" id="pvSunatFactLabel">Facturas</div>
+                  <div class="font-black text-slate-800" id="pvSunatFacturas">S/ 0.00</div>
                 </div>
-                <div class="bg-slate-50 p-1 rounded border border-slate-200" title="En SIRE figuran S/ 6,022.50 brutas (85 boletas) porque aún suma 2 boletas anuladas de S/ 140 y S/ 55 (S/ 195) que luego se restan abajo en Notas de Crédito">
-                  <div class="text-slate-500 font-semibold">83 Boletas Vig.</div>
-                  <div class="font-black text-slate-800" id="pvSunatBoletas">S/ 5,827.50</div>
-                  <div class="text-[8.5px] text-slate-400 font-semibold">SIRE: 6,022.50 − 195 anul.</div>
+                <div class="bg-slate-50 p-1 rounded border border-slate-200">
+                  <div class="text-slate-500 font-semibold" id="pvSunatBolLabel">Boletas Vig.</div>
+                  <div class="font-black text-slate-800" id="pvSunatBoletas">S/ 0.00</div>
+                  <div class="text-[8.5px] text-slate-400 font-semibold" id="pvSunatBolSireSub">SIRE</div>
                 </div>
-                <div class="bg-rose-50/70 p-1 rounded border border-rose-200" title="En SIRE aparecen 5 Notas de Crédito por -S/ 395.00: -S/ 195.00 anulan las 2 boletas de Noviembre y -S/ 200.00 descuentan 3 boletas de Octubre">
+                <div class="bg-rose-50/70 p-1 rounded border border-rose-200">
                   <div class="text-rose-700 font-semibold">Notas Crédito</div>
-                  <div class="font-black text-rose-800">- S/ 200.00 Oct</div>
-                  <div class="text-[8.5px] text-rose-500 font-semibold">SIRE total: -395.00</div>
+                  <div class="font-black text-rose-800" id="pvSunatNcOctVal">- S/ 0.00</div>
+                  <div class="text-[8.5px] text-rose-500 font-semibold" id="pvSunatNcSireSub">SIRE total</div>
                 </div>
               </div>
             </div>
@@ -11486,15 +11486,66 @@
     var igvActual = pv.sunat_igv_105 != null ? pv.sunat_igv_105 : round2(declaradoActual - baseActual);
 
     if (elBanco) elBanco.textContent = contabSoles(pv.banco_total);
-    if (elCola) elCola.textContent = '+ ' + contabSoles(pv.cola_viva);
+    var elBancoCant = document.getElementById('pvBancoCant');
+    if (elBancoCant && pv.banco_ingresos_cant != null) {
+      elBancoCant.textContent = pv.banco_ingresos_cant + ' ingresos reales';
+    }
+    var elColaTit = document.getElementById('pvColaVivaTitulo');
+    var elColaSub = document.getElementById('pvColaVivaSub');
+    if (pv.yape_total != null && pv.transf_total != null) {
+      if (elColaTit) elColaTit.textContent = '💳 Yape (' + (pv.yape_cant || 0) + '):';
+      if (elCola) elCola.textContent = contabSoles(pv.yape_total);
+      if (elColaSub) elColaSub.textContent = '· Transf. (' + (pv.transf_cant || 0) + '): ' + contabSoles(pv.transf_total);
+    } else if (elCola) {
+      elCola.textContent = '+ ' + contabSoles(pv.cola_viva);
+    }
     if (elBruto) elBruto.textContent = contabSoles(pv.sunat_bruto);
     if (elNc) elNc.textContent = contabSoles(pv.sunat_nc_oct_monto);
+    var elPdtEq = document.getElementById('pvSunatPdtEq');
+    if (elPdtEq) elPdtEq.textContent = '= ' + contabSoles(declaradoActual);
     if (elBase) elBase.textContent = contabSoles(baseActual);
     if (elIgv) elIgv.textContent = contabSoles(igvActual);
     if (elFact) elFact.textContent = contabSoles(pv.sunat_facturas_monto);
     if (elBol) elBol.textContent = contabSoles(pv.sunat_boletas_monto);
+    var elFactLbl = document.getElementById('pvSunatFactLabel');
+    if (elFactLbl && pv.sunat_facturas_cant != null) elFactLbl.textContent = pv.sunat_facturas_cant + ' Facturas';
+    var elBolLbl = document.getElementById('pvSunatBolLabel');
+    if (elBolLbl && pv.sunat_boletas_cant != null) elBolLbl.textContent = pv.sunat_boletas_cant + ' Boletas Vig.';
+    var elCompCnt = document.getElementById('pvSunatCompCount');
+    if (elCompCnt && pv.sunat_facturas_cant != null && pv.sunat_boletas_cant != null) {
+      var vigTot = Number(pv.sunat_facturas_cant || 0) + Number(pv.sunat_boletas_cant || 0);
+      elCompCnt.textContent = vigTot + ' vigentes + ' + (pv.sunat_nc_oct_cant || 0) + ' NCs';
+    }
+    var elBolSire = document.getElementById('pvSunatBolSireSub');
+    if (elBolSire && pv.sunat_boletas_sire_bruto != null) {
+      elBolSire.textContent = 'SIRE: ' + Number(pv.sunat_boletas_sire_bruto).toLocaleString('es-PE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' − ' + Number(pv.sunat_boletas_anuladas_monto || 0).toFixed(2) + ' anul.';
+    }
+    var elNcVal = document.getElementById('pvSunatNcOctVal');
+    if (elNcVal) elNcVal.textContent = '- ' + contabSoles(pv.sunat_nc_oct_monto || 0);
+    var elNcSire = document.getElementById('pvSunatNcSireSub');
+    if (elNcSire && pv.sunat_nc_sire_total != null) {
+      elNcSire.textContent = 'SIRE total: ' + Number(pv.sunat_nc_sire_total).toFixed(2);
+    }
 
-    // El número principal muestra por defecto S/ 11,300.50 (Total Declarado SUNAT real hoy)
+    // Leyendas y barra proporcional de la Balanza Izquierda (en vivo)
+    var elLegCalz = document.getElementById('pvLegCalzado');
+    var elLegAbs = document.getElementById('pvLegAbsorbido');
+    var elLegPend = document.getElementById('pvLegPendSol');
+    var elLegNoSol = document.getElementById('pvLegNoSol');
+    if (elLegCalz && pv.banco_calzado != null) elLegCalz.textContent = contabSoles(pv.banco_calzado);
+    if (elLegAbs && pv.banco_absorbido_n2 != null) elLegAbs.textContent = contabSoles(pv.banco_absorbido_n2);
+    if (elLegPend && pv.banco_lotes_3ab != null) elLegPend.textContent = contabSoles(pv.banco_lotes_3ab);
+    if (elLegNoSol && pv.banco_no_solicita != null) elLegNoSol.textContent = contabSoles(pv.banco_no_solicita);
+    var bTot = Math.max(1, Number(pv.banco_total || 1));
+    var bV = document.getElementById('pvBarraVerde');
+    var bAz = document.getElementById('pvBarraAzul');
+    var bAm = document.getElementById('pvBarraAmbar');
+    var bPu = document.getElementById('pvBarraPurpura');
+    if (bV) bV.style.width = Math.min(100, Math.max(0, (Number(pv.banco_calzado || 0) / bTot) * 100)).toFixed(1) + '%';
+    if (bAz) bAz.style.width = Math.min(100, Math.max(0, (Number(pv.banco_absorbido_n2 || 0) / bTot) * 100)).toFixed(1) + '%';
+    if (bAm) bAm.style.width = Math.min(100, Math.max(0, (Number(pv.banco_lotes_3ab || 0) / bTot) * 100)).toFixed(1) + '%';
+    if (bPu) bPu.style.width = Math.min(100, Math.max(0, (Number(pv.banco_no_solicita || 0) / bTot) * 100)).toFixed(1) + '%';
+
     if (elPdt) elPdt.textContent = contabSoles(declaradoActual);
 
     var diffHoy = round2(declaradoActual - pv.banco_total);
