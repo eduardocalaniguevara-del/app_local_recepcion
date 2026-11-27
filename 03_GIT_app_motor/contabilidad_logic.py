@@ -1018,6 +1018,131 @@ def _construir_calzado_rows(plan_data: Dict[str, Any], conn: sqlite3.Connection,
 # FUNCIONES PÚBLICAS EXPUESTAS
 # ==============================================================================
 
+def _calcular_totales_vivos_sqlite(conn: sqlite3.Connection, mes: str = "2026-11") -> Dict[str, Any]:
+    """
+    Calcula en tiempo real (0 ms) los totales reales del mes directamente desde SQLite
+    (`sunat_ventas` y `pagos`), sin depender de JSONs estáticos ni textos fijos.
+    """
+    mes_norm = str(mes or datetime.now().strftime("%Y-%m")).strip()
+    m_re = re.match(r"^(\d{4})-(\d{2})$", mes_norm)
+    if m_re:
+        yyyy, mm = m_re.group(1), m_re.group(2)
+    else:
+        ahora = datetime.now()
+        yyyy, mm = str(ahora.year), f"{ahora.month:02d}"
+        mes_norm = f"{yyyy}-{mm}"
+    like_dmy = f"%/{mm}/{yyyy}%"
+    like_iso = f"{yyyy}-{mm}%"
+
+    bol_vig_cnt = 0
+    bol_vig_tot = 0.0
+    fac_vig_cnt = 0
+    fac_vig_tot = 0.0
+    nc_vig_cnt = 0
+    nc_vig_tot = 0.0
+    sunat_neto_sire = 0.0
+    total_docs_sunat = 0
+    ultimo_eb01 = ""
+    ultimo_e001 = ""
+
+    try:
+        rows_sv = conn.execute(
+            """
+            SELECT tipo_doc, estado, COUNT(*) AS n, COALESCE(SUM(total), 0.0) AS suma, MAX(nro_cp) AS max_cp
+            FROM sunat_ventas
+            WHERE periodo_mes = ? OR fecha_emision LIKE ? OR fecha_emision LIKE ?
+            GROUP BY tipo_doc, estado
+            """,
+            (mes_norm, like_dmy, like_iso),
+        ).fetchall()
+        for r in rows_sv:
+            td = str(r["tipo_doc"] or "").upper().strip()
+            est = str(r["estado"] or "").upper().strip()
+            n = int(r["n"] or 0)
+            s = float(r["suma"] or 0.0)
+            mx = str(r["max_cp"] or "").strip()
+            total_docs_sunat += n
+            sunat_neto_sire += s
+            if "ANULADO" not in est:
+                if td == "BOLETA":
+                    bol_vig_cnt += n
+                    bol_vig_tot += s
+                    if mx and mx > ultimo_eb01:
+                        ultimo_eb01 = mx
+                elif td == "FACTURA":
+                    fac_vig_cnt += n
+                    fac_vig_tot += s
+                    if mx and mx > ultimo_e001:
+                        ultimo_e001 = mx
+                elif td == "NOTA_CREDITO":
+                    nc_vig_cnt += n
+                    nc_vig_tot += s
+    except Exception:
+        pass
+
+    sunat_bruto_vig = _r2(bol_vig_tot + fac_vig_tot)
+    sunat_neto_sire = _r2(sunat_neto_sire)
+    nc_neto_otros_meses = _r2(max(0.0, sunat_bruto_vig - sunat_neto_sire))
+
+    yape_tot = 0.0
+    transf_tot = 0.0
+    efectivo_tot = 0.0
+    yape_cnt = 0
+    transf_cnt = 0
+    try:
+        rows_pg = conn.execute(
+            """
+            SELECT medio_pago, COUNT(*) AS n, COALESCE(SUM(monto), 0.0) AS suma
+            FROM pagos
+            WHERE fecha_iso LIKE ? OR fecha_iso LIKE ?
+            GROUP BY medio_pago
+            """,
+            (like_dmy, like_iso),
+        ).fetchall()
+        for r in rows_pg:
+            mp = str(r["medio_pago"] or "").strip().lower()
+            n = int(r["n"] or 0)
+            s = float(r["suma"] or 0.0)
+            if "yape" in mp or "plin" in mp:
+                yape_tot += s
+                yape_cnt += n
+            elif "transf" in mp or "bcp" in mp or "dep" in mp:
+                transf_tot += s
+                transf_cnt += n
+            elif "efect" in mp:
+                efectivo_tot += s
+    except Exception:
+        pass
+
+    banco_total_vivo = _r2(yape_tot + transf_tot)
+    base_sin_igv = round(_valor_sin_igv(sunat_neto_sire), 2)
+    igv_105 = _r2(sunat_neto_sire - base_sin_igv)
+
+    return {
+        "mes": mes_norm,
+        "sunat_bruto": sunat_bruto_vig,
+        "sunat_pdt": sunat_neto_sire,
+        "sunat_base_sin_igv": base_sin_igv,
+        "sunat_igv_105": igv_105,
+        "boletas_vigentes_cant": bol_vig_cnt,
+        "boletas_vigentes_total": _r2(bol_vig_tot),
+        "facturas_vigentes_cant": fac_vig_cnt,
+        "facturas_vigentes_total": _r2(fac_vig_tot),
+        "nc_vigentes_cant": nc_vig_cnt,
+        "nc_vigentes_total": _r2(nc_vig_tot),
+        "nc_descuento_neto": nc_neto_otros_meses,
+        "total_docs_sunat": total_docs_sunat,
+        "ultimo_eb01": ultimo_eb01,
+        "ultimo_e001": ultimo_e001,
+        "yape_cant": yape_cnt,
+        "yape_total": _r2(yape_tot),
+        "transf_cant": transf_cnt,
+        "transf_total": _r2(transf_tot),
+        "banco_total": banco_total_vivo,
+        "efectivo_total": _r2(efectivo_tot),
+    }
+
+
 def obtener_datos_contabilidad_local(mes: str = "2026-11") -> Dict[str, Any]:
     """
     Función principal expuesta vía RPC `obtenerDatosContabilidad`.
@@ -1031,6 +1156,32 @@ def obtener_datos_contabilidad_local(mes: str = "2026-11") -> Dict[str, Any]:
 
     try:
         puente_visual = _obtener_puente_visual(plan_data)
+        totales_vivos = _calcular_totales_vivos_sqlite(conn, mes)
+        if totales_vivos.get("sunat_bruto", 0.0) > 0:
+            puente_visual["sunat_bruto"] = totales_vivos["sunat_bruto"]
+            puente_visual["sunat_pdt"] = totales_vivos["sunat_pdt"]
+            puente_visual["sunat_declarado_neto"] = totales_vivos["sunat_pdt"]
+            puente_visual["sunat_base_sin_igv"] = totales_vivos["sunat_base_sin_igv"]
+            puente_visual["sunat_igv_105"] = totales_vivos["sunat_igv_105"]
+            puente_visual["sunat_facturas_monto"] = totales_vivos["facturas_vigentes_total"]
+            puente_visual["sunat_facturas_cant"] = totales_vivos["facturas_vigentes_cant"]
+            puente_visual["sunat_boletas_monto"] = totales_vivos["boletas_vigentes_total"]
+            puente_visual["sunat_boletas_cant"] = totales_vivos["boletas_vigentes_cant"]
+            puente_visual["sunat_nc_oct_monto"] = totales_vivos["nc_descuento_neto"]
+            puente_visual["sunat_nc_oct_cant"] = totales_vivos["nc_vigentes_cant"]
+            puente_visual["ultimo_eb01"] = totales_vivos["ultimo_eb01"]
+            puente_visual["ultimo_e001"] = totales_vivos["ultimo_e001"]
+        if totales_vivos.get("banco_total", 0.0) > 0:
+            puente_visual["banco_total"] = totales_vivos["banco_total"]
+            if totales_vivos["banco_total"] > puente_visual["sunat_pdt"]:
+                def_m = _r2(totales_vivos["banco_total"] - puente_visual["sunat_pdt"])
+                puente_visual["alerta_deficit"] = {
+                    "hay_deficit": True,
+                    "monto": def_m,
+                    "mensaje": f"Faltan S/ {def_m:,.2f} frente al Banco/Yape del mes",
+                }
+            else:
+                puente_visual["alerta_deficit"] = {"hay_deficit": False, "monto": 0.0, "mensaje": ""}
         vasijas_data = _construir_vasijas_nivel_2(plan_data)
         cpe_pendientes = _construir_cpe_pendientes_bd(plan_data, conn)
         lotes_emision = _construir_lotes_emision(plan_data, conn)
@@ -1042,6 +1193,7 @@ def obtener_datos_contabilidad_local(mes: str = "2026-11") -> Dict[str, Any]:
             "status": "ok",
             "mes": mes,
             "puente_visual": puente_visual,
+            "totales_vivos_sqlite": totales_vivos,
             "vasijas_nivel_2": vasijas_data["vasijas"],
             "vasijas_resumen": vasijas_data["resumen"],
             "cpe_pendientes_bd": cpe_pendientes,

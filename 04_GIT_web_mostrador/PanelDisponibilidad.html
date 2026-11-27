@@ -11344,7 +11344,24 @@
       if (lblUlt) {
         lblUlt.textContent = '✅ Última actualización tributaria (SUNAT + BCP): ' + sello + ' · Auto 08:00 AM activo';
       }
-      contabAviso('ok', '✅ Extracción y reportes tributarios actualizados (' + sello + '): Declarado SUNAT = S/ 11,300.50 · Banco BCP = S/ 11,767.10.');
+      var tv = (res && res.totales_vivos_sqlite) || (payload && payload.totales_vivos_sqlite) || null;
+      var pvLive = (payload && payload.puente_visual) || (CONTAB_STATE.data && CONTAB_STATE.data.puente_visual) || {};
+      var sunatPdtLive = (tv && tv.sunat_pdt != null) ? tv.sunat_pdt : (pvLive.sunat_pdt || 0);
+      var sunatBrutoLive = (tv && tv.sunat_bruto != null) ? tv.sunat_bruto : (pvLive.sunat_bruto || 0);
+      var bancoLive = (tv && tv.banco_total != null) ? tv.banco_total : (pvLive.banco_total || 0);
+      var detalleDocs = '';
+      if (tv && (tv.boletas_vigentes_cant || tv.facturas_vigentes_cant)) {
+        detalleDocs = ' (' + (tv.boletas_vigentes_cant || 0) + ' Bol + ' + (tv.facturas_vigentes_cant || 0) + ' Fac; Bruto ' + contabSoles(sunatBrutoLive) + ')';
+      }
+      var detalleUlt = '';
+      if (tv && (tv.ultimo_eb01 || tv.ultimo_e001)) {
+        var cps = [tv.ultimo_eb01, tv.ultimo_e001].filter(Boolean).join(' / ');
+        detalleUlt = ' · Últimos: ' + cps;
+      }
+      contabAviso(
+        'ok',
+        '✅ Extracción y reportes tributarios actualizados (' + sello + '): Declarado SUNAT = ' + contabSoles(sunatPdtLive) + detalleDocs + ' · Banco/Yape = ' + contabSoles(bancoLive) + detalleUlt + '.'
+      );
       renderTodoContabilidad();
     }, function (err) {
       if (btn) btn.classList.remove('animate-pulse');
