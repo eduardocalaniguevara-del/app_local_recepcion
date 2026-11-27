@@ -1,5 +1,5 @@
 # 📓 Bitácora Viva de Construcción — `C:\Ovalo_Sistema_v2`
-> **Actualizado:** 23/11/2026 — Monitoreado en vivo desde `http://127.0.0.1:8788/?grupo=sistema_v2`
+> **Actualizado:** 27/11/2026 — Monitoreado en vivo desde `http://127.0.0.1:8788/?grupo=sistema_v2`
 
 ---
 
@@ -60,6 +60,11 @@
   - **4. Candado Estricto de Rol (`ROL_NODO`) y Cola Remota por Supabase (`L1 / L3 Terciaria ➔ L2 Madre`):**
     - Aunque todas las laptops descargan los mismos `.py` desde GitHub, solo `NIVEL_2_MADRE_HOTEL` (Laptop 2 Recepción) mantiene encendido el emisor SUNAT y el despachador WhatsApp (con hilo consumidor automático cada `3.5s` al recargar `sunat.py`).
     - `NIVEL_3_TERCIARIA` y `NIVEL_1_INGENIERIA` tienen bloqueada la emisión local y delegan toda orden vía `estado_sistema` (`sunat_orden_remota_<job_id>`) hacia la Laptop Madre.
+- **✅ Fase 12 — Blindaje Post-Emisión SUNAT + Descarga Oficial PDF + Envío WhatsApp y Auto-Reinicio de Código en Madre (`4956bad`, `2366484`, `62f57df`, `a38f883`):** COMPLETADA (24–27/11/2026)
+  - **`4956bad` (24/11):** Blindaje de 3 capas post-emisión sin doble POST a SUNAT y rescate automático de PDF para WhatsApp.
+  - **`2366484` (26/11):** Rescate del PDF antes de despachar WhatsApp, soporte para nombres crudos SUNAT con RUC pegado (`PDF-DOC-E001-2143<RUC>.pdf`), registro permanente `Emision SUNAT` en `historial_movimientos` y timeout L1->Madre ampliado a `400s`.
+  - **`62f57df` (26/11, verificado en vivo en L2 el 27/11 con `E001-2148`, `E001-2149` y `EB01-6917`):** Cierre preventivo de modales superpuestos de SUNAT (`Problemas al conectarse al servidor` / `Debe ingresar un correo`) antes de cada intento de `Descargar PDF` (PDF descargado a la primera y enviado por WhatsApp Baileys en 2–4 segundos).
+  - **`a38f883` (26/11):** Reinicio real del proceso `main.py` cuando cambia algún `.py` en disco tras `git pull` (propio o de `motor_24x7.py`), recarga ordenada de `config`, `db` y `sunat_motor_playwright` en `motor_24x7.py`, y envío exclusivo del PDF oficial de `Descargar PDF` de SUNAT.
 
 ---
 
